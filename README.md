@@ -11,6 +11,10 @@ A self-hosted study companion for learning from your own PDF books, in any subje
 
 Everything runs on your own computer. **No books are included**: bring your own PDFs.
 
+**Free for non-commercial use** (personal study, schools, research; see [License](#13-license-contributing-and-the-ready-to-use-package)).
+A **ready-to-use package** (no Python or command line needed) is planned, for **9.9 RMB**.
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 > The author uses it to learn optical design, so the repository ships with that as a worked
 > example: an optics glossary of ~300 terms, optional optics Python packages, and a small optics
 > helper module. Replace them with your own subject (see
@@ -30,6 +34,7 @@ Everything runs on your own computer. **No books are included**: bring your own 
 10. [Command reference](#10-command-reference)
 11. [Troubleshooting and FAQ](#11-troubleshooting-and-faq)
 12. [Built with](#12-built-with)
+13. [License, contributing and the ready-to-use package](#13-license-contributing-and-the-ready-to-use-package)
 
 ---
 
@@ -443,3 +448,29 @@ subject, but their meanings are written in Chinese (the `zh` column).
 - **numpy / scipy / sympy / matplotlib**: numerics, symbolic math, plots
 - **pypdf / pypdfium2 / rapidocr / reportlab**: reading PDFs, OCR for scans, writing text layers
 - **optiland / rayoptics** (optional `optics` group): lens design for the optics example
+
+All third-party components and their licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## 13. License, contributing and the ready-to-use package
+
+**License: [PolyForm Noncommercial 1.0.0](LICENSE).** In plain words (the license text is what
+counts):
+
+- **You may** read, use, change and share myLibrary for any **non-commercial** purpose:
+  personal study, hobby projects, research, teaching, or use by schools, charities and public
+  institutions.
+- **You may not** use it for commercial purposes: for example, selling it or a modified
+  version, or using it in a paid product or service. Commercial use needs written permission
+  from the author.
+- If you share it, include the [LICENSE](LICENSE) file (with its "Required Notice" line).
+
+**Ready-to-use package (planned, 9.9 RMB).** Setting myLibrary up yourself, as described above,
+is free for non-commercial use. The planned package will save you the setup: a one-click
+Windows install with Python, the PDF viewer and the dictionary included, and no command line.
+It isn't available yet; this section will say where to get it once it is.
+
+**Contributing.** Everyone is welcome to help: report bugs, suggest ideas, fix things, add
+features or glossaries for new subjects. Fork the repository, make your change on a branch, and
+open a pull request; [CONTRIBUTING.md](CONTRIBUTING.md) explains the steps, the project rules,
+and the contributor terms (contributions are licensed like the project, plus a license that
+lets the author include them in the paid package).

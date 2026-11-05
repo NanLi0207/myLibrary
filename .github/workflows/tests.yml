@@ -1,0 +1,23 @@
+# Runs the tests and the linter for every push and pull request, so contributors and the
+# maintainer see at once whether a change breaks something.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Python and packages
+        run: uv sync
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Tests
+        run: uv run pytest -q
