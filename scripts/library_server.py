@@ -19,21 +19,25 @@ so other websites can't trigger it. Stop with Ctrl+C.
 
 import argparse
 import json
+import os
 import re
 import secrets
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 import webbrowser
 from datetime import date
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import unquote
 
 import book_search
 import catalog
+import library_jobs
 import library_page
 import paths
 import reader as reading_view
@@ -223,13 +227,82 @@ def script_for(slug: str, chapter: dict, book_title: str, create: bool = False) 
     return path
 
 
-def open_in_vscode(*files: Path) -> bool:
-    """Open files in the project's VS Code window (reused if it's already open)."""
-    code = shutil.which("code")
-    if not code:
+def open_in_editor(*files: Path) -> bool:
+    """Open notes (and scripts) with the editor chosen in the settings: VS Code (the project
+    window, reused if it's open), Notepad, the file's default app, or a custom command."""
+    settings = paths.load_settings()
+    editor = settings.get("editor", "system")
+    if editor == "vscode":
+        code = shutil.which("code")
+        if code:
+            subprocess.Popen([code, str(paths.WORKSPACE), *map(str, files)], cwd=paths.WORKSPACE)
+            return True
+        editor = "system"  # VS Code isn't installed (any more): fall back
+    try:
+        for f in files:
+            command = settings.get("editor_command", "").strip()
+            if editor == "custom" and command:
+                if "{file}" not in command:
+                    command += ' "{file}"'
+                subprocess.Popen(command.replace("{file}", str(f)))
+            elif editor == "notepad" or f.suffix == ".py":
+                # never "open" a .py with its default app: on Windows that can *run* it
+                subprocess.Popen(["notepad.exe", str(f)])
+            elif hasattr(os, "startfile"):
+                os.startfile(f)  # Windows: the app set for .md files (e.g. Typora, Notepad)
+            else:
+                subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(f)])
+        return True
+    except OSError:
         return False
-    subprocess.Popen([code, str(paths.WORKSPACE), *map(str, files)], cwd=paths.WORKSPACE)
-    return True
+
+
+def python_features() -> bool:
+    """Chapter scripts (checking a book's examples in Python): off in the package."""
+    return bool(paths.load_settings().get("python_features"))
+
+
+def pick_folder() -> str | None:
+    """Ask for a folder with Windows' own folder dialog (the server runs on this computer)."""
+    if sys.platform != "win32":
+        return None
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true};"
+        "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+        "$d.Description = 'Choose the folder for your library (books and notes)';"
+        "$d.ShowNewFolderButton = $true;"
+        "if ($d.ShowDialog($owner) -eq 'OK') { $d.SelectedPath }"
+    )
+    done = subprocess.run(
+        ["powershell", "-NoProfile", "-STA", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    return done.stdout.strip() or None
+
+
+def change_settings(updates: dict) -> dict:
+    """Save settings from the page; a new library folder is created if it doesn't exist."""
+    clean = {}
+    if "editor" in updates:
+        clean["editor"] = str(updates["editor"])
+    if "editor_command" in updates:
+        clean["editor_command"] = str(updates["editor_command"])[:500]
+    if "python_features" in updates:
+        clean["python_features"] = bool(updates["python_features"])
+    restart = False
+    if updates.get("library"):
+        folder = Path(str(updates["library"])).expanduser()
+        if not folder.is_absolute():
+            raise ValueError("choose a full folder path, e.g. D:\\Study\\My Library")
+        if folder.resolve() != LIBRARY.resolve():
+            paths.ensure_library(folder)
+            clean["library"] = folder.as_posix()
+            restart = True
+    paths.save_settings(clean)
+    return {"restart": restart}
 
 
 # --- actions ------------------------------------------------------------------------------
@@ -305,15 +378,13 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
     if not note.exists():
         note = notes_dir / "README.md"
     files = [note]
-    script = script_for(slug, chapter, row["title"]) if chapter else None
+    script = script_for(slug, chapter, row["title"]) if chapter and python_features() else None
     if script:
         files.append(script)
-    if open_in_vscode(*files):
-        opened.append(
-            f"notes and script {script.name} in VS Code" if script else "notes in VS Code"
-        )
+    if open_in_editor(*files):
+        opened.append(f"notes and script {script.name}" if script else "notes")
     else:
-        opened.append("nothing in VS Code: its `code` command was not found")
+        opened.append("no notes: the editor couldn't be started (see Settings)")
 
     what = chapter["title"] if chapter else row["title"]
     if last:
@@ -329,9 +400,9 @@ def open_script(slug: str, number: int) -> str:
         raise ValueError(f"no chapter {number}")
     path = script_for(slug, chapter, row["title"], create=True)
     where = paths.display(path)
-    if open_in_vscode(path):
-        return f"{chapter['title']}: opened {where} in VS Code"
-    return f"{chapter['title']}: script is {where} (open it in your editor; VS Code wasn't found)"
+    if open_in_editor(path):
+        return f"{chapter['title']}: opened {where}"
+    return f"{chapter['title']}: script is {where} (the editor couldn't be started)"
 
 
 # --- topic notes ------------------------------------------------------------------------------
@@ -373,7 +444,7 @@ def topic_note(term: str) -> Path:
 def open_topic(term: str) -> dict:
     path = topic_note(term)
     where = paths.display(path)
-    opened = open_in_vscode(path)
+    opened = open_in_editor(path)
     return {"file": where, "opened": opened}
 
 
@@ -423,7 +494,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             # library_page appends "/<file>.pdf" to pdf_base
             pdf_base = pdf_url(self.base_url, "").removesuffix("/")
-            html = library_page.render({"token": TOKEN}, pdf_base=pdf_base)
+            api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE}
+            html = library_page.render(api, pdf_base=pdf_base)
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
         if path == "/pdfjs/web/viewer.html" and not reading_view.missing():
             html = reading_view.viewer_html(TOKEN)
@@ -441,7 +513,36 @@ class Handler(BaseHTTPRequestHandler):
         if not self._local_host() or self.headers.get("X-Library-Token") != TOKEN:
             return self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
         try:
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            length = int(self.headers.get("Content-Length", 0))
+            if self.path == "/api/upload":  # a PDF from "Add books": raw bytes, not JSON
+                if length > library_jobs.MAX_UPLOAD:
+                    return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too big"})
+                name = unquote(self.headers.get("X-Filename", "book.pdf"))
+                path = library_jobs.save_upload(name, self.rfile.read(length))
+                return self._json(HTTPStatus.OK, {"job": library_jobs.start_add(path)})
+            body = json.loads(self.rfile.read(length) or b"{}")
+            if self.path == "/api/jobs":
+                return self._json(HTTPStatus.OK, {"jobs": library_jobs.list_jobs()})
+            if self.path == "/api/add-details":
+                details = {k: str(body.get(k, ""))[:200] for k in ("title", "author", "year")}
+                job = library_jobs.continue_add(str(body.get("job", "")), details)
+                return self._json(HTTPStatus.OK, {"job": job})
+            if self.path == "/api/settings":
+                if isinstance(body.get("save"), dict):
+                    result = change_settings(body["save"])
+                    if result["restart"]:
+                        restart_later(self.server)
+                    return self._json(HTTPStatus.OK, result)
+                settings = paths.load_settings() | {"library": str(LIBRARY)}
+                return self._json(
+                    HTTPStatus.OK,
+                    {"settings": settings, "editors": paths.EDITORS, "package": paths.IS_PACKAGE},
+                )
+            if self.path == "/api/pick-folder":
+                return self._json(HTTPStatus.OK, {"folder": pick_folder()})
+            if self.path == "/api/quit":
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                return self._json(HTTPStatus.OK, {"message": "myLibrary has stopped"})
             if self.path == "/api/lookup":
                 text, context = str(body.get("text", "")), str(body.get("context", ""))[:1000]
                 book = body.get("slug") if isinstance(body.get("slug"), str) else None
@@ -477,7 +578,18 @@ class Handler(BaseHTTPRequestHandler):
                 resume = body.get("resume") is True
                 message = open_chapter(slug, chapter, self.base_url, resume)
                 return self._json(HTTPStatus.OK, {"message": message})
+            if self.path == "/api/open-notes":
+                notes = LIBRARY / "notes" / slug / "README.md"
+                if open_in_editor(notes):
+                    message = "opened the notes"
+                else:
+                    message = "the editor couldn't be started (see Settings)"
+                return self._json(HTTPStatus.OK, {"message": message})
+            if self.path == "/api/ocr":
+                return self._json(HTTPStatus.OK, {"job": library_jobs.start_ocr(slug)})
             if self.path == "/api/script" and chapter is not None:
+                if not python_features():
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": "Python features are off"})
                 return self._json(HTTPStatus.OK, {"message": open_script(slug, chapter)})
             if self.path == "/api/shelves":
                 shelves = catalog.split_list(str(body.get("shelves", ""))[:300])
@@ -506,8 +618,32 @@ class Handler(BaseHTTPRequestHandler):
                 library_page.build()  # keep the static copy in step
                 return self._json(HTTPStatus.OK, {"chapter_list": chapters})
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
+        except ValueError as e:  # something the page sent that can't be done
+            self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
         except Exception as e:
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
+
+
+def restart_later(server) -> None:
+    """Start a fresh server (it reads the new settings) once this one has let go of its port;
+    the page reloads itself when the new one answers."""
+
+    def go() -> None:
+        time.sleep(0.5)  # let the answer reach the page first
+        server.shutdown()
+        server.server_close()
+        args, skip = [], False
+        for arg in sys.argv[1:]:  # an explicit --library would win over the new setting
+            if skip:
+                skip = False
+            elif arg == "--library":
+                skip = True
+            elif not arg.startswith("--library=") and arg != "--no-browser":
+                args.append(arg)
+        subprocess.Popen([sys.executable, sys.argv[0], *args, "--no-browser"], cwd=paths.APP)
+        os._exit(0)
+
+    threading.Thread(target=go, daemon=True).start()
 
 
 def setup_reader() -> None:

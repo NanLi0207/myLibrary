@@ -108,12 +108,12 @@ def test_http_requires_token(library):
 def test_missing_pdf_is_flagged_and_read_still_works(library, monkeypatch):
     opened = []
     monkeypatch.setattr(library_server.webbrowser, "open", opened.append)
-    monkeypatch.setattr(library_server, "open_in_vscode", lambda *files: True)
+    monkeypatch.setattr(library_server, "open_in_editor", lambda *files: True)
 
     assert library_page.books()[0]["pdf_missing"] is True
     message = library_server.open_chapter("doe-2015-practical-lens-design", 1, "http://x")
     assert opened == []  # no browser tab for a PDF that isn't there
-    assert "missing" in message and "notes in VS Code" in message
+    assert "missing" in message and "notes" in message
 
 
 @pytest.fixture
@@ -155,7 +155,7 @@ def test_continue_opens_last_page_and_its_chapter(chapter_pages, monkeypatch):
     (chapter_pages / "notes" / slug / "ch02-aberrations.md").write_text("# Ch 2\n")
     opened, files = [], []
     monkeypatch.setattr(library_server.webbrowser, "open", opened.append)
-    monkeypatch.setattr(library_server, "open_in_vscode", lambda *f: files.extend(f) or True)
+    monkeypatch.setattr(library_server, "open_in_editor", lambda *f: files.extend(f) or True)
 
     library_server.save_position(slug, 33)
     message = library_server.open_chapter(slug, None, "http://x", resume=True)
@@ -211,7 +211,7 @@ def test_topic_note_lists_pages_and_keeps_your_writing(library, monkeypatch):
     }
     monkeypatch.setattr(library_server.book_search, "search", lambda term, limit: found)
     opened = []
-    monkeypatch.setattr(library_server, "open_in_vscode", lambda *f: opened.extend(f) or True)
+    monkeypatch.setattr(library_server, "open_in_editor", lambda *f: opened.extend(f) or True)
 
     result = library_server.open_topic("  Veiling  glare ")
     note = library / "notes" / "topics" / "veiling-glare.md"

@@ -13,7 +13,7 @@ A self-hosted study companion for learning from your own PDF books, in any subje
 Everything runs on your own computer. **No books are included**: bring your own PDFs.
 
 **Free for non-commercial use** (personal study, schools, research; see [License](#13-license-contributing-and-the-ready-to-use-package)).
-A **ready-to-use package** (no Python or command line needed) is planned, for **9.9 RMB**.
+A **ready-to-use package** (no Python or command line needed) is coming soon, for **9.9 RMB**.
 Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 > The author uses it to learn optical design. Their library is included in `library/` as a
@@ -46,11 +46,15 @@ and chapter scripts, [VS Code](https://code.visualstudio.com/) (with its Python 
 shortcut below is for Windows; on other systems start the server from a terminal.
 
 ```powershell
-git clone <this repository> myLibrary
-cd myLibrary
+# The tool goes into your home folder, e.g. C:\Users\<you>\myLibrary
+git clone https://github.com/NanLi0207/myLibrary.git "$HOME\myLibrary"
+cd "$HOME\myLibrary"
 uv sync                                # install Python and the packages (.venv)
 uv run scripts/make_shortcut.py        # Windows: Desktop + Start menu shortcut "myLibrary"
 ```
+
+This folder only holds the tool. Your books and notes go into a separate *library* folder
+(created on first start, see below), so updating the tool with `git pull` never touches them.
 
 **Your library.** The tool works on a *library*: one folder with your books, notes,
 glossaries and chapter scripts, for every subject you study. The first start creates an empty
@@ -112,17 +116,32 @@ Optics, 激光 Lasers, …) with how many books each has; click one to see only 
 search box to filter (title, author, subject, shelf, chapter titles) and the sort menu to order
 the cards (title, author, newest, progress, recently added).
 
+At the top: **＋ Add books** (choose PDFs to add, see [Managing books](#8-managing-books)),
+**⚙ Settings** (below) and **Quit** (stops myLibrary; your place in each book is already saved).
+
 | On a card | What it does |
 |---|---|
 | **Continue · p. N** | Opens the book at the page you last read, plus that chapter's notes (and script, if any) |
 | **Start reading** / **Continue** (no page saved yet) | Opens the first chapter you haven't ticked |
 | **PDF** | Opens the book in the reading view at its first page (notes not opened) |
-| **Notes** | Opens the book's notes folder in VS Code |
+| **Notes** | Opens the book's notes in your editor (see Settings) |
+| **OCR (~N min)** | Only on scanned books: adds a text layer so the book can be looked up and searched |
 | **Chapters** | Shows the chapter list: **Read** opens one chapter, **Script** its Python script; the checkbox ticks it |
 | **Shelves** | Which shelves the book is on, separated by `;` (e.g. `Optics; Lasers`) |
 | Green tags | The book's shelves (light tags: subjects from Open Library) |
 | Progress bar, "0/8 chapters · 3%" | How far you are (see below) |
 | "Last read: page 41 · Ch 2 · date" | Where you stopped |
+
+**Settings** (⚙ Settings at the top of the page):
+
+| Setting | What it does |
+|---|---|
+| **Library folder** | Where your books and notes are kept. **Choose…** opens Windows' folder dialog. Another folder opens the library there, or starts a new, empty one; the current library stays where it is |
+| **Open notes with** | The app set for `.md` files (e.g. Typora, Obsidian), Notepad, VS Code, or your own command (`{file}` stands for the note) |
+| **Show the Python features** | The **Script** button per chapter (see [Chapter scripts](#chapter-scripts-examplesbookchnn_topicpy)) |
+
+They're saved in `local.toml` in the tool's folder (in the ready-to-use package:
+`%APPDATA%\myLibrary\settings.toml`, so a new version keeps them).
 
 **Ticking chapters.** A ticked chapter is one you've marked as *finished*. Ticking writes
 `- [x]` into the book's `notes/<book>/README.md`; you can also edit that checklist by hand.
@@ -332,7 +351,12 @@ its scripts folder. Books are always PDFs.
 
 ### Adding a book
 
-Put the PDF into your library's `books/` folder with any file name, then:
+**From the library page:** click **＋ Add books** and choose one or more PDFs. Each is copied
+into your library, identified (ISBN, the PDF's details, Open Library), named and registered in
+the background; a panel shows the progress. If the title, author or year can't be found, the
+page asks for them. A scanned book gets an **OCR** button (see below).
+
+**From the terminal:** put the PDF into your library's `books/` folder with any file name, then:
 
 ```powershell
 uv run scripts/add_book.py --dry-run   # preview: proposed name, and where each detail came from
@@ -352,7 +376,9 @@ If the chapter list came out wrong, `--refresh-chapters` reads it again (your no
 
 ### Scanned books
 
-A scan has only page images, so its text can't be selected or searched. `add_book.py` offers to
+A scan has only page images, so its text can't be selected or searched. On the library page,
+such a book has an **OCR (~N min)** button: it adds the text layer in the background, with a
+progress bar, and you can keep reading meanwhile. From the terminal, `add_book.py` offers to
 add an **invisible OCR text layer** (`--ocr` to always do it, `--no-ocr` to never), and at the
 end of every run it asks about each scan in `books/` that still has none (Enter = no). By hand:
 
@@ -449,6 +475,7 @@ to use another one.
 | `uv run scripts/reader.py --setup` | Download the PDF viewer and dictionary |
 | `uv run scripts/book_search.py <term>` | Search all books for a term |
 | `uv run scripts/library_page.py` | Write the static `library.html` |
+| `uv run scripts/build_package.py` | Build the ready-to-use package: `dist/myLibrary-<version>-win64.zip` |
 | `uv run <library>/examples/<book>/chNN_<topic>.py` | Run a chapter script |
 | `uv sync` | Create or update the Python environment (`--group optics` adds the optics packages) |
 | `uv add <package>` | Add a Python package |
@@ -525,10 +552,16 @@ counts):
   from the author.
 - If you share it, include the [LICENSE](LICENSE) file (with its "Required Notice" line).
 
-**Ready-to-use package (planned, 9.9 RMB).** Setting myLibrary up yourself, as described above,
-is free for non-commercial use. The planned package will save you the setup: a one-click
-Windows install with Python, the PDF viewer and the dictionary included, and no command line.
-It isn't available yet; this section will say where to get it once it is.
+**Ready-to-use package (9.9 RMB).** Setting myLibrary up yourself, as described above, is free
+for non-commercial use. The package saves you the setup: unzip it and double-click; Python, the
+PDF viewer and the dictionary are included (it works offline from the first start), and there's
+no command line. It has everything for reading and studying (adding books, OCR, lookup,
+glossaries, shelves, notes, progress) but not the Python chapter scripts. Where to get it:
+coming soon.
+
+Building it (Windows): `uv run scripts/build_package.py` makes
+`dist/myLibrary-<version>-win64.zip` (~170 MB) from `package/` (launcher, guide, licenses) and
+this repository; the package marks itself with a `package.toml`.
 
 **Contributing.** Everyone is welcome to help: report bugs, suggest ideas, fix things, add
 features or glossaries for new subjects. Fork the repository, make your change on a branch, and

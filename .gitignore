@@ -29,3 +29,6 @@ library.html
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# The ready-to-use package, built by scripts/build_package.py
+dist/

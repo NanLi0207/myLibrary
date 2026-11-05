@@ -13,3 +13,4 @@ Words looked up while reading (added with 加入生词本 / Save word in the rea
 | pragmatic | præ^'mætik | a. 忙碌的, 爱管闲事的, 自负的, 固执己见的, 实际的, 务实的, 国事的, 国务的； [法] 闲断的, 固执己见的, 实用主义的 | 35 | 2026-11-05 |
 | rigorous | 'rigәrәs | a. 严厉的, 严酷的, 严格的, 苛刻的, 严密的, 精确的 | 35 | 2026-11-05 |
 | derivation | .deri'veiʃәn | n. 推论, 推导, 来历； [医] 衍化, 诱导 | 35 | 2026-11-05 |
+| arbitrarily | 'ɑ:bitrәrili | adv. 任意地, 武断地, 专横地, 反复无常地 | 39 | 2026-11-05 |

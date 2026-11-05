@@ -17,6 +17,8 @@ from urllib.parse import quote
 
 import catalog
 import paths
+from book_ocr import has_text_layer
+from pypdf import PdfReader
 
 LIBRARY = paths.LIBRARY
 CATALOG = LIBRARY / "catalog.csv"
@@ -67,6 +69,27 @@ def shelf_labels() -> dict[str, str]:
     return {str(k): str(v) for k, v in shelves.items()} if isinstance(shelves, dict) else {}
 
 
+_scans: dict[str, tuple[tuple, bool, int]] = {}
+
+
+def scan_info(pdf: Path) -> tuple[bool, int]:
+    """(is it a scan without a text layer, pages); remembered until the file changes."""
+    if not pdf.exists():
+        return False, 0
+    stat = pdf.stat()
+    key = (stat.st_size, stat.st_mtime_ns)
+    cached = _scans.get(str(pdf))
+    if cached and cached[0] == key:
+        return cached[1], cached[2]
+    try:
+        reader = PdfReader(pdf)
+        info = (not has_text_layer(reader), len(reader.pages))
+    except Exception:  # a damaged PDF: just no OCR button
+        info = (False, 0)
+    _scans[str(pdf)] = (key, *info)
+    return info
+
+
 def books(pdf_base: str | None = None) -> list[dict]:
     """Catalog rows plus chapter progress; pdf_base is the server URL prefix for PDFs."""
     result = []
@@ -77,6 +100,8 @@ def books(pdf_base: str | None = None) -> list[dict]:
             | {
                 "chapter_list": chapters(row["slug"]),
                 "shelf_list": catalog.split_list(row.get("shelves") or ""),
+                "scan": scan_info(pdf)[0],
+                "ocr_minutes": max(1, round(scan_info(pdf)[1] * 1.5 / 60)),
                 "last_read": last_read(row["slug"]),
                 "pdf_missing": not pdf.exists(),
                 "pdf_uri": f"{pdf_base}/{pdf.name}" if pdf_base else pdf.as_uri(),
@@ -175,13 +200,41 @@ ol.chapters li:hover button { border-color: var(--line); }
 .toast.show { opacity: 1; }
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 footer { color: var(--muted); font-size: 12.5px; margin-top: 28px; }
+.topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.tool { font: inherit; font-size: 13px; cursor: pointer; color: var(--accent); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; }
+.tool:hover { border-color: var(--accent); }
+.jobs { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
+.job { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+  font-size: 13.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.job .bar { flex: 1 1 160px; }
+.job.error { border-color: var(--warn); color: var(--warn); }
+.job button { font: inherit; font-size: 12.5px; cursor: pointer; color: var(--accent);
+  background: none; border: 1px solid var(--line); border-radius: 7px; padding: 2px 9px; }
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text);
+  width: min(560px, calc(100vw - 32px)); padding: 20px 22px; }
+dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+dialog h2 { margin: 0 0 14px; font-size: 19px; }
+dialog label { display: block; font-size: 13.5px; margin: 12px 0 4px; }
+dialog input[type=text], dialog select { width: 100%; font: inherit; font-size: 13.5px; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--text); }
+dialog .row { display: flex; gap: 8px; }
+dialog .row input { flex: 1; }
+dialog .end { justify-content: flex-end; margin-top: 20px; }
+dialog button { font: inherit; font-size: 13.5px; cursor: pointer; border-radius: 7px; padding: 6px 14px;
+  border: 1px solid var(--line); background: none; color: var(--accent); }
+dialog button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+dialog .hint { color: var(--muted); font-size: 12.5px; margin: 4px 0 0; }
+dialog .check { display: flex; align-items: center; gap: 8px; }
+.stopped { margin: 15vh auto; max-width: 520px; text-align: center; line-height: 1.6; }
 code { font-size: 12.5px; }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>myLibrary</h1>
+    <div class="topbar"><h1>myLibrary</h1><div class="tools" id="tools"></div></div>
     <p class="stats" id="stats"></p>
   </header>
   <div class="controls">
@@ -194,11 +247,36 @@ code { font-size: 12.5px; }
       <option value="added">Sort: recently added</option>
     </select>
   </div>
+  <section class="jobs" id="jobs" hidden></section>
   <nav class="shelves" id="shelves" aria-label="Shelves"></nav>
   <div class="grid" id="grid"></div>
   <footer id="footer"></footer>
 </main>
 <div class="toast" id="toast" role="status"></div>
+<dialog id="settingsDialog">
+  <form method="dialog" id="settingsForm">
+    <h2>Settings</h2>
+    <label for="setLibrary">Library folder: where your books and notes are kept</label>
+    <div class="row"><input type="text" id="setLibrary"><button type="button" id="pickFolder">Choose…</button></div>
+    <p class="hint">Choosing another folder opens the library there, or starts a new, empty one.
+      Your current library stays where it is.</p>
+    <label for="setEditor">Open notes with</label>
+    <select id="setEditor">
+      <option value="system">The app set for .md files (e.g. Typora, Obsidian, Notepad)</option>
+      <option value="notepad">Notepad</option>
+      <option value="vscode">VS Code</option>
+      <option value="custom">My own command…</option>
+    </select>
+    <div id="customRow" hidden>
+      <label for="setCommand">Command ({file} is replaced by the note's path)</label>
+      <input type="text" id="setCommand" placeholder='"C:\Program Files\Typora\Typora.exe" "{file}"'>
+    </div>
+    <label class="check"><input type="checkbox" id="setPython"> Show the Python features
+      (a script per chapter, for checking a book's worked examples)</label>
+    <div class="row end"><button value="cancel">Cancel</button>
+      <button type="button" class="primary" id="saveSettings">Save</button></div>
+  </form>
+</dialog>
 <script type="application/json" id="data">__DATA__</script>
 <script>
 const API = __API__;  // set when served by library_server.py; null in the static file
@@ -208,9 +286,8 @@ const shelfLabel = name => SHELF_LABELS[name] || name;
 let shelf = "";  // the shelf being shown ("" = all books)
 try { shelf = localStorage.getItem("library-shelf") || ""; } catch {}
 document.getElementById("footer").innerHTML = API
-  ? `<b>Read</b> opens the PDF at the chapter, and its notes in VS Code. <b>Script</b> opens a
-     Python script for checking the chapter's worked examples (created the first time).
-     The page you're on is saved as you read; <b>Continue · p. N</b> takes you back there.
+  ? `<b>Read</b> opens the PDF at the chapter, and its notes in your editor (see Settings).
+     ${API.python ? "<b>Script</b> opens a Python script for checking the chapter's worked examples (created the first time). " : ""}The page you're on is saved as you read; <b>Continue · p. N</b> takes you back there.
      Tick chapters here when you finish them.`
   : `This is the static copy. For the <b>Read</b> / <b>Continue</b> buttons and ticking chapters,
      run <code>uv run scripts/library_server.py</code>.`;
@@ -267,7 +344,9 @@ function chapterItem(c) {
   const tick = API
     ? `<input type="checkbox" data-tick="${c.number}" ${c.done ? "checked" : ""} aria-label="Read">`
     : `<span class="tick">${c.done ? "✓" : ""}</span>`;
-  const read = API && c.number != null
+  const read = API && c.number != null && !API.python
+    ? `<button type="button" data-read="${c.number}">Read</button>`
+    : API && c.number != null
     ? `<button type="button" data-read="${c.number}">Read</button>`
       + `<button type="button" data-script="${c.number}" title="A Python script to check this chapter's worked examples">Script</button>`
     : "";
@@ -297,7 +376,8 @@ function card(b) {
       ${readButton(b)}
       ${b.pdf_missing ? `<span class="missing" title="books/${esc(b.slug)}.pdf is gone; notes and scripts are still here">PDF missing</span>`
         : `<a href="${esc(b.pdf_uri)}" target="_blank" rel="noopener">PDF</a>`}
-      <a href="${esc(b.notes_uri)}">Notes</a>
+      ${API ? `<button type="button" data-notes>Notes</button>` : `<a href="${esc(b.notes_uri)}">Notes</a>`}
+      ${API && b.scan && !b.pdf_missing ? `<button type="button" data-ocr title="This book is a scan: OCR adds a text layer, so its words can be looked up and searched">OCR (~${b.ocr_minutes} min)</button>` : ""}
       ${b.openlibrary ? `<a href="${esc(b.openlibrary)}" target="_blank" rel="noopener">Open Library</a>` : ""}
       ${n ? `<button type="button" data-toggle>Chapters</button>` : ""}
       ${API ? `<button type="button" data-shelves title="Which shelves this book is on">Shelves</button>` : ""}
@@ -365,6 +445,27 @@ document.getElementById("shelves").addEventListener("click", e => {
 });
 
 grid.addEventListener("click", async e => {
+  const notes = e.target.closest("[data-notes]");
+  if (notes && API) {
+    try {
+      toast((await api("/api/open-notes", {slug: bookOf(notes).slug})).message);
+    } catch (err) {
+      toast(`Couldn't open the notes: ${err.message}`);
+    }
+    return;
+  }
+  const ocr = e.target.closest("[data-ocr]");
+  if (ocr && API) {
+    const b = bookOf(ocr);
+    if (!confirm(`OCR “${b.title}”? It takes about ${b.ocr_minutes} min; you can keep reading meanwhile.`)) return;
+    try {
+      await api("/api/ocr", {slug: b.slug});
+      pollJobs();
+    } catch (err) {
+      toast(`Couldn't start OCR: ${err.message}`);
+    }
+    return;
+  }
   const edit = e.target.closest("[data-shelves]");
   if (edit && API) {
     const b = bookOf(edit);
@@ -441,6 +542,162 @@ sort.addEventListener("change", () => {
   try { localStorage.setItem("library-sort", sort.value); } catch {}
   render();
 });
+// --- Tools (only with the server): add books, settings, quit ---------------------------------
+const prevStatus = new Map();  // job id -> status at the last poll (to notice jobs finishing)
+const asked = new Set();       // jobs we've already asked about missing details
+let pollTimer = null;
+
+async function pollJobs() {
+  clearTimeout(pollTimer);
+  let jobs;
+  try {
+    jobs = (await api("/api/jobs", {})).jobs;
+  } catch {
+    return;
+  }
+  renderJobs(jobs);
+  let finished = false;
+  for (const j of jobs) {
+    if (prevStatus.get(j.id) === "working" && j.status !== "working") finished = true;
+    prevStatus.set(j.id, j.status);
+    if (j.status === "needs_details" && !asked.has(j.id)) {
+      asked.add(j.id);
+      askDetails(j);
+    }
+  }
+  const busy = jobs.some(j => j.status === "working");
+  if (finished && !busy) {
+    setTimeout(() => location.reload(), 1500);  // show the new books / searchable scans
+    return;
+  }
+  if (busy) pollTimer = setTimeout(pollJobs, 1500);
+}
+
+function renderJobs(jobs) {
+  const panel = document.getElementById("jobs");
+  panel.hidden = !jobs.length;
+  panel.innerHTML = jobs.map(j => {
+    const icon = {working: "⏳", done: "✓", duplicate: "•", error: "✗", needs_details: "?"}[j.status] || "";
+    const bar = j.kind === "ocr" && j.total
+      ? `<div class="bar"><span style="width:${Math.round(100 * j.done / j.total)}%"></span></div>` : "";
+    const fill = j.status === "needs_details"
+      ? `<button type="button" data-details="${esc(j.id)}">Fill in title / author / year</button>` : "";
+    return `<div class="job ${j.status === "error" ? "error" : ""}">${icon} ${esc(j.file || "")}
+      <span>${esc(j.message || "")}</span>${bar}${fill}</div>`;
+  }).join("");
+}
+
+async function askDetails(job) {
+  const details = {};
+  for (const [key, label] of [["title", "Title"], ["author", "Author(s)"], ["year", "Year"]]) {
+    const value = prompt(`${job.file}\n${label}:`, job.guess?.[key] || "");
+    if (value === null) return;  // cancelled: the "Fill in" button stays in the panel
+    details[key] = value;
+  }
+  try {
+    await api("/api/add-details", {job: job.id, ...details});
+    pollJobs();
+  } catch (err) {
+    toast(`Couldn't add the book: ${err.message}`);
+  }
+}
+
+async function upload(file) {
+  const response = await fetch("/api/upload", {
+    method: "POST",
+    headers: {"X-Library-Token": API.token, "X-Filename": encodeURIComponent(file.name)},
+    body: file,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data.job;
+}
+
+async function openSettings() {
+  const {settings} = await api("/api/settings", {});
+  document.getElementById("setLibrary").value = settings.library;
+  document.getElementById("setEditor").value = settings.editor;
+  document.getElementById("setCommand").value = settings.editor_command || "";
+  document.getElementById("setPython").checked = !!settings.python_features;
+  document.getElementById("customRow").hidden = settings.editor !== "custom";
+  document.getElementById("settingsDialog").showModal();
+}
+
+async function saveSettings() {
+  const save = {
+    library: document.getElementById("setLibrary").value.trim(),
+    editor: document.getElementById("setEditor").value,
+    editor_command: document.getElementById("setCommand").value.trim(),
+    python_features: document.getElementById("setPython").checked,
+  };
+  try {
+    const r = await api("/api/settings", {save});
+    document.getElementById("settingsDialog").close();
+    if (!r.restart) return location.reload();
+    toast("Opening the library…");
+    for (let i = 0; i < 40; i++) {  // the server restarts with the new library
+      await new Promise(done => setTimeout(done, 750));
+      try {
+        if ((await fetch("/", {cache: "no-store"})).ok) return location.reload();
+      } catch {}
+    }
+    toast("The library didn't come back; start myLibrary again");
+  } catch (err) {
+    toast(`Couldn't save: ${err.message}`);
+  }
+}
+
+if (API) {
+  document.getElementById("tools").innerHTML = `
+    <label class="tool" title="Add PDF books to the library">＋ Add books
+      <input type="file" id="addFiles" accept=".pdf,application/pdf" multiple hidden></label>
+    <button type="button" class="tool" id="openSettings">⚙ Settings</button>
+    <button type="button" class="tool" id="quit" title="Stop myLibrary">Quit</button>`;
+  document.getElementById("addFiles").addEventListener("change", async e => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    for (const file of files) {
+      toast(`Adding ${file.name}…`);
+      try {
+        await upload(file);
+      } catch (err) {
+        toast(`Couldn't add ${file.name}: ${err.message}`);
+      }
+    }
+    pollJobs();
+  });
+  document.getElementById("openSettings").addEventListener("click", () =>
+    openSettings().catch(err => toast(`Couldn't open the settings: ${err.message}`)));
+  document.getElementById("saveSettings").addEventListener("click", saveSettings);
+  document.getElementById("setEditor").addEventListener("change", e => {
+    document.getElementById("customRow").hidden = e.target.value !== "custom";
+  });
+  document.getElementById("pickFolder").addEventListener("click", async () => {
+    try {
+      const {folder} = await api("/api/pick-folder", {});
+      if (folder) document.getElementById("setLibrary").value = folder;
+    } catch (err) {
+      toast(`Couldn't open the folder dialog: ${err.message}`);
+    }
+  });
+  document.getElementById("quit").addEventListener("click", async () => {
+    if (!confirm("Stop myLibrary? Your place in each book is already saved.")) return;
+    try {
+      await api("/api/quit", {});
+    } catch {}
+    document.body.innerHTML = `<div class="stopped"><h1>myLibrary has stopped</h1>
+      <p>Start it again from the <b>myLibrary</b> shortcut on your Desktop or in the Start menu.</p></div>`;
+  });
+  document.getElementById("jobs").addEventListener("click", e => {
+    const fill = e.target.closest("[data-details]");
+    if (fill) api("/api/jobs", {}).then(r => {
+      const job = r.jobs.find(j => j.id === fill.dataset.details);
+      if (job) askDetails(job);
+    });
+  });
+  pollJobs();  // jobs still running from before a reload (e.g. a long OCR)
+}
+
 stats();
 renderShelves();
 render();

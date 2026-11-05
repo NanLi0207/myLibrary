@@ -18,6 +18,25 @@ the books never go in it. See README.md.
 - **The user's library is `library/` in this repository** (their `local.toml` says
   `library = "library"`), public as a live example. Their subject is optical design.
 
+**Settings** (`paths.load_settings()` / `save_settings()`): library, `editor` (vscode / notepad /
+system / custom + `editor_command` with `{file}`), `python_features`. Stored in `local.toml`, or
+in the package in `%APPDATA%/myLibrary/settings.toml`. Notes always open through
+`library_server.open_in_editor()`, never a hard-wired editor; never open a `.py` with its default
+app (that can run it). The library page's ⚙ Settings edits them; changing the library restarts
+the server (`restart_later`).
+
+**The library page does everything without a terminal**: ＋ Add books (upload →
+`library_jobs.py`: identify, name, register in the background; asks for missing title/author/year),
+OCR button for scans (background, progress), Settings, Quit. Keep it that way: every feature the
+package needs must work from the page.
+
+**The ready-to-use package** (paid, 9.9 RMB): `uv run scripts/build_package.py` builds
+`dist/myLibrary-<version>-win64.zip` from `package/` (launcher `launch.py` with pythonw + log,
+`Start myLibrary.cmd`, bilingual `README.txt`, ECDICT license) plus a portable Python with only
+the core dependencies, PDF.js and the dictionary. `package.toml` marks package mode
+(`paths.IS_PACKAGE`): Python features off. Test a build unzipped in a clean environment (no uv
+on PATH, its own USERPROFILE/APPDATA) before calling it done.
+
 Inside a library: `library.toml` (name, `[shelves]` labels like `Optics = "光学 Optics"`),
 `catalog.csv`, `books/` (never in git), `notes/<slug>/`, `notes/topics/<topic>.md`,
 `glossaries/<name>.csv` + `glossaries.toml`, `examples/<slug>/chNN_*.py`, `code/` (reusable code

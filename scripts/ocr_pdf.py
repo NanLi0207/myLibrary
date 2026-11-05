@@ -89,8 +89,9 @@ def text_overlay(width: float, height: float, boxes: list[list]):
     return PdfReader(buffer).pages[0]
 
 
-def add_text_layer(src: Path, dst: Path) -> None:
-    """Write `dst`: `src` with an invisible OCR text layer on every page."""
+def add_text_layer(src: Path, dst: Path, progress=None) -> None:
+    """Write `dst`: `src` with an invisible OCR text layer on every page; `progress(done, total)`
+    is called after each page (for the library page's progress bar)."""
     import pypdfium2 as pdfium
 
     writer = PdfWriter(clone_from=src)  # keeps bookmarks and metadata
@@ -107,6 +108,8 @@ def add_text_layer(src: Path, dst: Path) -> None:
                 page.merge_transformed_page(
                     overlay, Transformation().translate(float(box.left), float(box.bottom))
                 )
+        if progress:
+            progress(i + 1, total)
         if (i + 1) % 10 == 0 or i + 1 == total:
             left = (time.time() - started) / (i + 1) * (total - i - 1)
             print(f"\r  OCR page {i + 1}/{total}, ~{left / 60:.0f} min left   ", end="", flush=True)
@@ -135,7 +138,7 @@ def replace_pdf(pdf: Path, new: Path, keep: Path) -> None:
         ) from None
 
 
-def make_searchable(pdf: Path) -> Path:
+def make_searchable(pdf: Path, progress=None) -> Path:
     """OCR `pdf` in place. The untouched original goes to archive/books/; returns its path."""
     keep = ARCHIVE_BOOKS / pdf.name
     if keep.exists():
@@ -143,7 +146,7 @@ def make_searchable(pdf: Path) -> Path:
     # Built outside books/, so a half-finished file is never mistaken for a new book
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     tmp = OUTPUT_DIR / pdf.name
-    add_text_layer(pdf, tmp)
+    add_text_layer(pdf, tmp, progress)
     replace_pdf(pdf, tmp, keep)
     return keep
 

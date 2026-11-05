@@ -1,27 +1,82 @@
-"""Where the tool is (APP) and where the library is (LIBRARY).
+"""Where the tool is (APP), where the library is (LIBRARY), and the user's settings.
 
 The tool (this repository's scripts/) works on one library: a folder with your books, notes,
 glossaries and chapter scripts. Which library, in this order:
 
   1. --library <folder> on the command line (any script)
   2. the MYLIBRARY_LIBRARY environment variable
-  3. local.toml in the tool's folder (not in git):   library = "library"
+  3. `library` in the settings file:   library = "library"
   4. otherwise a new library in Documents/myLibrary Library, created on first start
-     (ensure_library(), called by library_server.py and add_book.py) and remembered in
-     local.toml
+     (ensure_library(), called by library_server.py and add_book.py) and remembered there
 
-A relative path in local.toml or --library is relative to the tool's folder.
+The settings file is local.toml in the tool's folder (not in git), or, in the ready-to-use
+package (a package.toml next to scripts/), %APPDATA%/myLibrary/settings.toml, so a new version
+of the package keeps them. Besides the library, it holds which editor opens notes and whether
+the Python features (chapter scripts) are shown; see SETTINGS_DEFAULTS.
+A relative library path is relative to the tool's folder.
 """
 
 import os
+import shutil
 import sys
 import tomllib
 from pathlib import Path
 
 APP = Path(__file__).resolve().parent.parent
-LOCAL_SETTINGS = APP / "local.toml"
+IS_PACKAGE = (APP / "package.toml").exists()
+if IS_PACKAGE:
+    SETTINGS_FILE = Path(os.environ.get("APPDATA") or Path.home()) / "myLibrary" / "settings.toml"
+else:
+    SETTINGS_FILE = APP / "local.toml"
 DEFAULT_LIBRARY = Path.home() / "Documents" / "myLibrary Library"
 ENV_VAR = "MYLIBRARY_LIBRARY"
+
+EDITORS = ("vscode", "notepad", "system", "custom")
+SETTINGS_DEFAULTS = {
+    # Which program opens notes: VS Code, Notepad, the file's default app ("system", e.g.
+    # Typora), or your own command with {file} in it ("custom")
+    "editor": "vscode" if shutil.which("code") else "system",
+    "editor_command": "",
+    # Chapter scripts (checking a book's examples in Python); off in the ready-to-use package
+    "python_features": not IS_PACKAGE,
+}
+
+
+def load_settings() -> dict:
+    """The settings file merged over the defaults."""
+    saved = {}
+    if SETTINGS_FILE.exists():
+        with open(SETTINGS_FILE, "rb") as f:
+            saved = tomllib.load(f)
+    return SETTINGS_DEFAULTS | saved
+
+
+def _toml_value(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = str(value)
+    if "'" not in text and "\n" not in text:
+        return f"'{text}'"  # literal string: backslashes in Windows paths stay as they are
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+
+
+def save_settings(updates: dict) -> dict:
+    """Change some settings (only known keys); returns all of them."""
+    unknown = set(updates) - set(SETTINGS_DEFAULTS) - {"library"}
+    if unknown:
+        raise ValueError(f"unknown settings: {', '.join(sorted(unknown))}")
+    if "editor" in updates and updates["editor"] not in EDITORS:
+        raise ValueError(f"editor must be one of {', '.join(EDITORS)}")
+    saved = {}
+    if SETTINGS_FILE.exists():
+        with open(SETTINGS_FILE, "rb") as f:
+            saved = tomllib.load(f)
+    saved |= updates
+    lines = ["# myLibrary settings (see scripts/paths.py)"]
+    lines += [f"{key} = {_toml_value(value)}" for key, value in saved.items()]
+    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return SETTINGS_DEFAULTS | saved
 
 
 def _from_argv(argv: list[str]) -> str | None:
@@ -39,10 +94,9 @@ def _resolve(argv: list[str]) -> tuple[Path, str]:
         source = "--library"
     elif chosen := os.environ.get(ENV_VAR):
         source = ENV_VAR
-    elif LOCAL_SETTINGS.exists():
-        with open(LOCAL_SETTINGS, "rb") as f:
-            chosen = tomllib.load(f).get("library")
-        source = "local.toml"
+    else:
+        chosen = load_settings().get("library")
+        source = SETTINGS_FILE.name
     if not chosen:
         return DEFAULT_LIBRARY, "default"
     path = Path(chosen).expanduser()
@@ -83,20 +137,23 @@ name = "My library"
 
 def ensure_library(library: Path | None = None) -> Path:
     """Create the library's folders if they're missing; a library chosen by default is
-    remembered in local.toml so the next start uses the same one."""
+    remembered in the settings file so the next start uses the same one."""
     library = library or LIBRARY
     for sub in ("books", "notes/topics", "glossaries", "examples"):
         (library / sub).mkdir(parents=True, exist_ok=True)
     if not (library / "library.toml").exists():
         (library / "library.toml").write_text(LIBRARY_TOML, encoding="utf-8")
-    if library == LIBRARY and LIBRARY_SOURCE == "default" and not LOCAL_SETTINGS.exists():
-        LOCAL_SETTINGS.write_text(
-            "# Which library the tool opens (see scripts/paths.py)\n"
-            f"library = {str(library.as_posix())!r}\n",
-            encoding="utf-8",
-        )
+    if library == LIBRARY and LIBRARY_SOURCE == "default" and "library" not in _saved():
+        save_settings({"library": library.as_posix()})
         print(f"New library created: {library}")
     return library
+
+
+def _saved() -> dict:
+    if not SETTINGS_FILE.exists():
+        return {}
+    with open(SETTINGS_FILE, "rb") as f:
+        return tomllib.load(f)
 
 
 # The VS Code window notes and scripts open in: the whole project when the library is inside
