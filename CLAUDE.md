@@ -25,7 +25,7 @@ in the package in `%APPDATA%/myLibrary/settings.toml`. Notes always open through
 app (that can run it). The library page's ⚙ Settings edits them; changing the library restarts
 the server (`restart_later`).
 
-**The library page does everything without a terminal**: ＋ Add books (upload →
+**The library page does everything without a terminal**: ＋ Add (upload →
 `library_jobs.py`: identify, name, register in the background; asks for missing title/author/year),
 OCR button for scans (background, progress), ☁ Back up (`scripts/backup.py`: commits only the
 library folder with `--only`, refuses when unpushed commits touch code, never prompts for a
@@ -94,6 +94,17 @@ Example: `shannon-1997-art-science-optical-design`. The slug is used (inside the
   and scripts to the library's `archive/` and drops the catalog row. Never delete notes or
   scripts outright; they hold the user's own work. Rebuild the page after changing catalog or
   notes. If the user corrects a book's details, update its catalog row and notes README too.
+
+**Papers** live in the library's `papers/` folder (catalog `type` = paper, `file` =
+`papers/<slug>.pdf`, plus journal / volume / issue / page_range / doi). `book_meta.identify`
+tries, in order: a DOI in the PDF metadata and first two pages only (never the references) →
+Crossref (`crossref()`; types in `PAPER_TYPES` are papers, others books); an arXiv number →
+`arxiv()` (journal version if published); for files in `papers/` or that look like papers, the
+top of page 1 → `crossref_search()` (accepted only if the whole title is on the page). A PDF in
+`papers/` is always a paper (`identify(..., paper=True)`); recognised papers move to `papers/`.
+PDFs are served from `/books/` and `/papers/`; links use the catalog's `file`. A paper's notes: README with one checklist item
+`library_page.PAPER_ITEM` ("Read the paper", counts as chapter 1) + `notes.md`. Citations
+(Cite button): `scripts/citation.py` (BibTeX).
 
 Books are always PDFs (the user's choice; don't add DjVu/EPUB tooling). The script reads the
 PDF's table of contents (bookmarks, else the printed Contents pages; for image-only scans the

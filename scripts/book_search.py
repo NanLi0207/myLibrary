@@ -99,7 +99,8 @@ def search(term: str, current: str | None = None, limit: int = 8, per_book: int 
     if not words or not INDEX.exists():
         return {"term": term, "results": [], "indexing": not INDEX.exists()}
     query = '"' + " ".join(words) + '"'  # the exact phrase (each word stemmed)
-    titles = {slug: row["title"] for slug, row in catalog.load(CATALOG).items()}
+    rows = catalog.load(CATALOG)
+    titles = {slug: row["title"] for slug, row in rows.items()}
     con = _connect()
     try:
         hits = con.execute(
@@ -120,7 +121,15 @@ def search(term: str, current: str | None = None, limit: int = 8, per_book: int 
         if per.get(slug, 0) >= per_book or slug not in titles:
             continue
         per[slug] = per.get(slug, 0) + 1
-        picked.append({"slug": slug, "title": titles[slug], "page": page, "snippet": snippet})
+        picked.append(
+            {
+                "slug": slug,
+                "title": titles[slug],
+                "file": rows[slug]["file"],
+                "page": page,
+                "snippet": snippet,
+            }
+        )
         if len(picked) >= limit:
             break
     return {

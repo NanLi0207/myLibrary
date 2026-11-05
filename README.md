@@ -114,9 +114,10 @@ word lookup.
 One card per book. The **shelf bar** under the search box shows your subjects (All, 光学
 Optics, 激光 Lasers, …) with how many books each has; click one to see only those books. Use the
 search box to filter (title, author, subject, shelf, chapter titles) and the sort menu to order
-the cards (title, author, newest, progress, recently added, recently read).
+the cards (title, author, newest, progress, recently added, recently read). The **Books and
+papers** menu shows only books or only papers.
 
-At the top: **＋ Add books** (choose PDFs to add, see [Managing books](#8-managing-books)),
+At the top: **＋ Add** (choose PDFs to add, see [Managing books](#8-managing-books)),
 **☁ Back up** (below), **⚙ Settings** (below) and **Quit** (stops myLibrary; your place in each
 book is already saved).
 
@@ -136,6 +137,9 @@ saved locally). From the terminal: `uv run scripts/backup.py`.
 | **OCR (~N min)** | Only on scanned books: adds a text layer so the book can be looked up and searched |
 | **Chapters** | Shows the chapter list: **Read** opens one chapter, **Script** its Python script; the checkbox ticks it |
 | **Shelves** | Which shelves the book is on, separated by `;` (e.g. `Optics; Lasers`) |
+| **Mark as read** | Papers only (instead of Chapters): mark the paper as read, or not |
+| **DOI** | Papers: the paper's page at its publisher |
+| **Cite ▾** | A menu of citation formats, each with a preview; click one to copy it: APA, IEEE, GB/T 7714 (中国国标 Chinese standard), BibTeX (LaTeX) and RIS (EndNote, Zotero, Mendeley) |
 | Green tags | The book's shelves |
 | Progress bar, "0/8 chapters · 3%" | How far you are (see below) |
 | "Last read: page 41 · Ch 2 · date" | Where you stopped |
@@ -359,7 +363,7 @@ its scripts folder. Books are always PDFs.
 
 ### Adding a book
 
-**From the library page:** click **＋ Add books** and choose one or more PDFs. Each is copied
+**From the library page:** click **＋ Add** and choose one or more PDFs. Each is copied
 into your library, identified (ISBN, the PDF's details, Open Library), named and registered in
 the background; a panel shows the progress. If the title, author or year can't be found, the
 page asks for them. A scanned book gets an **OCR** button (see below).
@@ -381,6 +385,37 @@ uv run scripts/add_book.py "books/scan123.pdf" --author "Warren J. Smith" --year
 ```
 
 If the chapter list came out wrong, `--refresh-chapters` reads it again (your notes are kept).
+
+### Papers
+
+Papers live in the library's own **`papers/`** folder, next to `books/`. Add them with
+**＋ Add** on the library page, or put the PDFs into `papers/` and run
+`uv run scripts/add_book.py`. Everything is filled in automatically, found in this order:
+
+1. its **DOI**, from the PDF's details or its first two pages (never the reference list, whose
+   DOIs belong to other papers), looked up on [Crossref](https://www.crossref.org/), the DOI
+   registry: title, all authors, year, journal, volume, issue, pages;
+2. its **arXiv number** (`arXiv:2101.01234`, or a file named `2101.01234.pdf`), looked up on
+   arXiv; if the preprint was published since, the journal version is used;
+3. no number at all, as in most **old papers**: the **title and authors at the top of the first
+   page**, searched on Crossref (publishers have given many old papers a DOI afterwards, back to
+   the 1800s), then on [OpenAlex](https://openalex.org), an open catalogue that also lists works
+   without any DOI. A result is used only if its whole title appears on that page, and when a
+   paper was reprinted, the version whose year is printed on the page wins (the original, not a
+   later reprint). A **scanned** paper's first page is read with OCR first (a few seconds).
+
+Only if all three fail does the page ask for the title, author and year. A PDF in `papers/` is
+always a paper; one added through the page or put into `books/` becomes a paper when it's
+recognised as one, and is moved to `papers/`. It gets the same kind of name as a book
+(`doe-2019-freeform-optics-compact-imaging`).
+
+Instead of chapter notes, a paper has one notes file, `notes/<slug>/notes.md`, with *Summary (in
+my own words)*, *Key results*, *Method*, *Questions* and *How it relates to my books*; its
+README has the details and one checkbox, *Read the paper*. A paper's **keywords** are recorded too (from the PDF's details, else its
+first page's "Keywords:" line, else OpenAlex) and shown as small tags on its card, above the
+shelf tags. On the library page a paper shows its
+journal, **Mark as read** instead of Chapters, and a **DOI** link; **Read** / **Continue** open it
+at page 1 (or where you stopped) with `notes.md`.
 
 ### Scanned books
 
@@ -431,6 +466,7 @@ myLibrary/                   the tool (this repository)
 ├── library.toml             its name, and your shelves with their labels
 ├── catalog.csv              one row per book: title, authors, year, ISBN, pages, shelves, ...
 ├── books/<slug>.pdf         your books (never in git: they're copyrighted)
+├── papers/<slug>.pdf        your papers (never in git either)
 ├── notes/<slug>/            per book: notes, ticks, last-read page, vocabulary
 ├── notes/topics/            your topic notes, across books
 ├── glossaries/              your subject glossaries (*.csv) and glossaries.toml
@@ -476,6 +512,7 @@ to use another one.
 | `uv run scripts/add_book.py --dry-run` / no flag | Preview / register new books in `books/` |
 | `uv run scripts/add_book.py --refresh-chapters` | Re-read chapter lists (keeps your notes) |
 | `uv run scripts/add_book.py --remove <slug>` | Move a book to `archive/` |
+| `uv run scripts/add_book.py --refresh-keywords` | Fill in keywords for papers that have none |
 | `uv run scripts/add_book.py --offline` | Don't look books up on Open Library |
 | `uv run scripts/ocr_pdf.py books/<slug>.pdf` | Add an OCR text layer to a scan |
 | `uv run scripts/add_bookmarks.py --dry-run` / no flag | Preview / add bookmarks to books without any |

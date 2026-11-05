@@ -12,6 +12,7 @@ from pathlib import Path
 
 import add_book
 import book_search
+import catalog
 import library_page
 import ocr_pdf
 from book_meta import identify
@@ -105,8 +106,10 @@ def _add(job: dict, path: Path, details: dict) -> None:
             _update(job, status="needs_details", missing=missing, guess=guess,
                     message="Please fill in what couldn't be found")  # fmt: skip
             return
-        target = add_book.BOOKS / f"{book.slug}.pdf"
-        if target.exists() and target != path:
+        folder = add_book.PAPERS if meta.kind == "paper" else add_book.BOOKS
+        target = folder / f"{book.slug}.pdf"
+        existing = [add_book.BOOKS / target.name, add_book.PAPERS / target.name]
+        if any(f.exists() and f != path for f in existing):
             path.unlink()  # an uploaded copy of a book that's already in the library
             _finish(job, "duplicate", f"“{book.title}” is already in the library", slug=book.slug)
             return
@@ -118,7 +121,8 @@ def _add(job: dict, path: Path, details: dict) -> None:
         _finish(
             job,
             "done",
-            f"Added “{book.title}”" + (" (a scan: OCR recommended)" if scan else ""),
+            f"Added the {'paper' if meta.kind == 'paper' else 'book'} “{book.title}”"
+            + (" (a scan: OCR recommended)" if scan else ""),
             slug=book.slug,
             title=book.title,
             scan=scan,
@@ -133,7 +137,8 @@ def _add(job: dict, path: Path, details: dict) -> None:
 
 def start_ocr(slug: str) -> dict:
     """Give a scanned book an invisible text layer (in the background, one book at a time)."""
-    pdf = add_book.BOOKS / f"{slug}.pdf"
+    row = catalog.load(add_book.CATALOG).get(slug) or {}
+    pdf = add_book.LIBRARY / row["file"] if row.get("file") else add_book.BOOKS / f"{slug}.pdf"
     if not pdf.exists():
         raise ValueError("that book's PDF isn't in the library")
     if any(j["kind"] == "ocr" and j["status"] == "working" for j in list_jobs()):

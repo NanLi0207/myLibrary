@@ -309,12 +309,13 @@ def change_settings(updates: dict) -> dict:
 # --- actions ------------------------------------------------------------------------------
 
 
-def pdf_url(base_url: str, pdf_name: str, page: int | None = None) -> str:
-    """The reading view (PDF.js + word lookup) once it's set up, else the bare PDF."""
+def pdf_url(base_url: str, file: str, page: int | None = None) -> str:
+    """The reading view (PDF.js + word lookup) once it's set up, else the bare PDF; `file` is
+    the catalog's path in the library, books/<slug>.pdf or papers/<slug>.pdf."""
     if reading_view.missing():
-        url = f"{base_url}/books/{pdf_name}"
+        url = f"{base_url}/{file}"
     else:
-        url = f"{base_url}/pdfjs/web/viewer.html?file=/books/{pdf_name}"
+        url = f"{base_url}/pdfjs/web/viewer.html?file=/{file}"
     return url + (f"#page={page}" if page else "")
 
 
@@ -335,7 +336,8 @@ def save_position(slug: str, page: int) -> dict:
     readme = LIBRARY / "notes" / slug / "README.md"
     if not readme.exists():
         return {}
-    chapter = chapter_at(slug, page, library_page.chapters(slug))
+    is_paper = catalog.load(CATALOG).get(slug, {}).get("type") == "paper"
+    chapter = None if is_paper else chapter_at(slug, page, library_page.chapters(slug))
     line = f"Last read: page {page}" + (f" ({chapter['title']})" if chapter else "")
     line += f", {date.today().isoformat()}"
     text = readme.read_text(encoding="utf-8")
@@ -358,22 +360,27 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
     row = catalog.load(CATALOG)[slug]
     chapters = library_page.chapters(slug)
     last = library_page.last_read(slug) if resume else None
-    if last:
+    is_paper = row.get("type") == "paper"
+    if last and not is_paper:
         chapter = chapter_at(slug, last["page"], chapters)
     else:
         chapter = next((c for c in chapters if c["number"] == number), None)
+    if is_paper:  # its one item, "Read the paper", whose notes are notes.md
+        chapter = next((c for c in chapters if c["number"] == 1), None)
     notes_dir = LIBRARY / "notes" / slug
     opened = []
 
     if (LIBRARY / row["file"]).exists():
         if last:
             page = last["page"]
+        elif is_paper:
+            page = 1
         else:
             page = chapter_page(slug, chapter["number"], chapters) if chapter else None
-        webbrowser.open(pdf_url(base_url, Path(row["file"]).name, page))
+        webbrowser.open(pdf_url(base_url, row["file"], page))
         opened.append(f"PDF (p. {page})" if page else "PDF")
     else:
-        opened.append("no PDF (it's missing from books/)")
+        opened.append(f"no PDF ({row['file']} is missing)")
 
     note = notes_dir / chapter["note"] if chapter and chapter["note"] else notes_dir / "README.md"
     if not note.exists():
@@ -452,7 +459,8 @@ def open_topic(term: str) -> dict:
 def tick(slug: str, number: int, done: bool) -> list[dict]:
     readme = LIBRARY / "notes" / slug / "README.md"
     text = readme.read_text(encoding="utf-8")
-    pattern = re.compile(rf"^- \[[ xX]\] (\[?Ch(?:apter)?\.?\s*{number}:)", re.MULTILINE)
+    paper = rf"|\[{re.escape(library_page.PAPER_ITEM)}\]" if number == 1 else ""
+    pattern = re.compile(rf"^- \[[ xX]\] (\[?Ch(?:apter)?\.?\s*{number}:{paper})", re.MULTILINE)
     new, count = pattern.subn(lambda m: f"- [{'x' if done else ' '}] {m[1]}", text, count=1)
     if not count:
         raise ValueError(f"chapter {number} not found in {readme.name}")
@@ -504,9 +512,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
         if found := reading_view.static_file(path):
             return self._send(HTTPStatus.OK, *found)
-        if m := re.fullmatch(r"/books/([a-z0-9-]+\.pdf)", path):
-            known = {Path(r["file"]).name for r in catalog.load(CATALOG).values()}
-            pdf = LIBRARY / "books" / m[1]
+        if m := re.fullmatch(r"/((?:books|papers)/[a-z0-9-]+\.pdf)", path):
+            known = {r["file"] for r in catalog.load(CATALOG).values()}
+            pdf = LIBRARY / m[1]
             if m[1] in known and pdf.exists():
                 return self._send(HTTPStatus.OK, pdf.read_bytes(), "application/pdf")
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
@@ -587,6 +595,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, {"message": message})
             if self.path == "/api/open-notes":
                 notes = LIBRARY / "notes" / slug / "README.md"
+                if (notes.parent / "notes.md").exists():  # a paper: its one notes file
+                    notes = notes.parent / "notes.md"
                 if open_in_editor(notes):
                     message = "opened the notes"
                 else:

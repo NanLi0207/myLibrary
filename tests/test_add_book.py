@@ -10,8 +10,8 @@ from pypdf import PdfWriter
 
 @pytest.fixture(autouse=True)
 def isolated_library(tmp_path, monkeypatch):
-    """Never let a test touch the real books/, notes/, examples/ or catalog.csv."""
-    for name in ("BOOKS", "EXAMPLES", "NOTES"):
+    """Never let a test touch the real books/, papers/, notes/, examples/ or catalog.csv."""
+    for name in ("BOOKS", "PAPERS", "EXAMPLES", "NOTES"):
         monkeypatch.setattr(add_book, name, tmp_path / name.lower())
     monkeypatch.setattr(add_book, "CATALOG", tmp_path / "catalog.csv")
     monkeypatch.setattr(add_book, "ARCHIVE", tmp_path / "archive")

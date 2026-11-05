@@ -187,7 +187,7 @@ def main() -> None:
     print(f"  -> {pdf.name} is now searchable; the original scan is in {paths.display(keep)}")
 
     # A book already in the library: re-read its chapters from the new text layer
-    if add_book.SLUG_RE.match(pdf.stem) and pdf.parent == add_book.BOOKS:
+    if add_book.SLUG_RE.match(pdf.stem) and pdf.parent in (add_book.BOOKS, add_book.PAPERS):
         add_book.refresh_chapters(pdf, dry_run=False)
         library_page.build()
 

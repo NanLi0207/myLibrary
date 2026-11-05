@@ -1,4 +1,4 @@
-"""Give new books in books/ a consistent name and create their notes folders.
+"""Give new books (books/) and papers (papers/) a consistent name and create their notes.
 
 Every book gets a slug:  <author-surname>-<year>-<short-title>
     e.g. shannon-1997-art-science-optical-design
@@ -6,8 +6,11 @@ Every book gets a slug:  <author-surname>-<year>-<short-title>
 Title, author and year come from the book itself where possible (ISBN -> Open Library,
 PDF metadata, copyright page), with the filename as a fallback; see book_meta.py.
 
+Papers are found by their DOI, arXiv number, or title (see book_meta.identify) and always
+end up in papers/; a PDF put into papers/ is a paper even if nothing online knows it.
+
 The slug is used for:
-    books/<slug>.pdf
+    books/<slug>.pdf  or  papers/<slug>.pdf
     notes/<slug>/README.md   (title, author, year, progress)
     notes/<slug>/chNN-<chapter>.md   (one empty notes template per chapter, from the PDF's
                                       table of contents; headings only, you write the content)
@@ -20,6 +23,7 @@ Usage:
     uv run scripts/add_book.py --refresh-chapters   # re-read chapters (keeps notes you wrote)
     uv run scripts/add_book.py --remove <slug>      # move a book's files to archive/ (asks first)
     uv run scripts/add_book.py --ocr / --no-ocr     # scanned PDFs: OCR without asking / never
+    uv run scripts/add_book.py --refresh-keywords   # fill in keywords for papers without any
     uv run scripts/add_book.py books/foo.pdf --author "Warren J. Smith" --year 2008 \
         --title "Modern Optical Engineering"   # override anything that came out wrong
 """
@@ -42,6 +46,14 @@ from pypdf import PdfReader
 
 LIBRARY = paths.LIBRARY
 BOOKS, EXAMPLES, NOTES = LIBRARY / "books", LIBRARY / "examples", LIBRARY / "notes"
+PAPERS = LIBRARY / "papers"
+
+
+def library_pdfs() -> list[Path]:
+    """Every PDF in books/ and papers/."""
+    return sorted(BOOKS.glob("*.pdf")) + sorted(PAPERS.glob("*.pdf"))
+
+
 CATALOG = LIBRARY / "catalog.csv"
 ARCHIVE = LIBRARY / "archive"
 PAGE_CACHE = LIBRARY / ".cache" / "chapter_pages.json"
@@ -189,10 +201,10 @@ def archive_target(path: Path) -> Path:
 def remove_book(slug: str, dry_run: bool, yes: bool) -> None:
     """Take a book out of the library; its PDF, notes and scripts move to archive/."""
     known = catalog.load(CATALOG)
-    paths = [BOOKS / f"{slug}.pdf", NOTES / slug, EXAMPLES / slug]
+    paths = [BOOKS / f"{slug}.pdf", PAPERS / f"{slug}.pdf", NOTES / slug, EXAMPLES / slug]
     existing = [p for p in paths if p.exists()]
     if slug not in known and not existing:
-        print(f"No book '{slug}' in catalog.csv or in books/, notes/, examples/.")
+        print(f"No book '{slug}' in catalog.csv or in books/, papers/, notes/, examples/.")
         return
     title = known.get(slug, {}).get("title", slug)
     print(f"Remove '{title}' ({slug}) from the library:")
@@ -229,7 +241,7 @@ def notes_readme(book: Book, filename: str, chapters: list[Chapter]) -> str:
 | Author | {book.author} |
 | Year | {book.year} |
 | Publisher | {book.publisher or "?"} |
-| File | `books/{filename}` |
+| File | `{filename}` |
 
 ## Reading progress
 
@@ -242,35 +254,112 @@ examples live in `examples/{Path(filename).stem}/` ("Script" on the library page
 """
 
 
+PAPER_ITEM = library_page.PAPER_ITEM  # a paper's one "chapter" in its README checklist
+
+
+def paper_readme(book: Book, filename: str, meta: Meta) -> str:
+    where = ", ".join(
+        part
+        for part in (
+            meta.journal,
+            meta.volume + (f"({meta.issue})" if meta.issue else ""),
+            meta.page_range,
+        )
+        if part
+    )
+    doi = f"[{meta.doi}](https://doi.org/{meta.doi})" if meta.doi else "?"
+    return f"""# {book.title}
+
+| | |
+|---|---|
+| Authors | {book.author} |
+| Year | {book.year} |
+| Journal | {where or "?"} |
+| DOI | {doi} |
+| File | `{filename}` |
+
+## Reading progress
+
+- [ ] [{PAPER_ITEM}](notes.md)
+
+## Notes
+
+Your notes on this paper are in [notes.md](notes.md).
+"""
+
+
+PAPER_NOTES = """# {title}
+
+[Back to the paper](README.md)
+
+## Summary (in my own words)
+
+-
+
+## Key results
+
+-
+
+## Method
+
+-
+
+## Questions
+
+-
+
+## How it relates to my books
+
+-
+"""
+
+
 def setup_book(pdf: Path, book: Book, meta: Meta) -> None:
     """Folders, notes README, chapter templates and catalog row for a named PDF.
 
     Safe to repeat: existing notes are never overwritten.
     """
     slug = pdf.stem
+    relative = f"{pdf.parent.name}/{pdf.name}"  # books/<slug>.pdf or papers/<slug>.pdf
     notes_dir = NOTES / slug
     notes_dir.mkdir(parents=True, exist_ok=True)
-    chapters = book_chapters(pdf)
     readme = notes_dir / "README.md"
-    if not readme.exists():
-        readme.write_text(notes_readme(book, pdf.name, chapters), encoding="utf-8")
-    write_chapter_notes(notes_dir, chapters)
+    is_paper = meta.kind == "paper"
+    if is_paper:  # one notes file, and "Read the paper" instead of chapters
+        chapters = []
+        if not readme.exists():
+            readme.write_text(paper_readme(book, relative, meta), encoding="utf-8")
+        notes = notes_dir / "notes.md"
+        if not notes.exists():
+            notes.write_text(PAPER_NOTES.format(title=book.title), encoding="utf-8")
+    else:
+        chapters = book_chapters(pdf)
+        if not readme.exists():
+            readme.write_text(notes_readme(book, relative, chapters), encoding="utf-8")
+        write_chapter_notes(notes_dir, chapters)
     catalog.upsert(
         CATALOG,
         {
             "slug": slug,
+            "type": "paper" if is_paper else "book",
             "title": book.title,
             "authors": book.author,
             "year": book.year,
             "publisher": book.publisher,
             "isbn": meta.isbn,
+            "journal": meta.journal,
+            "volume": meta.volume,
+            "issue": meta.issue,
+            "page_range": meta.page_range,
+            "doi": meta.doi,
+            "keywords": meta.keywords,
             "pages": meta.pages,
             "chapters": str(len(chapters) or ""),
             "subjects": meta.subjects,
-            "file": f"books/{pdf.name}",
+            "file": relative,
             "notes": f"notes/{slug}/",
             "added": date.today().isoformat(),
-            "openlibrary": meta.url,
+            "openlibrary": "" if is_paper else meta.url,
             "metadata_sources": "; ".join(f"{k}: {v}" for k, v in meta.sources.items()),
         },
     )
@@ -278,13 +367,15 @@ def setup_book(pdf: Path, book: Book, meta: Meta) -> None:
 
 
 def add_book(path: Path, book: Book, dry_run: bool, meta: Meta | None = None) -> None:
-    target = BOOKS / f"{book.slug}{path.suffix.lower()}"
-    print(f"  -> books/{target.name}")
-    if target.exists() and target != path:
+    folder = PAPERS if meta and meta.kind == "paper" else BOOKS
+    target = folder / f"{book.slug}{path.suffix.lower()}"
+    print(f"  -> {folder.name}/{target.name}")
+    if any(f.exists() and f != path for f in (BOOKS / target.name, PAPERS / target.name)):
         print(f"  ! {target.name} already exists (duplicate?), leaving this file as it is")
         return
     if dry_run:
         return
+    folder.mkdir(parents=True, exist_ok=True)
     path.rename(target)
     setup_book(target, book, meta or Meta())
 
@@ -292,7 +383,7 @@ def add_book(path: Path, book: Book, dry_run: bool, meta: Meta | None = None) ->
 def unregistered_named_books() -> list[Path]:
     """Already-named PDFs missing from the catalog (e.g. renamed by hand)."""
     known = catalog.load(CATALOG)
-    return [p for p in sorted(BOOKS.glob("*.pdf")) if SLUG_RE.match(p.stem) and p.stem not in known]
+    return [p for p in library_pdfs() if SLUG_RE.match(p.stem) and p.stem not in known]
 
 
 def describe(meta: Meta) -> None:
@@ -330,12 +421,10 @@ def check_remaining_scans(args: argparse.Namespace) -> None:
     """Last step of every run: offer OCR for scanned PDFs in books/ that still have no text."""
     if args.no_ocr:
         return
-    scans = [
-        p for p in sorted(BOOKS.glob("*.pdf")) if _file_key(p) not in _ocr_asked and needs_ocr(p)
-    ]
+    scans = [p for p in library_pdfs() if _file_key(p) not in _ocr_asked and needs_ocr(p)]
     if not scans:
         return
-    print(f"\n{len(scans)} scanned PDF(s) in books/ have no text layer yet:")
+    print(f"\n{len(scans)} scanned PDF(s) in books/ or papers/ have no text layer yet:")
     for pdf in scans:
         pages = len(PdfReader(pdf).pages)
         about = f"{pages} pages, ~{ocr_minutes(pages):.0f} min"
@@ -354,7 +443,7 @@ def check_remaining_scans(args: argparse.Namespace) -> None:
 def process(path: Path, args: argparse.Namespace, rename: bool = True) -> None:
     print(path.name)
     offer_ocr(path, args)
-    meta = identify(path, online=not args.offline)
+    meta = identify(path, online=not args.offline, paper=path.parent == PAPERS)
     meta.sources.update(
         {k: "command line" for k in ("title", "author", "year") if getattr(args, k)}
     )
@@ -378,6 +467,23 @@ def process(path: Path, args: argparse.Namespace, rename: bool = True) -> None:
         print("  -> already named; adding folders, notes and catalog row")
         if not args.dry_run:
             setup_book(path, book, meta)
+
+
+def refresh_keywords(online: bool = True) -> None:
+    """Papers without keywords: from the PDF's details, its first page, or OpenAlex."""
+    from book_meta import paper_keywords
+
+    rows = catalog.load(CATALOG)
+    for slug, row in rows.items():
+        pdf = LIBRARY / row.get("file", "")
+        if row.get("type") != "paper" or row.get("keywords") or not pdf.is_file():
+            continue
+        reader = PdfReader(pdf)
+        first_pages = "\n".join(p.extract_text() or "" for p in reader.pages[:2])
+        words = paper_keywords(reader.metadata or {}, first_pages, row.get("doi", ""), online)
+        print(f"{slug}: {words or '(none found)'}")
+        if words:
+            catalog.set_field(CATALOG, slug, "keywords", words)
 
 
 def main() -> None:
@@ -404,23 +510,32 @@ def main() -> None:
         help="take a book out of the library (its PDF, notes and scripts move to archive/)",
     )
     parser.add_argument("--yes", action="store_true", help="don't ask before --remove")
+    parser.add_argument(
+        "--refresh-keywords",
+        action="store_true",
+        help="fill in keywords for papers that have none (PDF details, first page, OpenAlex)",
+    )
     ocr = parser.add_mutually_exclusive_group()
     ocr.add_argument("--ocr", action="store_true", help="OCR scanned PDFs without asking")
     ocr.add_argument("--no-ocr", action="store_true", help="never OCR scanned PDFs")
     args = parser.parse_args()
     paths.ensure_library()
 
+    if args.refresh_keywords:
+        refresh_keywords(online=not args.offline)
+        library_page.build()
+        return
     if args.remove:
         remove_book(Path(args.remove).stem, args.dry_run, args.yes)
     elif args.refresh_chapters:
-        targets = [args.file.resolve()] if args.file else sorted(BOOKS.glob("*.pdf"))
+        targets = [args.file.resolve()] if args.file else library_pdfs()
         for pdf in targets:
             if SLUG_RE.match(pdf.stem):
                 refresh_chapters(pdf, args.dry_run)
     elif args.file:
         process(args.file.resolve(), args)
     else:
-        pending = [p for p in sorted(BOOKS.glob("*.pdf")) if not SLUG_RE.match(p.stem)]
+        pending = [p for p in library_pdfs() if not SLUG_RE.match(p.stem)]
         unregistered = unregistered_named_books()
         if not pending and not unregistered:
             print("Nothing new: every book in books/ is named and in catalog.csv.")

@@ -8,12 +8,14 @@ The year also falls back to the copyright line ("(c) 2008 ...") on the first pag
 Only metadata is read; no book text is stored anywhere.
 """
 
+import html
 import json
 import re
 import time
 import unicodedata
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,6 +26,14 @@ YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 ISBN_RE = re.compile(
     r"(?:ISBN(?:-1[03])?[:\s]*|isbn13\s*)?\b((?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx])\b"
 )
+# A DOI: "10." + registrant + "/" + suffix (e.g. 10.1364/OE.27.012345)
+DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"<>]+)", re.IGNORECASE)
+# Crossref types that are papers (everything else, e.g. "book" or "monograph", is a book)
+PAPER_TYPES = {"journal-article", "proceedings-article", "posted-content", "report",
+               "dissertation", "peer-review", "article", "preprint"}  # fmt: skip
+# An arXiv identifier: "arXiv:2101.01234v2" in the text, or a file named "2101.01234v2.pdf"
+ARXIV_RE = re.compile(r"arxiv[:\s]*(\d{4}\.\d{4,5})(?:v\d+)?", re.IGNORECASE)
+ARXIV_NAME_RE = re.compile(r"^(\d{4}\.\d{4,5})(?:v\d+)?$")
 COPYRIGHT_RE = re.compile(r"(?:©|\(c\)|copyright)[^\n]{0,60}?\b((?:19|20)\d{2})\b", re.IGNORECASE)
 
 # Things download sites add to filenames
@@ -80,6 +90,13 @@ class Meta:
     pages: str = ""
     subjects: str = ""
     url: str = ""
+    kind: str = "book"  # or "paper"
+    doi: str = ""
+    journal: str = ""
+    volume: str = ""
+    issue: str = ""
+    page_range: str = ""
+    keywords: str = ""  # papers: "laser; weed control; ..."
     sources: dict[str, str] = field(default_factory=dict)  # field -> where it came from
 
     def fill(self, source: str, **values: str) -> None:
@@ -120,6 +137,236 @@ def find_isbns(text: str) -> list[str]:
         if valid_isbn(isbn) and isbn not in found:
             found.append(isbn)
     return found
+
+
+def find_dois(text: str) -> list[str]:
+    """DOIs in the text, in order (trailing punctuation from the sentence removed)."""
+    found = []
+    for m in DOI_RE.finditer(text):
+        doi = m[1].rstrip(".,;:)]}'\"").lower()
+        if doi not in found:
+            found.append(doi)
+    return found
+
+
+def clean_title(title: str) -> str:
+    """'XV.\n  <i>On the theory of optical images</i>' -> 'On the theory of optical images'.
+    Also escaped markup, as some publishers send it: '&lt;title&gt;Specifying…&lt;/title&gt;'."""
+    title = html.unescape(title)
+    title = " ".join(re.sub(r"<[^>]+>", " ", title).split())
+    return re.sub(r"^[IVXLC]+\.\s+", "", title)  # old journals numbered their articles
+
+
+def crossref(doi: str) -> Meta:
+    """A DOI's details from Crossref (the DOI registry): title, all authors, year, journal..."""
+    data = _get_json(f"https://api.crossref.org/works/{urllib.parse.quote(doi, safe='/')}")
+    work = (data or {}).get("message") or {}
+    meta = Meta()
+    if not work:
+        return meta
+    source = f"Crossref (DOI {doi})"
+    names = [
+        " ".join(filter(None, (a.get("given"), a.get("family")))) or a.get("name", "")
+        for a in work.get("author") or []
+    ]
+    dates = [work.get(k, {}).get("date-parts", [[None]])[0][0] for k in ("issued", "published")]
+    year = next((str(y) for y in dates if y), "")
+    first = lambda key: (work.get(key) or [""])[0]  # noqa: E731
+    meta.fill(
+        source,
+        title=clean_title(first("title")),
+        author="; ".join(n for n in names if n),
+        year=year,
+        publisher=work.get("publisher", ""),
+        journal=first("container-title"),
+        volume=str(work.get("volume", "")),
+        issue=str(work.get("issue", "")),
+        page_range=str(work.get("page", "")),
+        doi=doi,
+        url=f"https://doi.org/{doi}",
+    )
+    meta.kind = "paper" if work.get("type") in PAPER_TYPES else "book"
+    return meta
+
+
+def _get_xml(url: str, timeout: float = 15) -> ElementTree.Element | None:
+    request = urllib.request.Request(url, headers={"User-Agent": "myLibrary book organizer"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return ElementTree.fromstring(response.read())
+    except OSError, ElementTree.ParseError:
+        return None
+
+
+def find_arxiv(stem: str, text: str) -> str:
+    """The arXiv identifier of a preprint, from its first page or its file name ("" if none)."""
+    if m := ARXIV_RE.search(text) or ARXIV_NAME_RE.match(stem):
+        return m[1]
+    return ""
+
+
+def arxiv(identifier: str) -> Meta:
+    """A preprint's details from arXiv; the journal version (via its DOI) if it was published."""
+    atom = "{http://www.w3.org/2005/Atom}"
+    feed = _get_xml(f"https://export.arxiv.org/api/query?id_list={identifier}")
+    entry = feed.find(f"{atom}entry") if feed is not None else None
+    if entry is None or entry.find(f"{atom}title") is None:
+        return Meta()
+    published_doi = entry.findtext("{http://arxiv.org/schemas/atom}doi", "").strip()
+    if published_doi:
+        journal = crossref(published_doi.lower())
+        if journal.title:
+            journal.kind = "paper"
+            return journal
+    meta = Meta(kind="paper")
+    source = f"arXiv ({identifier})"
+    names = [a.findtext(f"{atom}name", "").strip() for a in entry.findall(f"{atom}author")]
+    meta.fill(
+        source,
+        title=entry.findtext(f"{atom}title", ""),
+        author="; ".join(n for n in names if n),
+        year=entry.findtext(f"{atom}published", "")[:4],
+        journal="arXiv preprint",
+        doi=f"10.48550/arxiv.{identifier}",  # arXiv's own DOI for the preprint
+        url=f"https://arxiv.org/abs/{identifier}",
+    )
+    return meta
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKD", text).lower())
+
+
+def _best_match(first_page: str, candidates: list[tuple[str, str, object]]):
+    """Of (title, year, payload) search results, the first whose whole title is on the page,
+    preferring one whose year is printed there too (an original rather than a later reprint)."""
+    page_words = set(_words(first_page))
+    # Any year from 1500 on: old papers matter here (YEAR_RE only covers 1900-2099)
+    page_years = set(re.findall(r"\b(1[5-9]\d{2}|20\d{2})\b", first_page))
+    matching = []
+    for title, year, payload in candidates:
+        words = _words(clean_title(title))
+        if len(words) >= 3 and sum(w in page_words for w in words) / len(words) >= 0.9:
+            matching.append((year, payload))
+    return next((x for y, x in matching if y in page_years), matching[0][1] if matching else None)
+
+
+def crossref_search(first_page: str) -> Meta:
+    """No DOI printed: search Crossref with the top of the first page (title and authors), and
+    accept a result only if its whole title really appears on that page. Many old papers got
+    their DOI afterwards, so Crossref often knows them even though the paper shows none."""
+    query = " ".join(first_page.split())[:300]
+    if len(_words(query)) < 4:
+        return Meta()
+    data = _get_json(
+        "https://api.crossref.org/works?rows=10&select=DOI,title,issued&query.bibliographic="
+        + urllib.parse.quote(query)
+    )
+    items = ((data or {}).get("message") or {}).get("items") or []
+    candidates = [
+        (
+            (item.get("title") or [""])[0],
+            str((item.get("issued", {}).get("date-parts") or [[None]])[0][0]),
+            item["DOI"],
+        )
+        for item in items
+    ]
+    doi = _best_match(first_page, candidates)
+    return crossref(doi.lower()) if doi else Meta()
+
+
+def openalex_search(first_page: str) -> Meta:
+    """Crossref doesn't know it: OpenAlex (an open catalogue of scholarly works, including many
+    old ones without any DOI), with the same check that the title is on the page."""
+    # OpenAlex ranks by keywords: the title alone works, title + authors + journal doesn't.
+    # So try the first lines of the page one by one (one of them is the title).
+    lines = [" ".join(line.split()) for line in first_page.splitlines()]
+    queries = [line for line in lines if len(_words(line)) >= 4][:4]
+    work = None
+    for query in queries:
+        url = "https://api.openalex.org/works?per-page=10&search=" + urllib.parse.quote(query)
+        works = (_get_json(url) or {}).get("results") or []
+        candidates = [
+            (w.get("title") or "", str(w.get("publication_year") or ""), w) for w in works
+        ]
+        if work := _best_match(first_page, candidates):
+            break
+    if not work:
+        return Meta()
+    doi = (work.get("doi") or "").removeprefix("https://doi.org/").lower()
+    if doi and (found := crossref(doi)).title:  # Crossref's details are the more complete
+        found.kind = "paper"
+        return found
+    biblio = work.get("biblio") or {}
+    pages = "-".join(p for p in (biblio.get("first_page"), biblio.get("last_page")) if p)
+    source = (work.get("primary_location") or {}).get("source") or {}
+    names = [a.get("author", {}).get("display_name", "") for a in work.get("authorships") or []]
+    meta = Meta(kind="paper")
+    meta.fill(
+        "OpenAlex",
+        title=clean_title(work.get("title") or ""),
+        author="; ".join(n for n in names if n),
+        year=str(work.get("publication_year") or ""),
+        journal=source.get("display_name") or "",
+        volume=str(biblio.get("volume") or ""),
+        issue=str(biblio.get("issue") or ""),
+        page_range=pages,
+        doi=doi,
+        url=f"https://doi.org/{doi}" if doi else work.get("id", ""),
+    )
+    return meta
+
+
+def _keyword_list(text: str) -> list[str]:
+    parts = re.split(r"[;·•]" if re.search(r"[;·•]", text) else r",", text)
+    out = []
+    for part in parts:
+        word = " ".join(part.split()).strip(" .,:-–—")
+        if (
+            word
+            and len(word) <= 60
+            and len(word.split()) <= 6
+            and word.lower() not in map(str.lower, out)
+        ):
+            out.append(word)
+    return out[:10]
+
+
+def keywords_from_page(text: str) -> list[str]:
+    """The "Keywords:" line on a paper's first page (also "Key words", "Index Terms")."""
+    m = re.search(r"(?:key\s*words?|index\s+terms)\s*[:—–-]\s*", text, re.IGNORECASE)
+    if not m:
+        return []
+    rest = text[m.end() : m.end() + 400]
+    # The list ends at a blank line, or where the next part of the page starts: a heading in
+    # any case ("INTRODUCTION"), or a section number, Arabic or Roman ("1." / "I.")
+    stop = re.search(
+        r"\n\s*\n|\b(?:Abstract|Introduction|Received|Citation|Copyright)\b|©|\n\s*(?:1|I)\.?\s",
+        rest,
+        re.IGNORECASE,
+    )
+    return _keyword_list(rest[: stop.start()] if stop else rest)
+
+
+def openalex_keywords(doi: str) -> list[str]:
+    """Keywords OpenAlex assigns to a work, for papers that list none themselves."""
+    data = _get_json(f"https://api.openalex.org/works/doi:{urllib.parse.quote(doi, safe='/')}")
+    return [k.get("display_name", "") for k in (data or {}).get("keywords") or []][:6]
+
+
+def paper_keywords(info: dict, first_pages: str, doi: str = "", online: bool = True) -> str:
+    """A paper's keywords: from the PDF's details, else its first page, else OpenAlex."""
+    words = _keyword_list(str(info.get("/Keywords") or "")) or keywords_from_page(first_pages)
+    if not words and online and doi:
+        words = openalex_keywords(doi)
+    return "; ".join(words)
+
+
+def looks_like_paper(first_pages: str, pages: str) -> bool:
+    """An article rather than a book: short, with an abstract near the start."""
+    return (
+        bool(re.search(r"\babstract\b", first_pages, re.IGNORECASE)) and 0 < int(pages or 0) <= 80
+    )
 
 
 def clean_filename(stem: str) -> str:
@@ -221,10 +468,13 @@ def open_library_search(title: str, author: str) -> Meta:
     return meta
 
 
-def identify(path: Path, online: bool = True) -> Meta:
+def identify(path: Path, online: bool = True, paper: bool = False) -> Meta:
+    """Title, authors, year and the rest. With `paper` (a file in papers/), it's a paper even if
+    nothing online knows it."""
     filename = parse_filename(path.stem)
     isbns = find_isbns(path.stem)
-    pdf_title = pdf_author = front_text = pages = ""
+    pdf_title = pdf_author = front_text = first_pages = pages = ""
+    info: dict = {}
     if path.suffix.lower() == ".pdf":
         try:
             reader = PdfReader(path)
@@ -232,9 +482,43 @@ def identify(path: Path, online: bool = True) -> Meta:
             info = reader.metadata or {}
             pdf_title, pdf_author = info.get("/Title") or "", info.get("/Author") or ""
             front_text = "\n".join(p.extract_text() or "" for p in reader.pages[:FRONT_PAGES])
+            # A paper's own DOI is in its metadata or on its first page; later pages hold the
+            # references, full of other papers' DOIs
+            page_text = "\n".join(p.extract_text() or "" for p in reader.pages[:2])
+            if online and not page_text.strip() and reader.pages:
+                # A scan (old papers often are): read the first page with OCR (~2 s), so its
+                # title, authors and any DOI can be looked up. Decided on the pages' own text:
+                # a scan can still carry details such as a Subject in its metadata
+                from book_ocr import ocr_pages
+
+                page_text = ocr_pages(path, [0]).get(0, "")
+            first_pages = "\n".join(
+                [str(info.get(k) or "") for k in ("/doi", "/DOI", "/Subject", "/Keywords")]
+                + [page_text]
+            )
         except Exception as e:  # damaged/encrypted PDFs: fall back to the filename
             print(f"  ! couldn't read the PDF ({e})")
         isbns += [i for i in find_isbns(front_text) if i not in isbns]
+
+    # A paper, found online in this order: its DOI (Crossref has everything, journal
+    # included), its arXiv number, or its title and authors searched on Crossref
+    if online:
+        found = Meta()
+        for doi in find_dois(path.stem + " " + first_pages)[:2]:
+            found = crossref(doi)
+            if found.kind == "paper" and found.title:
+                break
+        else:
+            if identifier := find_arxiv(path.stem, first_pages):
+                found = arxiv(identifier)
+            elif paper or looks_like_paper(first_pages, pages):
+                found = crossref_search(first_pages)
+                if not found.title:
+                    found = openalex_search(first_pages)
+        if found.kind == "paper" and found.title:
+            found.fill("PDF", pages=pages)
+            found.keywords = paper_keywords(info, first_pages, found.doi, online)
+            return found
 
     meta = open_library(isbns) if online and isbns else Meta()
     meta.fill("PDF", pages=pages)
@@ -248,6 +532,10 @@ def identify(path: Path, online: bool = True) -> Meta:
         meta.fill(filename.sources.get(key, "filename"), **{key: getattr(filename, key)})
     if years := COPYRIGHT_RE.findall(front_text):
         meta.fill("copyright page", year=max(years))
+    if paper:  # nothing online knows it: the PDF's own details, and the user fills the rest
+        meta.kind = "paper"
+        meta.keywords = paper_keywords(info, first_pages, online=False)
+        return meta
     if online and meta.title and not meta.complete:
         found = open_library_search(meta.title, meta.author)
         for key in ("author", "year", "publisher"):

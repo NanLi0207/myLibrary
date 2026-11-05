@@ -6,7 +6,7 @@
   "use strict";
   const token = window.MYLIBRARY_TOKEN;
   const file = new URLSearchParams(location.search).get("file") || "";
-  const slug = (file.match(/\/books\/([a-z0-9-]+)\.pdf$/) || [])[1];
+  const slug = (file.match(/\/(?:books|papers)\/([a-z0-9-]+)\.pdf$/) || [])[1];
   let popup = null;
   let bubble = null;
 
@@ -105,12 +105,13 @@
     return `${author[0].toUpperCase()}${author.slice(1)} ${year}`;
   }
 
-  function openPage(bookSlug, page) {
+  function openPage(bookSlug, page, bookFile) {
     if (bookSlug === slug && window.PDFViewerApplication) {
       PDFViewerApplication.page = page;
       closeAll();
     } else {
-      window.open(`/pdfjs/web/viewer.html?file=/books/${bookSlug}.pdf#page=${page}`, "_blank");
+      const target = bookFile || `books/${bookSlug}.pdf`;  // books/ or papers/
+      window.open(`/pdfjs/web/viewer.html?file=/${target}#page=${page}`, "_blank");
     }
   }
 
@@ -159,7 +160,7 @@
         where.append(el("b", null, bookLabel(r.slug)), ` · p. ${r.page}`);
         if (r.slug === slug) where.append(biEl("span", "ml-here", "本书", "this book"));
         item.append(where, snippetNode(r.snippet));
-        item.onclick = () => openPage(r.slug, r.page);
+        item.onclick = () => openPage(r.slug, r.page, r.file);
         results.append(item);
       }
     };

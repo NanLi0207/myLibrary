@@ -11,7 +11,7 @@ from reportlab.pdfgen import canvas
 @pytest.fixture
 def library(tmp_path, monkeypatch):
     """An empty library in a temporary folder; no network, no real search index."""
-    for name in ("BOOKS", "EXAMPLES", "NOTES"):
+    for name in ("BOOKS", "PAPERS", "EXAMPLES", "NOTES"):
         monkeypatch.setattr(add_book, name, tmp_path / name.lower())
     monkeypatch.setattr(add_book, "CATALOG", tmp_path / "catalog.csv")
     monkeypatch.setattr(add_book, "PAGE_CACHE", tmp_path / ".cache" / "chapter_pages.json")

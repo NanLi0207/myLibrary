@@ -139,7 +139,7 @@ def ensure_library(library: Path | None = None) -> Path:
     """Create the library's folders if they're missing; a library chosen by default is
     remembered in the settings file so the next start uses the same one."""
     library = library or LIBRARY
-    for sub in ("books", "notes/topics", "glossaries", "examples"):
+    for sub in ("books", "papers", "notes/topics", "glossaries", "examples"):
         (library / sub).mkdir(parents=True, exist_ok=True)
     if not (library / "library.toml").exists():
         (library / "library.toml").write_text(LIBRARY_TOML, encoding="utf-8")

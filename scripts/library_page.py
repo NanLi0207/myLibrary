@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import catalog
+import citation
 import paths
 from book_ocr import has_text_layer
 from pypdf import PdfReader
@@ -24,6 +25,7 @@ LIBRARY = paths.LIBRARY
 CATALOG = LIBRARY / "catalog.csv"
 PAGE = LIBRARY / "library.html"
 
+PAPER_ITEM = "Read the paper"  # a paper's one checklist item (counts as chapter 1)
 PROGRESS_RE = re.compile(r"^- \[([ xX])\] (?:\[(.+?)\]\((.+?)\)|(.+))$", re.MULTILINE)
 # Written by the reading view as you turn pages (library_server.save_position)
 LAST_READ_RE = re.compile(
@@ -52,7 +54,7 @@ def chapters(slug: str) -> list[dict]:
             {
                 "done": m[1] != " ",
                 "title": title,
-                "number": int(number[1]) if number else None,
+                "number": int(number[1]) if number else (1 if title == PAPER_ITEM else None),
                 "note": m[3] or "",
             }
         )
@@ -104,6 +106,8 @@ def books(pdf_base: str | None = None) -> list[dict]:
             | {
                 "chapter_list": chapters(row["slug"]),
                 "shelf_list": catalog.split_list(row.get("shelves") or ""),
+                "kind": row.get("type") or "book",
+                "citations": citation.all_formats(row),
                 "scan": scan_info(pdf)[0],
                 "ocr_minutes": max(1, round(scan_info(pdf)[1] * 1.5 / 60)),
                 "last_read": last_read(row["slug"]),
@@ -111,7 +115,7 @@ def books(pdf_base: str | None = None) -> list[dict]:
                 # read on the same day for "Sort: recently read"
                 "touched": _mtime(LIBRARY / "notes" / row["slug"] / "README.md"),
                 "pdf_missing": not pdf.exists(),
-                "pdf_uri": f"{pdf_base}/{pdf.name}" if pdf_base else pdf.as_uri(),
+                "pdf_uri": f"{pdf_base}/{row['file']}" if pdf_base else pdf.as_uri(),
                 "notes_uri": "vscode://file/"
                 + quote((LIBRARY / row["notes"]).as_posix(), safe="/:"),
             }
@@ -170,6 +174,18 @@ header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.01em; }
 .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip.shelf { background: var(--done); color: #fff; }
+.meta .kind { color: var(--accent); font-weight: 600; }
+.chip.kw { background: none; color: var(--muted); border: 1px solid var(--line); }
+.cite-wrap { position: relative; display: inline-flex; }
+.cite-menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; width: min(440px, 80vw);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); display: flex; flex-direction: column; gap: 2px; }
+.cite-menu button { display: flex; flex-direction: column; gap: 2px; text-align: left; font: inherit;
+  font-size: 12.5px; color: var(--text); background: none; border: 0; border-radius: 7px;
+  padding: 6px 8px; cursor: pointer; }
+.cite-menu button:hover { background: var(--accent-soft); }
+.cite-menu b { color: var(--accent); font-size: 12.5px; }
+.cite-menu span { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .shelves { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
 .shelves button { font: inherit; font-size: 13px; cursor: pointer; color: var(--accent);
   background: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; }
@@ -245,7 +261,12 @@ code { font-size: 12.5px; }
     <p class="stats" id="stats"></p>
   </header>
   <div class="controls">
-    <input id="q" type="search" placeholder="Search title, author, ISBN, subject, chapter…" autofocus>
+    <input id="q" type="search" placeholder="Search title, author, journal, ISBN, DOI, subject, chapter…" autofocus>
+    <select id="kind" aria-label="Show">
+      <option value="">Books and papers</option>
+      <option value="book">Books</option>
+      <option value="paper">Papers</option>
+    </select>
     <select id="sort">
       <option value="title">Sort: title</option>
       <option value="author">Sort: author</option>
@@ -311,6 +332,55 @@ const pct = b => Math.max(
 const firstAuthor = b => (b.authors || "").split(";")[0].trim();
 
 try { sort.value = localStorage.getItem("library-sort") || "title"; } catch {}
+const kindSelect = document.getElementById("kind");
+try { kindSelect.value = localStorage.getItem("library-kind") || ""; } catch {}
+const isPaper = b => b.kind === "paper";
+const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;  // "1 book", "2 books"
+// The first two authors, then "et al." ("A; B; C" for papers, "A, B, C" for most books)
+function authorLine(b) {
+  const raw = b.authors || "";
+  let names = raw.split(";");
+  if (names.length === 1 && raw.split(",").every(n => n.trim().includes(" "))) names = raw.split(",");
+  names = names.map(a => a.trim()).filter(Boolean);
+  return names.length <= 2 ? names.join(", ") : names.slice(0, 2).join(", ") + " et al.";
+}
+async function copyText(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`Copied the ${label} citation`);
+  } catch {
+    prompt("Copy the citation (Ctrl+C):", text);  // no clipboard access (e.g. the static page)
+  }
+}
+
+// The Cite menu: every format with a one-line preview; click one to copy it
+function closeCiteMenus() {
+  document.querySelectorAll(".cite-menu").forEach(m => m.remove());
+}
+function openCiteMenu(button, b) {
+  const open = button.parentElement.querySelector(".cite-menu");
+  closeCiteMenus();
+  if (open) return;  // a second click on Cite closes it
+  const menu = document.createElement("div");
+  menu.className = "cite-menu";
+  menu.innerHTML = b.citations.map((c, i) =>
+    `<button type="button" data-format="${i}"><b>${esc(c.label)}</b>`
+    + `<span>${esc(c.text.replace(/\s+/g, " "))}</span></button>`).join("");
+  menu.addEventListener("click", e => {
+    const choice = e.target.closest("[data-format]");
+    if (!choice) return;
+    const c = b.citations[+choice.dataset.format];
+    copyText(c.text, c.label.split(" (")[0]);
+    closeCiteMenus();
+  });
+  button.after(menu);
+}
+document.addEventListener("click", e => {
+  if (!e.target.closest(".cite-menu, [data-cite]")) closeCiteMenus();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeCiteMenus();
+});
 
 // The shelf bar: All, then every shelf in use, with how many books are on it
 function renderShelves() {
@@ -330,8 +400,11 @@ function stats() {
   const ch = books.reduce((n, b) => n + b.chapter_list.length, 0);
   const dn = books.reduce((n, b) => n + done(b), 0);
   const pages = books.reduce((n, b) => n + (+b.pages || 0), 0);
+  const papers = books.filter(isPaper);
+  const read = papers.filter(b => done(b)).length;
   document.getElementById("stats").textContent =
-    `${books.length} books · ${pages.toLocaleString()} pages · ${dn} of ${ch} chapters read`;
+    `${count(books.length - papers.length, "book")}${papers.length ? ` · ${count(papers.length, "paper")} (${read} read)` : ""}`
+    + ` · ${pages.toLocaleString()} pages · ${dn - read} of ${ch - papers.length} chapters read`;
 }
 
 // The chapter "Continue" goes to: first unticked one (or the first chapter if all are done)
@@ -367,31 +440,37 @@ function card(b) {
   const next = nextChapter(b);
   return `<article class="card" data-slug="${esc(b.slug)}">
     <h2>${esc(b.title)}</h2>
-    <div class="byline">${esc((b.authors || "").replaceAll(";", ","))}</div>
+    <div class="byline">${esc(authorLine(b))}</div>
     <div class="meta">
+      <span class="kind">${isPaper(b) ? "Paper" : "Book"}</span>
       ${b.year ? `<span>${esc(b.year)}</span>` : ""}
-      ${b.publisher ? `<span>${esc(b.publisher)}</span>` : ""}
+      ${isPaper(b) && b.journal ? `<span>${esc(b.journal)}${b.volume ? ` ${esc(b.volume)}` : ""}${b.issue ? `(${esc(b.issue)})` : ""}${b.page_range ? `, ${esc(b.page_range)}` : ""}</span>` : ""}
+      ${!isPaper(b) && b.publisher ? `<span>${esc(b.publisher)}</span>` : ""}
       ${b.pages ? `<span>${esc(b.pages)} pages</span>` : ""}
       ${b.isbn ? `<span>ISBN ${esc(b.isbn)}</span>` : ""}
     </div>
+    ${isPaper(b) && b.keywords ? `<div class="chips keywords">${b.keywords.split(";").map(k => k.trim()).filter(Boolean).slice(0, 6).map(k => `<span class="chip kw">${esc(k)}</span>`).join("")}</div>` : ""}
     ${b.shelf_list.length ? `<div class="chips">${b.shelf_list.map(s => `<span class="chip shelf">${esc(shelfLabel(s))}</span>`).join("")}</div>` : ""}
     <div class="progress"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>
-      ${n ? `${done(b)}/${n} chapters` : "no chapters"}${pct(b) > 0 ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : ""}</div>
+      ${isPaper(b) ? (done(b) ? "Read ✓" : "Not read yet") : n ? `${done(b)}/${n} chapters` : "no chapters"}${pct(b) > 0 && !(isPaper(b) && done(b)) ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : ""}</div>
     ${b.last_read ? `<div class="next">Last read: page ${b.last_read.page}${b.last_read.chapter ? ` · ${esc(b.last_read.chapter)}` : ""} · ${esc(b.last_read.date)}</div>`
-      : API && next && done(b) < n ? `<div class="next">Next: ${esc(next.title)}</div>` : ""}
+      : API && next && done(b) < n && !isPaper(b) ? `<div class="next">Next: ${esc(next.title)}</div>` : ""}
     <div class="actions">
       ${readButton(b)}
       ${API ? `<button type="button" class="primary" data-shelves title="Which shelves this book is on">Shelves</button>` : ""}
-      ${n ? `<button type="button" class="primary" data-toggle>Chapters</button>` : ""}
+      ${isPaper(b) ? (API ? `<button type="button" class="primary" data-markread>${done(b) ? "✓ Read" : "Mark as read"}</button>` : "")
+        : n ? `<button type="button" class="primary" data-toggle>Chapters</button>` : ""}
     </div>
     <div class="actions">
-      ${b.pdf_missing ? `<span class="missing" title="books/${esc(b.slug)}.pdf is gone; notes and scripts are still here">PDF missing</span>`
+      ${b.pdf_missing ? `<span class="missing" title="${esc(b.file)} is gone; notes and scripts are still here">PDF missing</span>`
         : `<a href="${esc(b.pdf_uri)}" target="_blank" rel="noopener">PDF</a>`}
       ${API ? `<button type="button" data-notes>Notes</button>` : `<a href="${esc(b.notes_uri)}">Notes</a>`}
       ${b.openlibrary ? `<a href="${esc(b.openlibrary)}" target="_blank" rel="noopener">Open Library</a>` : ""}
+      ${b.doi ? `<a href="https://doi.org/${esc(b.doi)}" target="_blank" rel="noopener" title="The paper's page at its publisher">DOI</a>` : ""}
+      <span class="cite-wrap"><button type="button" data-cite title="Copy a citation: APA, IEEE, GB/T 7714, BibTeX or RIS">Cite ▾</button></span>
       ${API && b.scan && !b.pdf_missing ? `<button type="button" data-ocr title="This book is a scan: OCR adds a text layer, so its words can be looked up and searched">OCR (~${b.ocr_minutes} min)</button>` : ""}
     </div>
-    ${n ? `<ol class="chapters" hidden>${chapters}</ol>` : ""}
+    ${n && !isPaper(b) ? `<ol class="chapters" hidden>${chapters}</ol>` : ""}
   </article>`;
 }
 
@@ -414,8 +493,9 @@ function render() {
   }[sort.value];
   const shown = books
     .filter(b => !shelf || b.shelf_list.includes(shelf))
+    .filter(b => !kindSelect.value || (b.kind || "book") === kindSelect.value)
     .filter(b => {
-      const hay = [b.title, b.authors, b.year, b.publisher, b.isbn, b.subjects,
+      const hay = [b.title, b.authors, b.year, b.publisher, b.isbn, b.subjects, b.journal, b.doi, b.keywords,
                    ...b.shelf_list, ...b.shelf_list.map(shelfLabel),
                    ...b.chapter_list.map(c => c.title)].join(" ").toLowerCase();
       return words.every(w => hay.includes(w));
@@ -459,6 +539,21 @@ document.getElementById("shelves").addEventListener("click", e => {
 });
 
 grid.addEventListener("click", async e => {
+  const cite = e.target.closest("[data-cite]");
+  if (cite) return openCiteMenu(cite, bookOf(cite));
+  const markRead = e.target.closest("[data-markread]");
+  if (markRead && API) {
+    const b = bookOf(markRead);
+    try {
+      const r = await api("/api/tick", {slug: b.slug, chapter: 1, done: !done(b)});
+      b.chapter_list = r.chapter_list;
+      stats();
+      render();
+    } catch (err) {
+      toast(`Couldn't save: ${err.message}`);
+    }
+    return;
+  }
   const notes = e.target.closest("[data-notes]");
   if (notes && API) {
     try {
@@ -552,6 +647,10 @@ grid.addEventListener("change", async e => {
   }
 });
 q.addEventListener("input", render);
+kindSelect.addEventListener("change", () => {
+  try { localStorage.setItem("library-kind", kindSelect.value); } catch {}
+  render();
+});
 sort.addEventListener("change", () => {
   try { localStorage.setItem("library-sort", sort.value); } catch {}
   render();
@@ -663,7 +762,7 @@ async function saveSettings() {
 
 if (API) {
   document.getElementById("tools").innerHTML = `
-    <label class="tool" title="Add PDF books to the library">＋ Add books
+    <label class="tool" title="Add PDF books or papers to the library">＋ Add
       <input type="file" id="addFiles" accept=".pdf,application/pdf" multiple hidden></label>
     ${API.backup ? `<button type="button" class="tool" id="backup" title="Save your notes, progress and vocabulary to GitHub">☁ Back up</button>` : ""}
     <button type="button" class="tool" id="openSettings">⚙ Settings</button>

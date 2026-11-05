@@ -9,14 +9,21 @@ from pathlib import Path
 
 COLUMNS = [
     "slug",
+    "type",  # "book" (or empty: a book) or "paper"
     "title",
     "authors",
     "year",
     "publisher",
     "isbn",
+    "journal",  # papers: journal, volume, issue, pages, DOI
+    "volume",
+    "issue",
+    "page_range",
+    "doi",
     "pages",
     "chapters",
     "subjects",
+    "keywords",  # papers: their own keywords, "laser; weed control"
     "shelves",  # your own grouping, e.g. "Optics; Lasers"
     "file",
     "notes",
