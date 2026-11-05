@@ -18,12 +18,13 @@ import time
 from pathlib import Path
 from statistics import median
 
+import paths
 from book_ocr import group_lines, has_text_layer, ocr_boxes
 from pypdf import PdfReader, PdfWriter, Transformation
 
-ROOT = Path(__file__).resolve().parent.parent
-ARCHIVE_BOOKS = ROOT / "archive" / "books"
-OUTPUT_DIR = ROOT / ".cache" / "ocr-output"
+LIBRARY = paths.LIBRARY
+ARCHIVE_BOOKS = LIBRARY / "archive" / "books"
+OUTPUT_DIR = LIBRARY / ".cache" / "ocr-output"
 FONT_FILES = [Path("C:/Windows/Fonts/arial.ttf"), Path("/Library/Fonts/Arial Unicode.ttf")]
 SECONDS_PER_PAGE = 1.5  # typical OCR speed, for the time estimates shown before starting
 
@@ -162,6 +163,7 @@ def main() -> None:
     import library_page
 
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    paths.add_argument(parser)
     parser.add_argument("pdf", type=Path)
     parser.add_argument("--yes", action="store_true", help="don't ask before starting")
     args = parser.parse_args()
@@ -179,7 +181,7 @@ def main() -> None:
         print("Nothing changed.")
         return
     keep = make_searchable(pdf)
-    print(f"  -> {pdf.name} is now searchable; the original scan is in {keep.relative_to(ROOT)}")
+    print(f"  -> {pdf.name} is now searchable; the original scan is in {paths.display(keep)}")
 
     # A book already in the library: re-read its chapters from the new text layer
     if add_book.SLUG_RE.match(pdf.stem) and pdf.parent == add_book.BOOKS:

@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
-
-from mylibrary import efl, free_space, refraction, system_matrix, thin_lens
+from optics import efl, free_space, refraction, system_matrix, thin_lens
 
 
 def test_two_thin_lenses_match_gullstrand():

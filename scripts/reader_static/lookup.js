@@ -163,7 +163,21 @@
         results.append(item);
       }
     };
-    row.append(books);
+    // 主题笔记 (Topic note): your notes on this term across all your books
+    const topic = biEl("button", "ml-small", "📝 主题笔记", "Topic note");
+    topic.title = "打开或新建这个主题的笔记 / Open or start your notes on this topic (notes/topics/)";
+    topic.onclick = async () => {
+      topic.disabled = true;
+      try {
+        const r = await post("/api/topic", { text: term });
+        topic.replaceChildren(r.opened ? bi("已打开 ✓", "Opened") : bi("已创建 ✓", "Created"));
+        topic.title = r.file;
+      } catch (e) {
+        topic.replaceChildren(bi("失败", "Failed"));
+        topic.title = e.message;
+      }
+    };
+    row.append(books, topic);
     row.append(link("Wikipedia", "https://en.wikipedia.org/w/index.php?search=" + encodeURIComponent(term)));
     if (zh) {
       const name = zh.split(/[（(；;，,]/)[0].trim();
@@ -238,7 +252,7 @@
     place(popup, rect);
     let data;
     try {
-      data = await post("/api/lookup", { text, context });
+      data = await post("/api/lookup", { text, context, slug });
     } catch (e) {
       popup.replaceChildren(biEl("div", "ml-error", "查询失败", "Lookup failed: " + e.message));
       return;

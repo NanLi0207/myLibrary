@@ -9,9 +9,9 @@
 
 ## Reading progress
 
-Last read: page 27 (Ch 1: Introduction: the Art and Science of Design), 2026-11-05
+Last read: page 37 (Ch 2: Basic Optics for Design), 2026-11-05
 
-- [ ] [Ch 1: Introduction: the Art and Science of Design](ch01-introduction.md)
+- [x] [Ch 1: Introduction: the Art and Science of Design](ch01-introduction.md)
 - [ ] [Ch 2: Basic Optics for Design](ch02-basic-optics-design.md)
 - [ ] [Ch 3: Aberrations](ch03-aberrations.md)
 - [ ] [Ch 4: Image Analysis](ch04-image-analysis.md)

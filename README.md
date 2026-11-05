@@ -16,10 +16,10 @@ Everything runs on your own computer. **No books are included**: bring your own 
 A **ready-to-use package** (no Python or command line needed) is planned, for **9.9 RMB**.
 Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-> The author uses it to learn optical design, so the repository ships with that as a worked
-> example: an optics glossary of ~300 terms, optional optics Python packages, and a small optics
-> helper module. Replace them with your own subject (see
-> [Use it for your own subject](#use-it-for-your-own-subject)).
+> The author uses it to learn optical design. Their library is included in `library/` as a
+> worked example: shelves, notes, an optics glossary of ~300 terms, chapter scripts and a small
+> optics code module (the books themselves are not included). Your own library lives in its own
+> folder, for any subjects you like (see [Use it for your own subject](#use-it-for-your-own-subject)).
 
 **Contents**
 
@@ -52,12 +52,20 @@ uv sync                                # install Python and the packages (.venv)
 uv run scripts/make_shortcut.py        # Windows: Desktop + Start menu shortcut "myLibrary"
 ```
 
-Put your PDFs into `books/` and register them (see [Managing books](#8-managing-books)):
+**Your library.** The tool works on a *library*: one folder with your books, notes,
+glossaries and chapter scripts, for every subject you study. The first start creates an empty
+one in `Documents\myLibrary Library` and remembers it (in `local.toml`, see
+[Where things are stored](#9-where-things-are-stored)). Put your PDFs into its `books/` folder and
+register them (see [Managing books](#8-managing-books)):
 
 ```powershell
 uv run scripts/add_book.py --dry-run   # preview the names it will give them
 uv run scripts/add_book.py             # register them
 ```
+
+This repository's own `library/` folder is the author's library (optical design), included as
+a real example: browse it to see what a well-used library looks like. Leave it as it is; your
+library lives in its own folder, so `git pull` never mixes the two.
 
 **Every day:** double-click **myLibrary** (or press Win and type "myLibrary"; elsewhere run
 `uv run scripts/library_server.py`). The library page opens in your browser; click
@@ -73,14 +81,14 @@ word lookup.
 
 ### Use it for your own subject
 
-1. Create a glossary for your subject, e.g. `glossaries/biology.csv`, starting with the line
-   `term,zh,note,definition`, and give it a label in `glossaries/glossaries.toml` (see
-   [Glossaries](#6-glossaries)). Or start with no glossary: the first term you add from the
-   popup creates `glossaries/my-terms.csv`.
-2. Don't need optics? Delete `glossaries/optics.csv` (and its section in `glossaries.toml`), and
-   replace `src/mylibrary/paraxial.py` with your own code, or leave it.
-3. Add packages your subject needs with `uv add <package>` (or as a group, like `optics` in
-   `pyproject.toml`). For the optics example's packages: `uv sync --group optics`.
+1. **Shelves:** say which subjects you study in your library's `library.toml` (e.g.
+   `Biology = "生物 Biology"`), and put each book on one or more shelves with the **Shelves**
+   button on the library page.
+2. **Glossaries:** create one for your subject, e.g. `glossaries/biology.csv` in your library,
+   starting with the line `term,zh,note,definition` (see [Glossaries](#6-glossaries)). Or just
+   start reading: the first term you add from the popup creates `glossaries/my-terms.csv`. For
+   an example, copy `library/glossaries/optics.csv` from this repository.
+3. **Packages:** add the Python packages your chapter scripts need with `uv add <package>`.
 
 ## 2. A typical study session
 
@@ -99,8 +107,10 @@ word lookup.
 
 ## 3. The library page
 
-One card per book. Use the search box to filter (title, author, subject, chapter titles) and the
-sort menu to order the cards (title, author, newest, progress, recently added).
+One card per book. The **shelf bar** under the search box shows your subjects (All, 光学
+Optics, 激光 Lasers, …) with how many books each has; click one to see only those books. Use the
+search box to filter (title, author, subject, shelf, chapter titles) and the sort menu to order
+the cards (title, author, newest, progress, recently added).
 
 | On a card | What it does |
 |---|---|
@@ -109,12 +119,27 @@ sort menu to order the cards (title, author, newest, progress, recently added).
 | **PDF** | Opens the book in the reading view at its first page (notes not opened) |
 | **Notes** | Opens the book's notes folder in VS Code |
 | **Chapters** | Shows the chapter list: **Read** opens one chapter, **Script** its Python script; the checkbox ticks it |
+| **Shelves** | Which shelves the book is on, separated by `;` (e.g. `Optics; Lasers`) |
+| Green tags | The book's shelves (light tags: subjects from Open Library) |
 | Progress bar, "0/8 chapters · 3%" | How far you are (see below) |
 | "Last read: page 41 · Ch 2 · date" | Where you stopped |
 
 **Ticking chapters.** A ticked chapter is one you've marked as *finished*. Ticking writes
 `- [x]` into the book's `notes/<book>/README.md`; you can also edit that checklist by hand.
 Nothing ticks a chapter automatically: skimming isn't the same as finishing.
+
+**Shelves** group books by subject, and a book can be on several: *Laser-Induced Damage of
+Optical Materials* is on Optics, Lasers and Materials. They're stored in the `shelves` column of
+`catalog.csv`. Give a shelf a label (Chinese with its English translation) in `library.toml`:
+
+```toml
+[shelves]
+Optics = "光学 Optics"
+"Lens design" = "镜头设计 Lens design"
+```
+
+A shelf also decides which glossary comes first in the lookup popup: reading a book on the
+Optics shelf, the `optics` glossary's meanings are listed first.
 
 **Progress** is whichever is further: the share of chapters ticked, or the page you last read out
 of the book's pages. **Sort: progress** puts the furthest-along book first, then the one read
@@ -173,6 +198,8 @@ popup and press Enter.
    - **📚 在我的书中** (In my books): the pages of *all* your books that discuss the term most, with a short
      snippet (the book you're reading first). Click one to jump to that page. Often the best way
      to really understand a term: see how two or three authors explain it.
+   - **📝 主题笔记** (Topic note): opens your note on this term across all your books (see
+     [Topic notes](#topic-notes-notestopicstopicmd)).
    - **Wikipedia**, **维基百科** (Chinese Wikipedia), **百度百科** (Baidu Baike), all online.
 5. **＋ 加入术语表** (Add to glossary): shown when the word or phrase isn't in a glossary yet
    ([section 6](#6-glossaries)).
@@ -257,6 +284,13 @@ The chapter files start with headings only. Write the notes **in your own words*
 text from the books (they're copyrighted, and rewriting is how you learn it). Notes are plain
 Markdown, so equations can be written as `$E = mc^2$`.
 
+### Topic notes (`notes/topics/<topic>.md`)
+
+Chapter notes follow one book; a **topic note** follows one idea across all your books, e.g.
+`aberrations.md` combining what Kingslake, Fischer and Geary say. Open one from the lookup popup
+with **📝 主题笔记** (Topic note): the first time, it's created with headings and a list of the
+pages in your books that discuss the term most (book and page only), ready for your own summary.
+
 ### Chapter scripts (`examples/<book>/chNN_<topic>.py`)
 
 For technical books, recomputing a worked example is one of the best ways to check that you
@@ -267,7 +301,7 @@ that, **Read** and **Continue** open it together with the chapter's notes.
 Write your calculation in `main()`, then run it with VS Code's **Run** button (▶), or:
 
 ```powershell
-uv run examples/<book>/ch03_aberrations.py
+uv run library/examples/<book>/ch03_aberrations.py   # the path is shown in the script's header
 ```
 
 `uv sync` installs `numpy`, `scipy`, `sympy` and `matplotlib` (the `science` group) for these
@@ -280,12 +314,13 @@ scripts. Ideas:
 
 Scripts are created only when you ask for one; a chapter without calculations needs none.
 
-### Your own code (`src/mylibrary/`)
+### Your own code (`code/`)
 
-When a function proves useful in more than one script, move it into `src/mylibrary/`, import it
-with `from mylibrary import ...`, and add a test in `tests/` that checks it against a result
-from a book. The example module `mylibrary.paraxial` (ray-transfer matrices for first-order
-optics) grew out of the optics books.
+When a function proves useful in more than one script, move it into your library's `code/`
+folder, grouped by subject (e.g. `code/optics/paraxial.py`). Chapter scripts can import it
+directly (`from optics.paraxial import thin_lens`): the script template puts `code/` on Python's
+import path. Add tests next to it, in `code/tests/`, checking it against results from a book;
+`uv run pytest` runs them along with the tool's tests.
 
 ## 8. Managing books
 
@@ -297,7 +332,7 @@ its scripts folder. Books are always PDFs.
 
 ### Adding a book
 
-Put the PDF into `books/` with any file name, then:
+Put the PDF into your library's `books/` folder with any file name, then:
 
 ```powershell
 uv run scripts/add_book.py --dry-run   # preview: proposed name, and where each detail came from
@@ -325,7 +360,7 @@ end of every run it asks about each scan in `books/` that still has none (Enter 
 uv run scripts/ocr_pdf.py books/<slug>.pdf   # ~1.5 s per page; asks first
 ```
 
-The page images stay the same; the original scan is kept in `archive/books/`. An interrupted
+The page images stay the same; the original scan is kept in the library's `archive/books/`. An interrupted
 run continues where it stopped. OCR text is never perfectly placed or perfectly spelled; see
 [section 5](#ways-to-look-something-up).
 
@@ -348,40 +383,57 @@ move its files back and run `add_book.py`. If you only delete the PDF, the card 
 
 ## 9. Where things are stored
 
+The repository has two parts: **the tool**, and **a library** it works on.
+
 ```
-books/<slug>.pdf          your books (local only: never in git, they're copyrighted)
-notes/<slug>/             your notes, ticks, last-read page, vocabulary
-examples/<slug>/          your chapter scripts (created with "Script")
-glossaries/               your subject glossaries (*.csv) and glossaries.toml
-catalog.csv               one row per book: title, authors, year, publisher, ISBN, pages, ...
-src/mylibrary/            your reusable Python code
-tests/                    checks for src/mylibrary and the scripts (uv run pytest)
-scripts/                  the tools behind all of this
-library.html              static copy of the library page (local only)
-archive/                  removed books, original scans (local only)
-.cache/                   rebuildable data (local only)
+myLibrary/                   the tool (this repository)
+├── scripts/                 the tool itself
+├── tests/                   the tool's tests (uv run pytest)
+├── local.toml               which library this computer opens (local only, not in git)
+├── .cache/reader/           PDF viewer and dictionary, shared by every library (local only)
+└── library/                 the author's library, included as an example
+
+<your library>/              e.g. Documents/myLibrary Library
+├── library.toml             its name, and your shelves with their labels
+├── catalog.csv              one row per book: title, authors, year, ISBN, pages, shelves, ...
+├── books/<slug>.pdf         your books (never in git: they're copyrighted)
+├── notes/<slug>/            per book: notes, ticks, last-read page, vocabulary
+├── notes/topics/            your topic notes, across books
+├── glossaries/              your subject glossaries (*.csv) and glossaries.toml
+├── examples/<slug>/         your chapter scripts (created with "Script")
+├── code/                    your reusable Python code, by subject, and its tests
+├── library.html             static copy of the library page (local only)
+├── archive/                 removed books, original scans (local only)
+└── .cache/                  search index, chapter pages, OCR results (local only)
 ```
 
-**Your own work** (back it up, never delete): `notes/`, `examples/`, `glossaries/`,
-`src/mylibrary/`, `catalog.csv`. It's all in git; commit and push to keep a copy.
+**Which library the tool opens**, in this order: `--library <folder>` on any command, the
+`MYLIBRARY_LIBRARY` environment variable, then `local.toml` in the tool's folder
+(`library = "D:/Study/My Library"`; a relative path is relative to the tool's folder). With none
+of these, the first start creates `Documents\myLibrary Library` and writes `local.toml`.
 
-**The books are not in git**, because they're copyrighted: `books/` is listed in `.gitignore`.
+**Your own work** (back it up, never delete): your library's `notes/`, `examples/`, `code/`,
+`glossaries/`, `catalog.csv` and `library.toml`. Version it with git if you like, in its own
+repository (private or public).
+
+**The books are never in git**, because they're copyrighted: `.gitignore` excludes every PDF.
 Git doesn't back them up, so keep your own copy of the PDFs somewhere else (an external drive,
-or a private cloud folder). If you publish your copy of this repository, only your notes,
-scripts, glossaries and code go public, never the books.
+or a private cloud folder).
 
-**Safe to delete** (rebuilt automatically when needed): everything in `.cache/`:
+**Safe to delete** (rebuilt automatically when needed):
 
-| In `.cache/` | What | Rebuilt by |
+| What | Where | Rebuilt by |
 |---|---|---|
-| `reader/pdfjs/`, `reader/ecdict.db` | PDF viewer, dictionary | the server on start, or `uv run scripts/reader.py --setup` |
-| `reader/books.db` | full-text index for 在我的书中 (In my books) | the server on start |
-| `chapter_pages.json` | where each chapter starts in each PDF | the server, on first use |
-| `ocr/` | OCR results | `ocr_pdf.py` / `add_book.py` (slow: re-runs OCR) |
+| PDF viewer, dictionary | the tool's `.cache/reader/` | the server on start, or `uv run scripts/reader.py --setup` |
+| Full-text index for 在我的书中 (In my books) | the library's `.cache/books.db` | the server on start |
+| Where each chapter starts in each PDF | the library's `.cache/chapter_pages.json` | the server, on first use |
+| OCR results | the library's `.cache/ocr/` | `ocr_pdf.py` / `add_book.py` (slow: re-runs OCR) |
 
 ## 10. Command reference
 
-Run these in the project folder (PowerShell, a terminal, or the VS Code terminal).
+Run these in the tool's folder (PowerShell, a terminal, or the VS Code terminal). Every
+command works on your library (see [above](#9-where-things-are-stored)); add `--library <folder>`
+to use another one.
 
 | Command | Does |
 |---|---|
@@ -397,14 +449,14 @@ Run these in the project folder (PowerShell, a terminal, or the VS Code terminal
 | `uv run scripts/reader.py --setup` | Download the PDF viewer and dictionary |
 | `uv run scripts/book_search.py <term>` | Search all books for a term |
 | `uv run scripts/library_page.py` | Write the static `library.html` |
-| `uv run examples/<book>/chNN_<topic>.py` | Run a chapter script |
+| `uv run <library>/examples/<book>/chNN_<topic>.py` | Run a chapter script |
 | `uv sync` | Create or update the Python environment (`--group optics` adds the optics packages) |
 | `uv add <package>` | Add a Python package |
 | `uv run pytest` | Run the tests |
 | `uv run ruff check . ; uv run ruff format .` | Lint and format the code |
 
-`catalog.csv` also opens in Excel, or search it from the terminal:
-`Select-String -Path catalog.csv -Pattern aberration`.
+Your library's `catalog.csv` also opens in Excel, or search it from the terminal:
+`Select-String -Path library/catalog.csv -Pattern aberration`.
 
 ## 11. Troubleshooting and FAQ
 
@@ -420,7 +472,7 @@ PDF from somewhere else. Open it from the library page.
 `uv run scripts/library_server.py --port 8766`.
 
 **Continue or Read opens the wrong page or chapter.** The chapter start pages are found once and
-cached. Delete the book's entry from `.cache/chapter_pages.json` (or the whole file) and restart
+cached. Delete the book's entry from the library's `.cache/chapter_pages.json` (or the whole file) and restart
 the server to find them again; if the chapter *list* itself is wrong, run
 `uv run scripts/add_book.py --refresh-chapters`.
 

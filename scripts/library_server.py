@@ -35,15 +35,16 @@ from pathlib import Path
 import book_search
 import catalog
 import library_page
+import paths
 import reader as reading_view
 from add_book import short_title
 from book_ocr import has_text_layer
 from book_toc import CHAPTER_TITLE_RE, contents_pages, scanned_chapter_pages, tidy
 from pypdf import PdfReader
 
-ROOT = Path(__file__).resolve().parent.parent
-CATALOG = ROOT / "catalog.csv"
-CACHE = ROOT / ".cache" / "chapter_pages.json"
+LIBRARY = paths.LIBRARY
+CATALOG = LIBRARY / "catalog.csv"
+CACHE = LIBRARY / ".cache" / "chapter_pages.json"
 TOKEN = secrets.token_urlsafe(24)
 
 _cache_lock = threading.Lock()
@@ -126,7 +127,7 @@ def chapter_page(slug: str, number: int | None, chapters: list[dict]) -> int | N
         with _cache_lock:
             cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
         if slug not in cache:
-            pdf = ROOT / catalog.load(CATALOG)[slug]["file"]
+            pdf = LIBRARY / catalog.load(CATALOG)[slug]["file"]
             if not pdf.exists():
                 return None  # PDF deleted: notes and scripts still open, just no page
             found = find_chapter_pages(pdf, chapters)
@@ -168,10 +169,16 @@ book's answer. Run it with VS Code's Run button, or in a terminal:
 Notes for this chapter: notes/{slug}/{note}
 """
 
+import sys
+from pathlib import Path
+
+# Your own reusable code is in the library's code/ folder (e.g. code/optics/paraxial.py)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "code"))
+
 # Useful imports (uncomment what you need):
 # import math
 # import numpy as np
-# from mylibrary import ...   # your own reusable code, in src/mylibrary/
+# from optics.paraxial import thin_lens
 
 
 def main() -> None:
@@ -189,7 +196,7 @@ if __name__ == "__main__":
 def script_for(slug: str, chapter: dict, book_title: str, create: bool = False) -> Path | None:
     """examples/<slug>/chNN_<topic>.py: the existing one, or with create, a new one from the
     template. None if there's none and create is False."""
-    folder = ROOT / "examples" / slug
+    folder = LIBRARY / "examples" / slug
     existing = sorted(folder.glob(f"ch{chapter['number']:02d}_*.py"))
     if existing:
         return existing[0]
@@ -207,7 +214,7 @@ def script_for(slug: str, chapter: dict, book_title: str, create: bool = False) 
         SCRIPT_TEMPLATE.format(
             book=safe(book_title),
             chapter=safe(chapter["title"]),
-            path=path.relative_to(ROOT).as_posix(),
+            path=paths.display(path),
             slug=slug,
             note=chapter["note"],
         ),
@@ -221,7 +228,7 @@ def open_in_vscode(*files: Path) -> bool:
     code = shutil.which("code")
     if not code:
         return False
-    subprocess.Popen([code, str(ROOT), *map(str, files)], cwd=ROOT)
+    subprocess.Popen([code, str(paths.WORKSPACE), *map(str, files)], cwd=paths.WORKSPACE)
     return True
 
 
@@ -251,7 +258,7 @@ def chapter_at(slug: str, page: int, chapters: list[dict]) -> dict | None:
 
 def save_position(slug: str, page: int) -> dict:
     """Write "Last read: page N (Ch k: ...), date" under "## Reading progress" in the README."""
-    readme = ROOT / "notes" / slug / "README.md"
+    readme = LIBRARY / "notes" / slug / "README.md"
     if not readme.exists():
         return {}
     chapter = chapter_at(slug, page, library_page.chapters(slug))
@@ -281,10 +288,10 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
         chapter = chapter_at(slug, last["page"], chapters)
     else:
         chapter = next((c for c in chapters if c["number"] == number), None)
-    notes_dir = ROOT / "notes" / slug
+    notes_dir = LIBRARY / "notes" / slug
     opened = []
 
-    if (ROOT / row["file"]).exists():
+    if (LIBRARY / row["file"]).exists():
         if last:
             page = last["page"]
         else:
@@ -321,14 +328,57 @@ def open_script(slug: str, number: int) -> str:
     if chapter is None:
         raise ValueError(f"no chapter {number}")
     path = script_for(slug, chapter, row["title"], create=True)
-    where = path.relative_to(ROOT).as_posix()
+    where = paths.display(path)
     if open_in_vscode(path):
         return f"{chapter['title']}: opened {where} in VS Code"
     return f"{chapter['title']}: script is {where} (open it in your editor; VS Code wasn't found)"
 
 
+# --- topic notes ------------------------------------------------------------------------------
+
+TOPIC_TEMPLATE = """# {term}
+
+A topic note: what several of your books say about *{term}*, in your own words.
+
+## In my own words
+
+-
+
+## Where my books explain it
+
+{sources}
+
+## Related terms
+
+-
+"""
+
+
+def topic_note(term: str) -> Path:
+    """notes/topics/<term>.md, created the first time with the pages of your books that
+    discuss the term most (book and page only, never book text)."""
+    term = " ".join(term.split())[:80]
+    name = re.sub(r"[^a-z0-9]+", "-", term.lower()).strip("-")
+    if not name:
+        raise ValueError("a topic needs an English word or phrase")
+    path = LIBRARY / "notes" / "topics" / f"{name}.md"
+    if not path.exists():
+        found = book_search.search(term, limit=8)["results"]
+        sources = "\n".join(f"- {r['title']}: PDF page {r['page']}" for r in found) or "-"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(TOPIC_TEMPLATE.format(term=term, sources=sources), encoding="utf-8")
+    return path
+
+
+def open_topic(term: str) -> dict:
+    path = topic_note(term)
+    where = paths.display(path)
+    opened = open_in_vscode(path)
+    return {"file": where, "opened": opened}
+
+
 def tick(slug: str, number: int, done: bool) -> list[dict]:
-    readme = ROOT / "notes" / slug / "README.md"
+    readme = LIBRARY / "notes" / slug / "README.md"
     text = readme.read_text(encoding="utf-8")
     pattern = re.compile(rf"^- \[[ xX]\] (\[?Ch(?:apter)?\.?\s*{number}:)", re.MULTILINE)
     new, count = pattern.subn(lambda m: f"- [{'x' if done else ' '}] {m[1]}", text, count=1)
@@ -382,7 +432,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(HTTPStatus.OK, *found)
         if m := re.fullmatch(r"/books/([a-z0-9-]+\.pdf)", path):
             known = {Path(r["file"]).name for r in catalog.load(CATALOG).values()}
-            pdf = ROOT / "books" / m[1]
+            pdf = LIBRARY / "books" / m[1]
             if m[1] in known and pdf.exists():
                 return self._send(HTTPStatus.OK, pdf.read_bytes(), "application/pdf")
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
@@ -394,11 +444,17 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
             if self.path == "/api/lookup":
                 text, context = str(body.get("text", "")), str(body.get("context", ""))[:1000]
-                return self._json(HTTPStatus.OK, reading_view.lookup(text, context))
+                book = body.get("slug") if isinstance(body.get("slug"), str) else None
+                return self._json(HTTPStatus.OK, reading_view.lookup(text, context, book))
             if self.path == "/api/search":
                 current = body.get("slug") if isinstance(body.get("slug"), str) else None
                 found = book_search.search(str(body.get("text", ""))[:100], current)
                 return self._json(HTTPStatus.OK, found)
+            if self.path == "/api/topic":
+                try:
+                    return self._json(HTTPStatus.OK, open_topic(str(body.get("text", ""))))
+                except ValueError as e:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
             if self.path == "/api/glossary":
                 term, zh, definition = (
                     str(body.get(k, ""))[:1000] for k in ("term", "zh", "definition")
@@ -423,6 +479,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, {"message": message})
             if self.path == "/api/script" and chapter is not None:
                 return self._json(HTTPStatus.OK, {"message": open_script(slug, chapter)})
+            if self.path == "/api/shelves":
+                shelves = catalog.split_list(str(body.get("shelves", ""))[:300])
+                if len(shelves) > 12 or any(len(s) > 40 for s in shelves):
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": "too many or too long"})
+                catalog.set_field(CATALOG, slug, "shelves", "; ".join(shelves))
+                library_page.build()  # keep the static copy in step
+                return self._json(HTTPStatus.OK, {"shelves": shelves})
             if self.path == "/api/position":
                 page = body.get("page")
                 if not isinstance(page, int) or page < 1:
@@ -473,7 +536,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
+    paths.add_argument(parser)
     args = parser.parse_args()
+    paths.ensure_library()
 
     url = f"http://127.0.0.1:{args.port}"
     if already_running(args.port):

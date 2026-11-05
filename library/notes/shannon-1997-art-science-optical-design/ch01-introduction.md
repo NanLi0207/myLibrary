@@ -24,15 +24,23 @@ curvatures, spacings, optical materials, aspheric surfae shapes, tilts and decen
 
 ## 1.4 Evaluating a Design
 
-- 
+- Ray intercept plots: the ordinates are the extent of ray dsplacement on the image surface, and the abscissae are coordinates in the popil of the lens. the shape of the curves is a clue to the nature of the abdrration content and the order of the aberration
+- Spot diagrame: geometrical images formed by rays passing through the lens
+- Point Spread Function (PSF): light distribution in physical optics/diffraction image. 
+- Optical Transfer Functions (OTF) (a Fourier transform of the PSF) describes the contrast in images of sinusoidal objects of specified spatial frequency. The OTF will vary with the field location in the lens, and will also change rapidly with the choice of focal position
+- Modulation Transfer Function (MTF): the modulus of the OTF
 
 ## 1.5 Completing a Lens Design
 
-- 
+- Tolerances!
 
 ## 1.6 This Book
 
-- 
+- Chapter 2, 3, and 4 develop some of the basic optical concepts and ideas necessary for understanding how lenses operate.
+- Chapter 5 sketches the process of design using computer optimization.
+- Chapter 6 describes methods of obtaining tolerances for a lens design
+- Chapter 7 works out practical design examples for several types of lenses.
+- Understanding of the operation of lenses and their uses is the priority rather than concentration on a rigorous derivation of optical theory.
 
 ## Equations
 

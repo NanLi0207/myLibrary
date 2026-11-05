@@ -34,16 +34,17 @@ from pathlib import Path
 
 import catalog
 import library_page
+import paths
 from book_meta import Meta, ascii_words, identify, surname
 from book_toc import STOP_WORDS, Chapter, read_toc
 from ocr_pdf import ask, make_searchable, needs_ocr, ocr_minutes
 from pypdf import PdfReader
 
-ROOT = Path(__file__).resolve().parent.parent
-BOOKS, EXAMPLES, NOTES = ROOT / "books", ROOT / "examples", ROOT / "notes"
-CATALOG = ROOT / "catalog.csv"
-ARCHIVE = ROOT / "archive"
-PAGE_CACHE = ROOT / ".cache" / "chapter_pages.json"
+LIBRARY = paths.LIBRARY
+BOOKS, EXAMPLES, NOTES = LIBRARY / "books", LIBRARY / "examples", LIBRARY / "notes"
+CATALOG = LIBRARY / "catalog.csv"
+ARCHIVE = LIBRARY / "archive"
+PAGE_CACHE = LIBRARY / ".cache" / "chapter_pages.json"
 
 MAX_TITLE_WORDS = 5
 
@@ -384,6 +385,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    paths.add_argument(parser)
     parser.add_argument("file", nargs="?", type=Path, help="one book file (default: scan books/)")
     parser.add_argument("--author")
     parser.add_argument("--year")
@@ -406,6 +408,7 @@ def main() -> None:
     ocr.add_argument("--ocr", action="store_true", help="OCR scanned PDFs without asking")
     ocr.add_argument("--no-ocr", action="store_true", help="never OCR scanned PDFs")
     args = parser.parse_args()
+    paths.ensure_library()
 
     if args.remove:
         remove_book(Path(args.remove).stem, args.dry_run, args.yes)

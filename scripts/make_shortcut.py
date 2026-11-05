@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+APP = Path(__file__).resolve().parent.parent
 
 
 def _ps_quote(text: str) -> str:
@@ -23,7 +23,7 @@ def make_shortcut(link: Path, uv: str) -> None:
 $s = (New-Object -ComObject WScript.Shell).CreateShortcut({_ps_quote(str(link))})
 $s.TargetPath = {_ps_quote(uv)}
 $s.Arguments = 'run scripts/library_server.py'
-$s.WorkingDirectory = {_ps_quote(str(ROOT))}
+$s.WorkingDirectory = {_ps_quote(str(APP))}
 $s.WindowStyle = 7
 $s.Description = 'Open myLibrary (books, notes, reading view)'
 $s.IconLocation = '%SystemRoot%\\System32\\imageres.dll,112'

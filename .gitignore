@@ -5,23 +5,27 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# The books are copyrighted: they stay on this computer only, never in git.
-# (.gitkeep keeps the empty folder in a fresh clone, so new books have somewhere to go.)
-books/*
-!books/.gitkeep
+# The books are copyrighted: they stay on this computer only, never in git, wherever they are.
+# (.gitkeep keeps the library's empty books/ folder in a fresh clone.)
+*.pdf
+library/books/*
+!library/books/.gitkeep
 
-# Copies of edited files kept by VS Code's "Local History" extension
-.history/
+# Which library the tool opens on this computer (see scripts/paths.py)
+local.toml
+
+# Local-only folders, in the tool and in any library:
+#   .cache/   rebuildable data (PDF viewer, dictionary, search index, chapter pages, OCR)
+#   archive/  removed books, original scans, pre-bookmark copies
+.cache/
+archive/
 
 # Generated from catalog.csv + notes; contains local file paths
 library.html
 
+# Copies of edited files kept by VS Code's "Local History" extension
+.history/
+
 # OS / editor
 .DS_Store
 Thumbs.db
-
-# chapter page numbers found by library_server.py
-.cache/
-
-# removed books, original scans, pre-bookmark copies: local only
-archive/

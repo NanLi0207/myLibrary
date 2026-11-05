@@ -18,16 +18,12 @@ dependencies = [
     "reportlab>=5.1.0",  # writes the OCR text layer
 ]
 
-[build-system]
-requires = ["uv_build>=0.13.7,<0.14.0"]
-build-backend = "uv_build"
-
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.3",
 ]
-# For the chapter scripts in examples/ (checking a book's worked examples): installed by
+# For the chapter scripts in the library's examples/ (checking worked examples): installed by
 # `uv sync` by default; not needed just to read
 science = [
     "matplotlib>=3.11.2",
@@ -42,6 +38,7 @@ optics = [
 ]
 
 [tool.uv]
+package = false  # the tool is a set of scripts, not an installable package
 default-groups = ["dev", "science"]
 
 [tool.ruff]
@@ -55,5 +52,6 @@ select = ["E", "F", "I", "UP", "B"]
 "scripts/library_page.py" = ["E501"]  # embedded HTML/JS template
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["scripts"]
+# The tool's tests, plus the tests of your own code in the library (library/code/tests)
+testpaths = ["tests", "library/code/tests"]
+pythonpath = ["scripts", "library/code"]

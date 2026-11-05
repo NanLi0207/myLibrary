@@ -37,7 +37,7 @@ def dictionary(tmp_path, monkeypatch):
     glossary = tmp_path / "glossaries" / "optics.csv"
     glossary.parent.mkdir()
     glossary.write_text(GLOSSARY, encoding="utf-8")
-    monkeypatch.setattr(reader, "ROOT", tmp_path)
+    monkeypatch.setattr(reader, "LIBRARY", tmp_path)
     monkeypatch.setattr(reader, "DICT_DB", db)
     monkeypatch.setattr(reader, "GLOSSARIES", glossary.parent)
     monkeypatch.setattr(reader, "GLOSSARY_CONFIG", glossary.parent / "glossaries.toml")
@@ -112,7 +112,7 @@ def test_viewer_gets_popup_and_token(tmp_path, monkeypatch):
 
 def test_http_lookup_and_save(dictionary, monkeypatch):
     for module in (library_server, library_page):
-        monkeypatch.setattr(module, "ROOT", dictionary)
+        monkeypatch.setattr(module, "LIBRARY", dictionary)
         monkeypatch.setattr(module, "CATALOG", dictionary / "catalog.csv")
     catalog.upsert(
         dictionary / "catalog.csv",
@@ -235,3 +235,21 @@ def test_irregular_plurals(dictionary):
         "axis",
         "criterion",
     ]
+
+
+def test_glossaries_of_the_books_shelves_come_first(dictionary):
+    (dictionary / "glossaries" / "biology.csv").write_text(
+        "term,zh,note,definition\npupil,瞳孔,,\n", encoding="utf-8"
+    )
+    for slug, shelves in (("eye-book", "Biology; Medicine"), ("lens-book", "Optics")):
+        catalog.upsert(dictionary / "catalog.csv", {"slug": slug, "shelves": shelves})
+
+    def order(slug):
+        return [g["glossary"] for g in reader.lookup("pupil", "", slug)["glossary"]]
+
+    assert order(None) == ["biology", "optics"]  # no book: alphabetical
+    assert order("eye-book") == ["biology", "optics"]
+    assert order("lens-book") == ["optics", "biology"]
+    # A longer, more specific term still comes before a shelf match
+    info = reader.lookup("pupil", "the entrance pupil", "eye-book")
+    assert [g["term"] for g in info["glossary"]] == ["entrance pupil", "pupil", "pupil"]

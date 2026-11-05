@@ -11,14 +11,16 @@ tick chapters off (see library_server.py).
 
 import json
 import re
+import tomllib
 from pathlib import Path
 from urllib.parse import quote
 
 import catalog
+import paths
 
-ROOT = Path(__file__).resolve().parent.parent
-CATALOG = ROOT / "catalog.csv"
-PAGE = ROOT / "library.html"
+LIBRARY = paths.LIBRARY
+CATALOG = LIBRARY / "catalog.csv"
+PAGE = LIBRARY / "library.html"
 
 PROGRESS_RE = re.compile(r"^- \[([ xX])\] (?:\[(.+?)\]\((.+?)\)|(.+))$", re.MULTILINE)
 # Written by the reading view as you turn pages (library_server.save_position)
@@ -29,7 +31,7 @@ LAST_READ_RE = re.compile(
 
 def last_read(slug: str) -> dict | None:
     """{page, chapter, date} from the "Last read:" line in notes/<slug>/README.md."""
-    readme = ROOT / "notes" / slug / "README.md"
+    readme = LIBRARY / "notes" / slug / "README.md"
     if not readme.exists():
         return None
     m = LAST_READ_RE.search(readme.read_text(encoding="utf-8"))
@@ -37,7 +39,7 @@ def last_read(slug: str) -> dict | None:
 
 
 def chapters(slug: str) -> list[dict]:
-    readme = ROOT / "notes" / slug / "README.md"
+    readme = LIBRARY / "notes" / slug / "README.md"
     if not readme.exists():
         return []
     result = []
@@ -55,19 +57,31 @@ def chapters(slug: str) -> list[dict]:
     return result
 
 
+def shelf_labels() -> dict[str, str]:
+    """{shelf: label} from the library's library.toml, e.g. {"Optics": "光学 Optics"}."""
+    path = LIBRARY / "library.toml"
+    if not path.exists():
+        return {}
+    with open(path, "rb") as f:
+        shelves = tomllib.load(f).get("shelves", {})
+    return {str(k): str(v) for k, v in shelves.items()} if isinstance(shelves, dict) else {}
+
+
 def books(pdf_base: str | None = None) -> list[dict]:
     """Catalog rows plus chapter progress; pdf_base is the server URL prefix for PDFs."""
     result = []
     for row in catalog.load(CATALOG).values():
-        pdf = ROOT / row["file"]
+        pdf = LIBRARY / row["file"]
         result.append(
             row
             | {
                 "chapter_list": chapters(row["slug"]),
+                "shelf_list": catalog.split_list(row.get("shelves") or ""),
                 "last_read": last_read(row["slug"]),
                 "pdf_missing": not pdf.exists(),
                 "pdf_uri": f"{pdf_base}/{pdf.name}" if pdf_base else pdf.as_uri(),
-                "notes_uri": "vscode://file/" + quote((ROOT / row["notes"]).as_posix(), safe="/:"),
+                "notes_uri": "vscode://file/"
+                + quote((LIBRARY / row["notes"]).as_posix(), safe="/:"),
             }
         )
     return result
@@ -76,7 +90,12 @@ def books(pdf_base: str | None = None) -> list[dict]:
 def render(api: dict | None = None, pdf_base: str | None = None) -> str:
     """The page HTML; with `api` (from library_server.py) the Read buttons are enabled."""
     data = json.dumps(books(pdf_base), ensure_ascii=False).replace("</", "<\\/")
-    return TEMPLATE.replace("__DATA__", data).replace("__API__", json.dumps(api))
+    labels = json.dumps(shelf_labels(), ensure_ascii=False).replace("</", "<\\/")
+    return (
+        TEMPLATE.replace("__DATA__", data)
+        .replace("__API__", json.dumps(api))
+        .replace("__SHELF_LABELS__", labels)
+    )
 
 
 def build() -> Path:
@@ -118,6 +137,12 @@ header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.01em; }
 .byline { color: var(--muted); font-size: 14px; }
 .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip.shelf { background: var(--done); color: #fff; }
+.shelves { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+.shelves button { font: inherit; font-size: 13px; cursor: pointer; color: var(--accent);
+  background: none; border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; }
+.shelves button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.shelves .count { opacity: 0.7; margin-left: 4px; }
 .chip { background: var(--accent-soft); color: var(--accent); border-radius: 999px;
   padding: 2px 9px; font-size: 12px; }
 .progress { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
@@ -169,6 +194,7 @@ code { font-size: 12.5px; }
       <option value="added">Sort: recently added</option>
     </select>
   </div>
+  <nav class="shelves" id="shelves" aria-label="Shelves"></nav>
   <div class="grid" id="grid"></div>
   <footer id="footer"></footer>
 </main>
@@ -177,6 +203,10 @@ code { font-size: 12.5px; }
 <script>
 const API = __API__;  // set when served by library_server.py; null in the static file
 const books = JSON.parse(document.getElementById("data").textContent);
+const SHELF_LABELS = __SHELF_LABELS__;  // from library.toml: {"Optics": "光学 Optics"}
+const shelfLabel = name => SHELF_LABELS[name] || name;
+let shelf = "";  // the shelf being shown ("" = all books)
+try { shelf = localStorage.getItem("library-shelf") || ""; } catch {}
 document.getElementById("footer").innerHTML = API
   ? `<b>Read</b> opens the PDF at the chapter, and its notes in VS Code. <b>Script</b> opens a
      Python script for checking the chapter's worked examples (created the first time).
@@ -196,6 +226,20 @@ const pct = b => Math.max(
 const firstAuthor = b => (b.authors || "").split(";")[0].trim();
 
 try { sort.value = localStorage.getItem("library-sort") || "title"; } catch {}
+
+// The shelf bar: All, then every shelf in use, with how many books are on it
+function renderShelves() {
+  const counts = new Map();
+  for (const b of books) for (const s of b.shelf_list) counts.set(s, (counts.get(s) || 0) + 1);
+  if (shelf && !counts.has(shelf)) shelf = "";
+  const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a) || a.localeCompare(b));
+  const button = (name, label, n) =>
+    `<button type="button" data-shelf="${esc(name)}" class="${name === shelf ? "on" : ""}">`
+    + `${esc(label)}<span class="count">${n}</span></button>`;
+  document.getElementById("shelves").innerHTML = names.length
+    ? button("", "All", books.length) + names.map(s => button(s, shelfLabel(s), counts.get(s))).join("")
+    : "";
+}
 
 function stats() {
   const ch = books.reduce((n, b) => n + b.chapter_list.length, 0);
@@ -244,7 +288,7 @@ function card(b) {
       ${b.pages ? `<span>${esc(b.pages)} pages</span>` : ""}
       ${b.isbn ? `<span>ISBN ${esc(b.isbn)}</span>` : ""}
     </div>
-    ${subjects.length ? `<div class="chips">${subjects.map(s => `<span class="chip">${esc(s)}</span>`).join("")}</div>` : ""}
+    ${b.shelf_list.length || subjects.length ? `<div class="chips">${b.shelf_list.map(s => `<span class="chip shelf">${esc(shelfLabel(s))}</span>`).join("")}${subjects.map(s => `<span class="chip">${esc(s)}</span>`).join("")}</div>` : ""}
     <div class="progress"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>
       ${n ? `${done(b)}/${n} chapters` : "no chapters"}${pct(b) > 0 ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : ""}</div>
     ${b.last_read ? `<div class="next">Last read: page ${b.last_read.page}${b.last_read.chapter ? ` · ${esc(b.last_read.chapter)}` : ""} · ${esc(b.last_read.date)}</div>`
@@ -256,6 +300,7 @@ function card(b) {
       <a href="${esc(b.notes_uri)}">Notes</a>
       ${b.openlibrary ? `<a href="${esc(b.openlibrary)}" target="_blank" rel="noopener">Open Library</a>` : ""}
       ${n ? `<button type="button" data-toggle>Chapters</button>` : ""}
+      ${API ? `<button type="button" data-shelves title="Which shelves this book is on">Shelves</button>` : ""}
     </div>
     ${n ? `<ol class="chapters" hidden>${chapters}</ol>` : ""}
   </article>`;
@@ -274,8 +319,10 @@ function render() {
     added: (a, b) => (b.added || "").localeCompare(a.added || ""),
   }[sort.value];
   const shown = books
+    .filter(b => !shelf || b.shelf_list.includes(shelf))
     .filter(b => {
       const hay = [b.title, b.authors, b.year, b.publisher, b.isbn, b.subjects,
+                   ...b.shelf_list, ...b.shelf_list.map(shelfLabel),
                    ...b.chapter_list.map(c => c.title)].join(" ").toLowerCase();
       return words.every(w => hay.includes(w));
     })
@@ -308,7 +355,33 @@ const bookOf = el => books.find(b => b.slug === el.closest(".card").dataset.slug
 const openLists = () => new Set([...grid.querySelectorAll("ol.chapters:not([hidden])")]
   .map(ol => ol.closest(".card").dataset.slug));
 
+document.getElementById("shelves").addEventListener("click", e => {
+  const button = e.target.closest("[data-shelf]");
+  if (!button) return;
+  shelf = button.dataset.shelf;
+  try { localStorage.setItem("library-shelf", shelf); } catch {}
+  renderShelves();
+  render();
+});
+
 grid.addEventListener("click", async e => {
+  const edit = e.target.closest("[data-shelves]");
+  if (edit && API) {
+    const b = bookOf(edit);
+    const answer = prompt(
+      `Shelves for “${b.title}”, separated by ; (e.g. Optics; Lasers):`, b.shelf_list.join("; "));
+    if (answer === null) return;
+    try {
+      const r = await api("/api/shelves", {slug: b.slug, shelves: answer});
+      b.shelf_list = r.shelves;
+      renderShelves();
+      render();
+      toast(r.shelves.length ? `On shelves: ${r.shelves.map(shelfLabel).join(", ")}` : "Not on any shelf");
+    } catch (err) {
+      toast(`Couldn't save: ${err.message}`);
+    }
+    return;
+  }
   const toggle = e.target.closest("[data-toggle]");
   if (toggle) {
     const list = toggle.closest(".card").querySelector("ol.chapters");
@@ -369,6 +442,7 @@ sort.addEventListener("change", () => {
   render();
 });
 stats();
+renderShelves();
 render();
 </script>
 </body>
@@ -377,4 +451,4 @@ render();
 
 
 if __name__ == "__main__":
-    print(f"wrote {build().relative_to(ROOT)}")
+    print(f"wrote {paths.display(build())}")

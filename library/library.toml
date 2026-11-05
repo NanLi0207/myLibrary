@@ -1,0 +1,13 @@
+# This library's settings.
+name = "Nan's library"
+
+# Shelves group the books by subject; a book can be on several (catalog.csv, column
+# "shelves", or the Shelves button on the library page). Each label is shown on the
+# library page: Chinese with its English translation.
+[shelves]
+Optics = "光学 Optics"
+"Lens design" = "镜头设计 Lens design"
+Lasers = "激光 Lasers"
+"Stray light" = "杂散光 Stray light"
+Optomechanics = "光机设计 Optomechanics"
+Materials = "材料 Materials"

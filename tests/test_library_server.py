@@ -26,7 +26,7 @@ README = """# Practical Lens Design
 def library(tmp_path, monkeypatch):
     """A one-book library in a temporary folder."""
     for module in (library_server, library_page):
-        monkeypatch.setattr(module, "ROOT", tmp_path)
+        monkeypatch.setattr(module, "LIBRARY", tmp_path)
         monkeypatch.setattr(module, "CATALOG", tmp_path / "catalog.csv")
     notes = tmp_path / "notes" / "doe-2015-practical-lens-design"
     notes.mkdir(parents=True)
@@ -200,3 +200,28 @@ def test_chapter_title_in_running_text_is_not_a_chapter_start(tmp_path):
         {"number": 3, "title": "Ch 3: Optical Systems"},
     ]
     assert library_server.find_chapter_pages(pdf, chapters) == {1: 1, 2: 3, 3: 4}
+
+
+def test_topic_note_lists_pages_and_keeps_your_writing(library, monkeypatch):
+    found = {
+        "results": [
+            {"slug": "doe-2015-practical-lens-design", "title": "Practical Lens Design", "page": 7},
+            {"slug": "roe-2020-optics", "title": "Optics", "page": 31},
+        ]
+    }
+    monkeypatch.setattr(library_server.book_search, "search", lambda term, limit: found)
+    opened = []
+    monkeypatch.setattr(library_server, "open_in_vscode", lambda *f: opened.extend(f) or True)
+
+    result = library_server.open_topic("  Veiling  glare ")
+    note = library / "notes" / "topics" / "veiling-glare.md"
+    assert opened == [note] and result["opened"] is True
+    text = note.read_text(encoding="utf-8")
+    assert text.startswith("# Veiling glare\n")
+    assert "- Practical Lens Design: PDF page 7\n- Optics: PDF page 31" in text
+
+    note.write_text(text + "My own summary.\n", encoding="utf-8")
+    library_server.open_topic("veiling glare")  # opening again never overwrites
+    assert note.read_text(encoding="utf-8").endswith("My own summary.\n")
+    with pytest.raises(ValueError):
+        library_server.topic_note("杂光")  # needs an English term for the file name

@@ -10,8 +10,10 @@ import logging
 from pathlib import Path
 from statistics import median
 
-ROOT = Path(__file__).resolve().parent.parent
-CACHE_DIR = ROOT / ".cache" / "ocr"
+import paths
+
+LIBRARY = paths.LIBRARY
+CACHE_DIR = LIBRARY / ".cache" / "ocr"
 RENDER_SCALE = 1.5  # ~110 dpi for a typical scan: sharp enough for contents pages
 
 _engine = None

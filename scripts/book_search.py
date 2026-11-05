@@ -2,7 +2,7 @@
 
     uv run scripts/book_search.py vignetting          # where do my books explain it?
 
-The page text of every PDF in catalog.csv is kept in .cache/reader/books.db (SQLite FTS5,
+The page text of every PDF in catalog.csv is kept in the library's .cache/books.db (SQLite FTS5,
 English stemming, so "vignetting" also finds "vignetted"). library_server.py updates it in
 the background at start; a book is re-read only when its PDF changes.
 """
@@ -14,11 +14,12 @@ import threading
 from pathlib import Path
 
 import catalog
+import paths
 import pypdfium2 as pdfium
 
-ROOT = Path(__file__).resolve().parent.parent
-CATALOG = ROOT / "catalog.csv"
-INDEX = ROOT / ".cache" / "reader" / "books.db"
+LIBRARY = paths.LIBRARY
+CATALOG = LIBRARY / "catalog.csv"
+INDEX = LIBRARY / ".cache" / "books.db"
 
 _build_lock = threading.Lock()
 MARK_START, MARK_END = "\x02", "\x03"  # around the matched words in snippets
@@ -58,7 +59,7 @@ def update(verbose: bool = False) -> int:
                 con.execute("DELETE FROM books WHERE slug = ?", (slug,))
             done = 0
             for slug, row in rows.items():
-                pdf = ROOT / row["file"]
+                pdf = LIBRARY / row["file"]
                 if not pdf.exists():
                     continue
                 stat = pdf.stat()
@@ -133,6 +134,7 @@ def search(term: str, current: str | None = None, limit: int = 8, per_book: int 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    paths.add_argument(parser)
     parser.add_argument("term", nargs="+")
     args = parser.parse_args()
     update(verbose=True)

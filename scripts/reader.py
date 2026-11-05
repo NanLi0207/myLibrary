@@ -28,11 +28,14 @@ from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-CACHE = ROOT / ".cache" / "reader"
+import catalog
+import paths
+
+LIBRARY = paths.LIBRARY
+CACHE = paths.APP / ".cache" / "reader"
 PDFJS = CACHE / "pdfjs"
 DICT_DB = CACHE / "ecdict.db"
-GLOSSARIES = ROOT / "glossaries"
+GLOSSARIES = LIBRARY / "glossaries"
 GLOSSARY_CONFIG = GLOSSARIES / "glossaries.toml"
 STATIC = Path(__file__).resolve().parent / "reader_static"
 
@@ -400,7 +403,20 @@ def _short(translation: str, limit: int = 60) -> str:
     return first if len(first) <= limit else first[: limit - 1] + "…"
 
 
-def lookup(text: str, context: str = "") -> dict:
+def _norm(name: str) -> str:
+    """'Lens design' / 'lens-design' / '镜头设计 Lens design' -> 'lensdesign'."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def book_shelves(slug: str | None) -> set[str]:
+    """The shelves of the book being read (normalized), from catalog.csv."""
+    if not slug:
+        return set()
+    row = catalog.load(LIBRARY / "catalog.csv").get(slug)
+    return {_norm(s) for s in catalog.split_list(row.get("shelves") or "")} if row else set()
+
+
+def lookup(text: str, context: str = "", slug: str | None = None) -> dict:
     """Everything the popup shows for a double-clicked word or a selected phrase.
 
     A phrase that neither a glossary nor the dictionary knows also gets "words": each word's
@@ -408,6 +424,14 @@ def lookup(text: str, context: str = "") -> dict:
     """
     text = re.sub(r"\s+", " ", text).strip().strip(".,;:!?()[]{}\"'“”‘’")[:100]
     matches = glossary_matches(text, context)
+    # Reading a book: glossaries for its shelves come first ("pupil" in an optics book: the
+    # optics meaning before the biology one); longer, more specific terms still lead
+    shelves = book_shelves(slug)
+
+    def rank(entry: dict) -> int:
+        return 0 if {_norm(entry["glossary"]), _norm(entry["label"])} & shelves else 1
+
+    matches.sort(key=lambda e: (-len(tokens(e["term"])), rank(e)))
     result = {
         "query": text,
         "glossary": matches,
@@ -434,7 +458,7 @@ def lookup(text: str, context: str = "") -> dict:
                 if word.lower() in STOP_WORDS or lemma(word) in explained:
                     continue
                 explained.add(lemma(word))
-                own = (terms.get((lemma(word),)) or [None])[0]
+                own = min(terms.get((lemma(word),)) or [None], key=lambda e: e and rank(e))
                 found = _row(con, lemma(word)) or _row(con, word)
                 result["words"].append(
                     {
@@ -529,7 +553,7 @@ def save_word(slug: str, title: str, text: str, context: str, page: int | None) 
         meaning = "； ".join(line.strip() for line in lines[:2])[:80]
     if not word:
         raise ValueError("nothing to save")
-    path = ROOT / "notes" / slug / "vocabulary.md"
+    path = LIBRARY / "notes" / slug / "vocabulary.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     if not existing:
@@ -538,7 +562,7 @@ def save_word(slug: str, title: str, text: str, context: str, page: int | None) 
         m[1].strip().lower() for m in re.finditer(r"^\| ([^|]+) \|", existing, re.MULTILINE)
     }
     if word.lower() in saved_words:
-        return {"word": word, "saved": False, "file": path.relative_to(ROOT).as_posix()}
+        return {"word": word, "saved": False, "file": path.relative_to(LIBRARY).as_posix()}
 
     def cell(value) -> str:
         return str(value or "").replace("|", "/").replace("\n", " ").strip()
@@ -548,7 +572,7 @@ def save_word(slug: str, title: str, text: str, context: str, page: int | None) 
         f"{cell(page)} | {date.today().isoformat()} |\n"
     )
     path.write_text(existing.rstrip("\n") + "\n" + row, encoding="utf-8")
-    return {"word": word, "saved": True, "file": path.relative_to(ROOT).as_posix()}
+    return {"word": word, "saved": True, "file": path.relative_to(LIBRARY).as_posix()}
 
 
 # --- serving the viewer -------------------------------------------------------------------
@@ -579,6 +603,7 @@ def static_file(url_path: str) -> tuple[bytes, str] | None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    paths.add_argument(parser)
     parser.add_argument("--setup", action="store_true", help="download the viewer + dictionary")
     parser.add_argument("word", nargs="*", help="look up a word or phrase")
     args = parser.parse_args()

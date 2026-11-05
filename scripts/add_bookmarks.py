@@ -21,14 +21,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from statistics import median
 
+import paths
 from book_toc import contents_pages, read_toc
 from ocr_pdf import ask, replace_pdf
 from pypdf import PdfReader, PdfWriter
 
-ROOT = Path(__file__).resolve().parent.parent
-BOOKS = ROOT / "books"
-ARCHIVE_BOOKS = ROOT / "archive" / "books"
-OUTPUT_DIR = ROOT / ".cache" / "bookmarks-output"
+LIBRARY = paths.LIBRARY
+BOOKS = LIBRARY / "books"
+ARCHIVE_BOOKS = LIBRARY / "archive" / "books"
+OUTPUT_DIR = LIBRARY / ".cache" / "bookmarks-output"
 # How far one chapter's printed-to-PDF shift may differ from the others' (scans drift a few
 # pages where pages are missing; a false match is usually off by dozens)
 MAX_SHIFT_DRIFT = 10
@@ -137,6 +138,7 @@ def main() -> None:
     import library_page
 
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    paths.add_argument(parser)
     parser.add_argument("pdf", nargs="?", type=Path, help="one book (default: all in books/)")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--yes", action="store_true", help="don't ask before changing a PDF")

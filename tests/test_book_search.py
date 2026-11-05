@@ -22,9 +22,9 @@ def make_pdf(path, pages):
 
 @pytest.fixture
 def books(tmp_path, monkeypatch):
-    monkeypatch.setattr(book_search, "ROOT", tmp_path)
+    monkeypatch.setattr(book_search, "LIBRARY", tmp_path)
     monkeypatch.setattr(book_search, "CATALOG", tmp_path / "catalog.csv")
-    monkeypatch.setattr(book_search, "INDEX", tmp_path / ".cache" / "reader" / "books.db")
+    monkeypatch.setattr(book_search, "INDEX", tmp_path / ".cache" / "books.db")
     for slug in ("doe-2015-optics", "roe-2020-lenses"):
         make_pdf(tmp_path / "books" / f"{slug}.pdf", PAGES)
         catalog.upsert(
