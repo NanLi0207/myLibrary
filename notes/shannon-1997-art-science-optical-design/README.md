@@ -9,7 +9,7 @@
 
 ## Reading progress
 
-Last read: page 26 (Ch 1: Introduction: the Art and Science of Design), 2026-11-05
+Last read: page 27 (Ch 1: Introduction: the Art and Science of Design), 2026-11-05
 
 - [ ] [Ch 1: Introduction: the Art and Science of Design](ch01-introduction.md)
 - [ ] [Ch 2: Basic Optics for Design](ch02-basic-optics-design.md)
@@ -22,4 +22,5 @@ Last read: page 26 (Ch 1: Introduction: the Art and Science of Design), 2026-11-
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/shannon-1997-art-science-optical-design/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/shannon-1997-art-science-optical-design/` ("Script" on the library page).

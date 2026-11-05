@@ -1,7 +1,8 @@
 # myLibrary
 
 A general study tool for learning from your own PDF books (any subject): reading view with
-English–Chinese lookup and subject glossaries, book search, progress, notes, marimo notebooks.
+English–Chinese lookup and subject glossaries, book search, progress, notes, and per-chapter
+Python scripts (`examples/`) for checking a book's worked examples. No marimo/notebooks.
 The user's own use is optical design, which is also the bundled example (optics glossary, the
 `optics` dependency group, `mylibrary.paraxial`). Keep the tool itself subject-neutral: nothing
 in `scripts/` should assume optics. The repo is public; the books never go in it. See README.md.
@@ -29,14 +30,16 @@ Example: `shannon-1997-art-science-optical-design`. The slug is used for:
 
 - `books/<slug>.<ext>` (the book itself; local only: `books/` is gitignored because the books are
   copyrighted. Never commit or push a book, and don't undo that ignore rule)
-- `notebooks/<slug>/` (marimo notebooks, named `chNN_<topic>.py`)
+- `examples/<slug>/` (plain Python scripts `chNN_<topic>.py`, created only when the user clicks
+  "Script" on a chapter; run with `uv run` or VS Code's Run button)
 - `notes/<slug>/README.md` (metadata + reading progress) and `notes/<slug>/chNN-<chapter>.md`
 
 - `catalog.csv` (one row per book: title, authors, year, publisher, ISBN, pages, chapters,
-  subjects, original filename, where each field came from). The user browses it with
+  subjects, where each field came from; the original download file name is deliberately not
+  recorded). The user browses it with
   `uv run scripts/library_server.py` (local server: Read/Continue opens PDF at the chapter page,
-  and the chapter's notes + marimo notebook in VS Code (marimo extension notebook editor, via
-  workbench.editorAssociations in .vscode/settings.json); ticking chapters edits notes READMEs).
+  and the chapter's notes in VS Code, plus its script if one exists; "Script" creates/opens
+  `examples/<slug>/chNN_*.py`; ticking chapters edits notes READMEs).
   The server opens PDFs in PDF.js with a word lookup for the user (a Chinese reader):
   `scripts/reader.py` + `scripts/reader_static/`, subject glossaries `glossaries/<name>.csv`
   (term, zh, note, definition: a short definition in Chinese; shown before the ECDICT meaning;
@@ -48,9 +51,8 @@ Example: `shannon-1997-art-science-optical-design`. The slug is used for:
   add_book.py). Chapter start pages are cached in `.cache/chapter_pages.json`
   (`--refresh-chapters` clears a book's entry automatically).
 - To take a book out, use `uv run scripts/add_book.py --remove <slug>`: it moves the PDF, notes
-  and notebooks to `archive/` and drops the catalog row. Never delete notes or notebooks
-  outright; they hold the user's own work.
-  `notebooks/library.py` searches it too. Rebuild the page after changing catalog or notes.
+  and scripts to `archive/` and drops the catalog row. Never delete notes or scripts outright;
+  they hold the user's own work. Rebuild the page after changing catalog or notes.
   If the user corrects a book's details, update its catalog row and notes README too.
 
 Books are always PDFs (the user's choice; don't add DjVu/EPUB tooling). The script reads the

@@ -6,9 +6,5 @@
     "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.formatOnSave": true
   },
-  "git.ignoreLimitWarning": true,
-  // Open notebooks/*.py with the marimo extension's notebook editor, not as plain Python
-  "workbench.editorAssociations": {
-    "**/notebooks/**/*.py": "marimo-notebook"
-  }
+  "git.ignoreLimitWarning": true
 }

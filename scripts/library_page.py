@@ -178,7 +178,8 @@ code { font-size: 12.5px; }
 const API = __API__;  // set when served by library_server.py; null in the static file
 const books = JSON.parse(document.getElementById("data").textContent);
 document.getElementById("footer").innerHTML = API
-  ? `<b>Read</b> opens the PDF at the chapter, and its notes and marimo notebook in VS Code.
+  ? `<b>Read</b> opens the PDF at the chapter, and its notes in VS Code. <b>Script</b> opens a
+     Python script for checking the chapter's worked examples (created the first time).
      The page you're on is saved as you read; <b>Continue · p. N</b> takes you back there.
      Tick chapters here when you finish them.`
   : `This is the static copy. For the <b>Read</b> / <b>Continue</b> buttons and ticking chapters,
@@ -222,7 +223,10 @@ function chapterItem(c) {
   const tick = API
     ? `<input type="checkbox" data-tick="${c.number}" ${c.done ? "checked" : ""} aria-label="Read">`
     : `<span class="tick">${c.done ? "✓" : ""}</span>`;
-  const read = API && c.number != null ? `<button type="button" data-read="${c.number}">Read</button>` : "";
+  const read = API && c.number != null
+    ? `<button type="button" data-read="${c.number}">Read</button>`
+      + `<button type="button" data-script="${c.number}" title="A Python script to check this chapter's worked examples">Script</button>`
+    : "";
   return `<li class="${c.done ? "done" : ""}">${tick}<span class="name">${esc(c.title)}</span>${read}</li>`;
 }
 
@@ -247,7 +251,7 @@ function card(b) {
       : API && next && done(b) < n ? `<div class="next">Next: ${esc(next.title)}</div>` : ""}
     <div class="actions">
       ${readButton(b)}
-      ${b.pdf_missing ? `<span class="missing" title="books/${esc(b.slug)}.pdf is gone; notes and notebooks are still here">PDF missing</span>`
+      ${b.pdf_missing ? `<span class="missing" title="books/${esc(b.slug)}.pdf is gone; notes and scripts are still here">PDF missing</span>`
         : `<a href="${esc(b.pdf_uri)}" target="_blank" rel="noopener">PDF</a>`}
       <a href="${esc(b.notes_uri)}">Notes</a>
       ${b.openlibrary ? `<a href="${esc(b.openlibrary)}" target="_blank" rel="noopener">Open Library</a>` : ""}
@@ -309,6 +313,19 @@ grid.addEventListener("click", async e => {
   if (toggle) {
     const list = toggle.closest(".card").querySelector("ol.chapters");
     list.hidden = !list.hidden;
+    return;
+  }
+  const script = e.target.closest("[data-script]");
+  if (script && API) {
+    script.disabled = true;
+    try {
+      const r = await api("/api/script", {slug: bookOf(script).slug, chapter: +script.dataset.script});
+      toast(r.message);
+    } catch (err) {
+      toast(`Couldn't open the script: ${err.message}`);
+    } finally {
+      script.disabled = false;
+    }
     return;
   }
   const read = e.target.closest("[data-read], [data-resume]");

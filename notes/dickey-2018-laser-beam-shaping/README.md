@@ -25,4 +25,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/dickey-2018-laser-beam-shaping/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/dickey-2018-laser-beam-shaping/` ("Script" on the library page).

@@ -10,8 +10,8 @@ from pypdf import PdfWriter
 
 @pytest.fixture(autouse=True)
 def isolated_library(tmp_path, monkeypatch):
-    """Never let a test touch the real books/, notes/, notebooks/ or catalog.csv."""
-    for name in ("BOOKS", "NOTEBOOKS", "NOTES"):
+    """Never let a test touch the real books/, notes/, examples/ or catalog.csv."""
+    for name in ("BOOKS", "EXAMPLES", "NOTES"):
         monkeypatch.setattr(add_book, name, tmp_path / name.lower())
     monkeypatch.setattr(add_book, "CATALOG", tmp_path / "catalog.csv")
     monkeypatch.setattr(add_book, "ARCHIVE", tmp_path / "archive")
@@ -127,7 +127,7 @@ def test_catalog_row_written_and_updated(tmp_path):
         "Optics",
         "1",
     )
-    assert (tmp_path / "notebooks" / "doe-2015-practical-lens-design").is_dir()
+    assert not (tmp_path / "examples").exists()  # scripts only when asked for
     assert add_book.unregistered_named_books() == []
 
 
@@ -205,6 +205,9 @@ def test_remove_book_archives_everything(tmp_path):
     add_book.setup_book(pdf, add_book.Book("Practical Lens Design", "Jane Doe", "2015"), Meta())
     note = tmp_path / "notes" / "doe-2015-practical-lens-design" / "ch01-basics.md"
     note.write_text("my own notes", encoding="utf-8")
+    script = tmp_path / "examples" / "doe-2015-practical-lens-design" / "ch01_basics.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("print('my check')\n", encoding="utf-8")
     add_book.PAGE_CACHE.parent.mkdir()
     add_book.PAGE_CACHE.write_text('{"doe-2015-practical-lens-design": {"1": 3}}', encoding="utf-8")
 
@@ -216,7 +219,8 @@ def test_remove_book_archives_everything(tmp_path):
     assert not pdf.exists() and (archive / "books" / pdf.name).exists()
     archived_note = archive / "notes" / "doe-2015-practical-lens-design" / "ch01-basics.md"
     assert archived_note.read_text(encoding="utf-8") == "my own notes"
-    assert (archive / "notebooks" / "doe-2015-practical-lens-design").is_dir()
+    archived_script = archive / "examples" / "doe-2015-practical-lens-design" / "ch01_basics.py"
+    assert archived_script.read_text(encoding="utf-8") == "print('my check')\n"
     assert catalog.load(tmp_path / "catalog.csv") == {}
     assert add_book.PAGE_CACHE.read_text(encoding="utf-8").strip() == "{}"
 

@@ -50,18 +50,26 @@ def test_tick_round_trip(library):
     assert [c["done"] for c in chapters] == [False, False]
 
 
-def test_new_chapter_notebook_is_valid_marimo(library):
-    chapter = library_page.chapters("doe-2015-practical-lens-design")[1]
-    notebook = library_server.notebook_for("doe-2015-practical-lens-design", chapter, "A Book")
-    assert notebook.name == "ch02_aberrations.py"
+def test_chapter_script_created_only_when_asked(library):
+    slug = "doe-2015-practical-lens-design"
+    chapter = library_page.chapters(slug)[1]
+    assert library_server.script_for(slug, chapter, "A Book") is None  # Read doesn't create one
+    title = 'A "Book" with C:\\paths and """quotes"""'
+    script = library_server.script_for(slug, chapter, title, create=True)
+    assert script == library / "examples" / slug / "ch02_aberrations.py"
     # Asking again returns the same file instead of overwriting it
-    notebook.write_text(notebook.read_text(encoding="utf-8") + "# my edits\n", encoding="utf-8")
-    again = library_server.notebook_for("doe-2015-practical-lens-design", chapter, "A Book")
-    assert again == notebook and "# my edits" in again.read_text(encoding="utf-8")
-    check = subprocess.run(
-        [sys.executable, "-m", "marimo", "check", str(notebook)], capture_output=True, text=True
+    script.write_text(script.read_text(encoding="utf-8") + "# my edits\n", encoding="utf-8")
+    again = library_server.script_for(slug, chapter, title, create=True)
+    assert again == script and "# my edits" in again.read_text(encoding="utf-8")
+    # The template runs as it is, and passes the linter (no unused imports)
+    run = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    lint = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--isolated", str(script)],
+        capture_output=True,
+        text=True,
     )
-    assert check.returncode == 0 and "warning" not in check.stdout + check.stderr, check.stdout
+    assert lint.returncode == 0, lint.stdout
 
 
 def test_http_requires_token(library):
@@ -105,7 +113,7 @@ def test_missing_pdf_is_flagged_and_read_still_works(library, monkeypatch):
     assert library_page.books()[0]["pdf_missing"] is True
     message = library_server.open_chapter("doe-2015-practical-lens-design", 1, "http://x")
     assert opened == []  # no browser tab for a PDF that isn't there
-    assert "missing" in message and "ch01_basics.py" in message
+    assert "missing" in message and "notes in VS Code" in message
 
 
 @pytest.fixture
@@ -152,8 +160,16 @@ def test_continue_opens_last_page_and_its_chapter(chapter_pages, monkeypatch):
     library_server.save_position(slug, 33)
     message = library_server.open_chapter(slug, None, "http://x", resume=True)
     assert opened[0].endswith(f"{slug}.pdf#page=33")
-    assert [f.name for f in files] == ["ch02-aberrations.md", "ch02_aberrations.py"]
+    assert [f.name for f in files] == ["ch02-aberrations.md"]  # no script made for this chapter
     assert message.startswith("Continuing at page 33 (Ch 2: Aberrations)")
+
+    # Once the chapter has a script ("Script" button), Continue opens it too
+    files.clear()
+    assert "examples/" in library_server.open_script(slug, 2)
+    assert [f.name for f in files] == ["ch02_aberrations.py"]
+    files.clear()
+    library_server.open_chapter(slug, None, "http://x", resume=True)
+    assert [f.name for f in files] == ["ch02-aberrations.md", "ch02_aberrations.py"]
 
     # A chapter's Read button still opens that chapter's first page
     opened.clear()

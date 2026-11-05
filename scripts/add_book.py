@@ -1,4 +1,4 @@
-"""Give new books in books/ a consistent name and create their notebook/notes folders.
+"""Give new books in books/ a consistent name and create their notes folders.
 
 Every book gets a slug:  <author-surname>-<year>-<short-title>
     e.g. shannon-1997-art-science-optical-design
@@ -6,12 +6,12 @@ Every book gets a slug:  <author-surname>-<year>-<short-title>
 Title, author and year come from the book itself where possible (ISBN -> Open Library,
 PDF metadata, copyright page), with the filename as a fallback; see book_meta.py.
 
-The slug is used for all three places:
+The slug is used for:
     books/<slug>.pdf
-    notebooks/<slug>/
     notes/<slug>/README.md   (title, author, year, progress)
     notes/<slug>/chNN-<chapter>.md   (one empty notes template per chapter, from the PDF's
                                       table of contents; headings only, you write the content)
+    examples/<slug>/chNN_<topic>.py  (only when you ask for one: "Script" on the library page)
 
 Usage:
     uv run scripts/add_book.py --dry-run       # show the proposed names and where they came from
@@ -40,7 +40,7 @@ from ocr_pdf import ask, make_searchable, needs_ocr, ocr_minutes
 from pypdf import PdfReader
 
 ROOT = Path(__file__).resolve().parent.parent
-BOOKS, NOTEBOOKS, NOTES = ROOT / "books", ROOT / "notebooks", ROOT / "notes"
+BOOKS, EXAMPLES, NOTES = ROOT / "books", ROOT / "examples", ROOT / "notes"
 CATALOG = ROOT / "catalog.csv"
 ARCHIVE = ROOT / "archive"
 PAGE_CACHE = ROOT / ".cache" / "chapter_pages.json"
@@ -91,7 +91,7 @@ def chapter_note(ch: Chapter) -> str:
 
 ## Questions
 
-## Try in a notebook
+## Check it in Python
 
 """
 
@@ -178,7 +178,7 @@ def forget_chapter_pages(slug: str) -> None:
 
 
 def archive_target(path: Path) -> Path:
-    """archive/<books|notes|notebooks>/<name>, with a date suffix if that name is taken."""
+    """archive/<books|notes|examples>/<name>, with a date suffix if that name is taken."""
     target = ARCHIVE / path.parent.name / path.name
     if target.exists():
         target = target.with_name(f"{path.stem}-removed-{date.today()}{path.suffix}")
@@ -186,12 +186,12 @@ def archive_target(path: Path) -> Path:
 
 
 def remove_book(slug: str, dry_run: bool, yes: bool) -> None:
-    """Take a book out of the library; its PDF, notes and notebooks move to archive/."""
+    """Take a book out of the library; its PDF, notes and scripts move to archive/."""
     known = catalog.load(CATALOG)
-    paths = [BOOKS / f"{slug}.pdf", NOTES / slug, NOTEBOOKS / slug]
+    paths = [BOOKS / f"{slug}.pdf", NOTES / slug, EXAMPLES / slug]
     existing = [p for p in paths if p.exists()]
     if slug not in known and not existing:
-        print(f"No book '{slug}' in catalog.csv or in books/, notes/, notebooks/.")
+        print(f"No book '{slug}' in catalog.csv or in books/, notes/, examples/.")
         return
     title = known.get(slug, {}).get("title", slug)
     print(f"Remove '{title}' ({slug}) from the library:")
@@ -236,7 +236,8 @@ def notes_readme(book: Book, filename: str, chapters: list[Chapter]) -> str:
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/{Path(filename).stem}/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/{Path(filename).stem}/` ("Script" on the library page).
 """
 
 
@@ -246,10 +247,7 @@ def setup_book(pdf: Path, book: Book, meta: Meta) -> None:
     Safe to repeat: existing notes are never overwritten.
     """
     slug = pdf.stem
-    nb_dir, notes_dir = NOTEBOOKS / slug, NOTES / slug
-    nb_dir.mkdir(parents=True, exist_ok=True)
-    if not any(nb_dir.iterdir()):
-        (nb_dir / ".gitkeep").touch()
+    notes_dir = NOTES / slug
     notes_dir.mkdir(parents=True, exist_ok=True)
     chapters = book_chapters(pdf)
     readme = notes_dir / "README.md"
@@ -401,7 +399,7 @@ def main() -> None:
     parser.add_argument(
         "--remove",
         metavar="SLUG",
-        help="take a book out of the library (its PDF, notes and notebooks move to archive/)",
+        help="take a book out of the library (its PDF, notes and scripts move to archive/)",
     )
     parser.add_argument("--yes", action="store_true", help="don't ask before --remove")
     ocr = parser.add_mutually_exclusive_group()

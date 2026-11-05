@@ -4,9 +4,10 @@
 
 "Read" / "Continue" on a book (or "Read" on one chapter) opens everything for that chapter:
   - the PDF in the browser, at the page where the chapter starts
-  - in VS Code (the project window): the chapter's notes file and its marimo notebook,
-    notebooks/<slug>/chNN_<topic>.py (created on first use), shown in the marimo
-    extension's notebook editor (see workbench.editorAssociations in .vscode/settings.json)
+  - in VS Code (the project window): the chapter's notes file, and its Python script
+    examples/<slug>/chNN_<topic>.py if you have made one
+"Script" on a chapter creates that script (from a short template) and opens it: a place to
+check the book's worked examples in Python.
 Ticking a chapter on the page writes "- [x]" into notes/<slug>/README.md.
 
 PDFs open in the reading view (PDF.js + word lookup, see reader.py): double-click a word
@@ -29,7 +30,6 @@ import webbrowser
 from datetime import date
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from importlib.metadata import version
 from pathlib import Path
 
 import book_search
@@ -128,7 +128,7 @@ def chapter_page(slug: str, number: int | None, chapters: list[dict]) -> int | N
         if slug not in cache:
             pdf = ROOT / catalog.load(CATALOG)[slug]["file"]
             if not pdf.exists():
-                return None  # PDF deleted: notes and notebooks still open, just no page
+                return None  # PDF deleted: notes and scripts still open, just no page
             found = find_chapter_pages(pdf, chapters)
             with _cache_lock:
                 cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
@@ -155,75 +155,69 @@ def warm_cache() -> None:
             print(f"  ! couldn't find chapter pages for {slug}: {e}")
 
 
-# --- notebooks ----------------------------------------------------------------------------
+# --- chapter scripts ----------------------------------------------------------------------
 
-NOTEBOOK_TEMPLATE = '''import marimo
+SCRIPT_TEMPLATE = '''"""{book}
+{chapter}
 
-__generated_with = "{marimo_version}"
-app = marimo.App(width="medium")
+Check this chapter's worked examples in Python: recompute a result, then compare it with the
+book's answer. Run it with VS Code's Run button, or in a terminal:
+
+    uv run {path}
+
+Notes for this chapter: notes/{slug}/{note}
+"""
+
+# Useful imports (uncomment what you need):
+# import math
+# import numpy as np
+# from mylibrary import ...   # your own reusable code, in src/mylibrary/
 
 
-@app.cell
-def _():
-    import marimo as mo
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    import mylibrary
-
-    return mo, np, mylibrary, plt
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""
-    # {book}
-    ## {chapter}
-
-    Notes: `notes/{slug}/{note}`. Use this notebook to try the chapter's ideas:
-    re-derive equations, check worked examples, add sliders and plots.
-    """)
-    return
+def main() -> None:
+    # Example 1:
+    # result = ...
+    # print(f"result = {{result:.4g}}  (book: ...)")
+    pass
 
 
 if __name__ == "__main__":
-    app.run()
+    main()
 '''
 
 
-def notebook_for(slug: str, chapter: dict, book_title: str) -> Path:
-    """notebooks/<slug>/chNN_<topic>.py, created from a starter template if it doesn't exist."""
-    folder = ROOT / "notebooks" / slug
+def script_for(slug: str, chapter: dict, book_title: str, create: bool = False) -> Path | None:
+    """examples/<slug>/chNN_<topic>.py: the existing one, or with create, a new one from the
+    template. None if there's none and create is False."""
+    folder = ROOT / "examples" / slug
     existing = sorted(folder.glob(f"ch{chapter['number']:02d}_*.py"))
     if existing:
         return existing[0]
+    if not create:
+        return None
     topic = "_".join(short_title(_bare_title(chapter["title"])).split("-")[:4])
     path = folder / f"ch{chapter['number']:02d}_{topic}.py"
     folder.mkdir(parents=True, exist_ok=True)
 
     def safe(text: str) -> str:
-        return text.replace('"""', "'''").replace("\\", "/")
+        # no triple quotes (they'd end the docstring) and no backslashes in the header
+        return text.replace('"' * 3, "'" * 3).replace(chr(92), "/")
 
     path.write_text(
-        NOTEBOOK_TEMPLATE.format(
-            marimo_version=version("marimo"),
+        SCRIPT_TEMPLATE.format(
             book=safe(book_title),
             chapter=safe(chapter["title"]),
+            path=path.relative_to(ROOT).as_posix(),
             slug=slug,
             note=chapter["note"],
         ),
         encoding="utf-8",
     )
-    (folder / ".gitkeep").unlink(missing_ok=True)
     return path
 
 
 def open_in_vscode(*files: Path) -> bool:
-    """Open files in the project's VS Code window (reused if it's already open).
-
-    Notebooks open in the marimo extension's notebook editor, thanks to the
-    workbench.editorAssociations setting in .vscode/settings.json.
-    """
+    """Open files in the project's VS Code window (reused if it's already open)."""
     code = shutil.which("code")
     if not code:
         return False
@@ -278,8 +272,8 @@ def save_position(slug: str, page: int) -> dict:
 
 
 def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = False) -> str:
-    """Open a chapter (PDF at its first page, notes, notebook); with resume, open the page
-    you last read and the chapter it belongs to."""
+    """Open a chapter (PDF at its first page, notes, and its script if there is one); with
+    resume, open the page you last read and the chapter it belongs to."""
     row = catalog.load(CATALOG)[slug]
     chapters = library_page.chapters(slug)
     last = library_page.last_read(slug) if resume else None
@@ -304,11 +298,12 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
     if not note.exists():
         note = notes_dir / "README.md"
     files = [note]
-    if chapter:
-        files.append(notebook_for(slug, chapter, row["title"]))
+    script = script_for(slug, chapter, row["title"]) if chapter else None
+    if script:
+        files.append(script)
     if open_in_vscode(*files):
         opened.append(
-            f"notes and notebook {files[1].name} in VS Code" if chapter else "notes in VS Code"
+            f"notes and script {script.name} in VS Code" if script else "notes in VS Code"
         )
     else:
         opened.append("nothing in VS Code: its `code` command was not found")
@@ -317,6 +312,19 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
     if last:
         what = f"Continuing at page {last['page']}" + (f" ({chapter['title']})" if chapter else "")
     return f"{what}: opened " + ", ".join(opened)
+
+
+def open_script(slug: str, number: int) -> str:
+    """The chapter's Python script, created from the template the first time, in VS Code."""
+    row = catalog.load(CATALOG)[slug]
+    chapter = next((c for c in library_page.chapters(slug) if c["number"] == number), None)
+    if chapter is None:
+        raise ValueError(f"no chapter {number}")
+    path = script_for(slug, chapter, row["title"], create=True)
+    where = path.relative_to(ROOT).as_posix()
+    if open_in_vscode(path):
+        return f"{chapter['title']}: opened {where} in VS Code"
+    return f"{chapter['title']}: script is {where} (open it in your editor; VS Code wasn't found)"
 
 
 def tick(slug: str, number: int, done: bool) -> list[dict]:
@@ -413,6 +421,8 @@ class Handler(BaseHTTPRequestHandler):
                 resume = body.get("resume") is True
                 message = open_chapter(slug, chapter, self.base_url, resume)
                 return self._json(HTTPStatus.OK, {"message": message})
+            if self.path == "/api/script" and chapter is not None:
+                return self._json(HTTPStatus.OK, {"message": open_script(slug, chapter)})
             if self.path == "/api/position":
                 page = body.get("page")
                 if not isinstance(page, int) or page < 1:

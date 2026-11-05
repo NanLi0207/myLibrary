@@ -7,7 +7,8 @@ A self-hosted study companion for learning from your own PDF books, in any subje
   glossaries** (with a short definition in Chinese) and in an offline **English–Chinese
   dictionary**.
 - **Search all your books at once** to see how different authors explain a term.
-- **Track progress** chapter by chapter, with a notes file and a Python notebook per chapter.
+- **Track progress** chapter by chapter, with a notes file per chapter, and a Python script
+  to check the book's worked examples when you want one.
 
 Everything runs on your own computer. **No books are included**: bring your own PDFs.
 
@@ -28,7 +29,7 @@ Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 4. [The reading view](#4-the-reading-view)
 5. [Looking up words and terms (查词, look-up)](#5-looking-up-words-and-terms-查词-look-up)
 6. [Glossaries](#6-glossaries)
-7. [Notes and notebooks](#7-notes-and-notebooks)
+7. [Notes and chapter scripts](#7-notes-and-chapter-scripts)
 8. [Managing books](#8-managing-books)
 9. [Where things are stored](#9-where-things-are-stored)
 10. [Command reference](#10-command-reference)
@@ -41,8 +42,8 @@ Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## 1. Quick start
 
 You need [uv](https://docs.astral.sh/uv/) (it installs Python and the packages) and, for notes
-and notebooks, VS Code with the **marimo** extension. The shortcut below is for Windows; on other
-systems start the server from a terminal.
+and chapter scripts, [VS Code](https://code.visualstudio.com/) (with its Python extension). The
+shortcut below is for Windows; on other systems start the server from a terminal.
 
 ```powershell
 git clone <this repository> myLibrary
@@ -83,17 +84,16 @@ word lookup.
 
 ## 2. A typical study session
 
-1. **Open the library** and click **Continue · p. N** on the book you're reading. Three things
-   open:
+1. **Open the library** and click **Continue · p. N** on the book you're reading. This opens:
    - the book, in the reading view, at the page where you stopped;
-   - in VS Code, the **notes** file for that chapter (`notes/<book>/chNN-*.md`);
-   - in VS Code, the chapter's **marimo notebook** (`notebooks/<book>/chNN_*.py`, created the
-     first time).
+   - in VS Code, the **notes** file for that chapter (`notes/<book>/chNN-*.md`), and the
+     chapter's Python script if you've made one.
 2. **Read.** Double-click any word you don't know, or drag over a phrase (see
    [section 5](#5-looking-up-words-and-terms-查词-look-up)). Save useful words with **加入生词本** (Save word).
 3. **Take notes** in your own words in the chapter notes file: key ideas, equations,
    questions.
-4. **Try it** in the notebook: re-derive an equation, check a worked example, plot something.
+4. **Check it in Python** (optional): click **Script** on the chapter and recompute a worked
+   example, re-derive a result or plot something (see [section 7](#7-notes-and-chapter-scripts)).
 5. **Stop whenever you like.** Your page is saved automatically; just close the tab.
 6. When you've **finished a chapter**, tick it on the library page (Chapters → checkbox).
 
@@ -104,11 +104,11 @@ sort menu to order the cards (title, author, newest, progress, recently added).
 
 | On a card | What it does |
 |---|---|
-| **Continue · p. N** | Opens the book at the page you last read, plus that chapter's notes and notebook |
+| **Continue · p. N** | Opens the book at the page you last read, plus that chapter's notes (and script, if any) |
 | **Start reading** / **Continue** (no page saved yet) | Opens the first chapter you haven't ticked |
-| **PDF** | Opens the book in the reading view at its first page (notes and notebook not opened) |
+| **PDF** | Opens the book in the reading view at its first page (notes not opened) |
 | **Notes** | Opens the book's notes folder in VS Code |
-| **Chapters** | Shows the chapter list: **Read** opens one chapter; the checkbox ticks it |
+| **Chapters** | Shows the chapter list: **Read** opens one chapter, **Script** its Python script; the checkbox ticks it |
 | Progress bar, "0/8 chapters · 3%" | How far you are (see below) |
 | "Last read: page 41 · Ch 2 · date" | Where you stopped |
 
@@ -243,37 +243,49 @@ aberrations, image quality, design and tolerancing, stray light, coatings, laser
 optomechanics) shows what a good glossary looks like. Its definitions are short summaries; if
 one disagrees with your books, trust the book and correct the row.
 
-## 7. Notes and notebooks
+## 7. Notes and chapter scripts
 
 ### Notes (`notes/<book>/`)
 
 | File | Contents |
 |---|---|
 | `README.md` | Book details, the chapter checklist (ticks), the "Last read" line |
-| `chNN-<chapter>.md` | One per chapter: headings for each section, plus *Key ideas*, *Equations*, *Questions*, *Try in a notebook* |
+| `chNN-<chapter>.md` | One per chapter: headings for each section, plus *Key ideas*, *Equations*, *Questions*, *Check it in Python* |
 | `vocabulary.md` | Words you saved while reading |
 
 The chapter files start with headings only. Write the notes **in your own words**; don't paste
 text from the books (they're copyrighted, and rewriting is how you learn it). Notes are plain
 Markdown, so equations can be written as `$E = mc^2$`.
 
-### Notebooks (`notebooks/<book>/chNN_<topic>.py`)
+### Chapter scripts (`examples/<book>/chNN_<topic>.py`)
 
-[marimo](https://marimo.io) notebooks: reactive Python notebooks stored as plain `.py` files.
-They open in VS Code's marimo extension, or in the browser with
-`uv run marimo edit notebooks/<book>/chNN_<topic>.py`. Each starts with `numpy`, `matplotlib`
-and your `mylibrary` package imported. Ideas:
+For technical books, recomputing a worked example is one of the best ways to check that you
+understood it. Click **Script** next to a chapter on the library page: the first time, it creates
+a short, plain Python script for that chapter from a template, and opens it in VS Code. After
+that, **Read** and **Continue** open it together with the chapter's notes.
 
-- re-derive an equation with `sympy` and check it against the book;
-- reproduce a worked example, a table or a figure;
-- add a slider (`mo.ui.slider`) and watch how a result changes with a parameter;
+Write your calculation in `main()`, then run it with VS Code's **Run** button (▶), or:
+
+```powershell
+uv run examples/<book>/ch03_aberrations.py
+```
+
+`uv sync` installs `numpy`, `scipy`, `sympy` and `matplotlib` (the `science` group) for these
+scripts. Ideas:
+
+- recompute a worked example and print it next to the book's answer;
+- re-derive an equation with `sympy`;
+- plot how a result changes with a parameter (`matplotlib`);
 - fit a model to data with `scipy`.
+
+Scripts are created only when you ask for one; a chapter without calculations needs none.
 
 ### Your own code (`src/mylibrary/`)
 
-When a function proves useful in more than one notebook, move it into `src/mylibrary/` and
-add a test in `tests/` that checks it against a result from a book. The example module
-`mylibrary.paraxial` (ray-transfer matrices for first-order optics) grew out of the optics books.
+When a function proves useful in more than one script, move it into `src/mylibrary/`, import it
+with `from mylibrary import ...`, and add a test in `tests/` that checks it against a result
+from a book. The example module `mylibrary.paraxial` (ray-transfer matrices for first-order
+optics) grew out of the optics books.
 
 ## 8. Managing books
 
@@ -281,7 +293,7 @@ add a test in `tests/` that checks it against a result from a book. The example 
 
 Every book has one **slug**: `<first-author-surname>-<year>-<short-title>`, lowercase, e.g.
 `shannon-1997-art-science-optical-design`. The same slug names the PDF, its notes folder and
-its notebooks folder. Books are always PDFs.
+its scripts folder. Books are always PDFs.
 
 ### Adding a book
 
@@ -330,17 +342,16 @@ uv run scripts/add_book.py --remove <slug> --dry-run   # preview
 uv run scripts/add_book.py --remove <slug>             # asks before moving anything
 ```
 
-The PDF, notes and notebooks move to `archive/`; nothing is deleted. To bring a book back,
+The PDF, notes and scripts move to `archive/`; nothing is deleted. To bring a book back,
 move its files back and run `add_book.py`. If you only delete the PDF, the card stays and says
-"PDF missing"; its notes and notebooks still open.
+"PDF missing"; its notes and scripts still open.
 
 ## 9. Where things are stored
 
 ```
 books/<slug>.pdf          your books (local only: never in git, they're copyrighted)
 notes/<slug>/             your notes, ticks, last-read page, vocabulary
-notebooks/<slug>/         your marimo notebooks
-notebooks/library.py      the catalog as a searchable marimo table
+examples/<slug>/          your chapter scripts (created with "Script")
 glossaries/               your subject glossaries (*.csv) and glossaries.toml
 catalog.csv               one row per book: title, authors, year, publisher, ISBN, pages, ...
 src/mylibrary/            your reusable Python code
@@ -351,13 +362,13 @@ archive/                  removed books, original scans (local only)
 .cache/                   rebuildable data (local only)
 ```
 
-**Your own work** (back it up, never delete): `notes/`, `notebooks/`, `glossaries/`,
+**Your own work** (back it up, never delete): `notes/`, `examples/`, `glossaries/`,
 `src/mylibrary/`, `catalog.csv`. It's all in git; commit and push to keep a copy.
 
 **The books are not in git**, because they're copyrighted: `books/` is listed in `.gitignore`.
 Git doesn't back them up, so keep your own copy of the PDFs somewhere else (an external drive,
 or a private cloud folder). If you publish your copy of this repository, only your notes,
-notebooks, glossaries and code go public, never the books.
+scripts, glossaries and code go public, never the books.
 
 **Safe to delete** (rebuilt automatically when needed): everything in `.cache/`:
 
@@ -386,9 +397,7 @@ Run these in the project folder (PowerShell, a terminal, or the VS Code terminal
 | `uv run scripts/reader.py --setup` | Download the PDF viewer and dictionary |
 | `uv run scripts/book_search.py <term>` | Search all books for a term |
 | `uv run scripts/library_page.py` | Write the static `library.html` |
-| `uv run marimo edit notebooks` | Browse and open notebooks in the browser |
-| `uv run marimo edit notebooks/library.py` | The catalog as a marimo table |
-| `uv run marimo new` | A scratch notebook |
+| `uv run examples/<book>/chNN_<topic>.py` | Run a chapter script |
 | `uv sync` | Create or update the Python environment (`--group optics` adds the optics packages) |
 | `uv add <package>` | Add a Python package |
 | `uv run pytest` | Run the tests |
@@ -444,8 +453,8 @@ subject, but their meanings are written in Chinese (the `zh` column).
 
 - **[PDF.js](https://mozilla.github.io/pdf.js/)** (Mozilla): the PDF viewer
 - **[ECDICT](https://github.com/skywind3000/ECDICT)**: the offline English–Chinese dictionary
-- **marimo**: reactive notebooks stored as plain `.py` files (good for git diffs)
-- **numpy / scipy / sympy / matplotlib**: numerics, symbolic math, plots
+- **numpy / scipy / sympy / matplotlib** (`science` group): numerics, symbolic math and plots in
+  chapter scripts
 - **pypdf / pypdfium2 / rapidocr / reportlab**: reading PDFs, OCR for scans, writing text layers
 - **optiland / rayoptics** (optional `optics` group): lens design for the optics example
 

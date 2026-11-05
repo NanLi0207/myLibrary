@@ -29,4 +29,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/kingslake-2010-lens-design-fundamentals/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/kingslake-2010-lens-design-fundamentals/` ("Script" on the library page).

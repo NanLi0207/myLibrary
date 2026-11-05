@@ -50,4 +50,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/geary-2002-introduction-lens-design-practical-zemax/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/geary-2002-introduction-lens-design-practical-zemax/` ("Script" on the library page).

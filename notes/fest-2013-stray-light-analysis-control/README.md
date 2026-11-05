@@ -23,4 +23,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/fest-2013-stray-light-analysis-control/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/fest-2013-stray-light-analysis-control/` ("Script" on the library page).

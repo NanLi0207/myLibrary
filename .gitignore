@@ -5,10 +5,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# marimo
-__marimo__/
-.marimo/
-
 # The books are copyrighted: they stay on this computer only, never in git.
 # (.gitkeep keeps the empty folder in a fresh clone, so new books have somewhere to go.)
 books/*

@@ -42,5 +42,5 @@
 
 ## Questions
 
-## Try in a notebook
+## Check it in Python
 

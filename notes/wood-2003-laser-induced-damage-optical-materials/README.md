@@ -20,4 +20,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/wood-2003-laser-induced-damage-optical-materials/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/wood-2003-laser-induced-damage-optical-materials/` ("Script" on the library page).

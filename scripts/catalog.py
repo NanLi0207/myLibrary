@@ -1,7 +1,7 @@
 """catalog.csv: one row per book, kept up to date by add_book.py.
 
 Plain CSV so it opens in Excel, greps easily and diffs cleanly in git.
-Search it with notebooks/library.py, or e.g. `Select-String aberration catalog.csv`.
+Browse it on the library page, or search it e.g. with `Select-String aberration catalog.csv`.
 """
 
 import csv

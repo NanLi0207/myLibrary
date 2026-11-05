@@ -35,4 +35,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/smith-1992-modern-lens-design/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/smith-1992-modern-lens-design/` ("Script" on the library page).

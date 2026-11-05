@@ -1,6 +1,5 @@
 {
   "recommendations": [
-    "marimo-team.vscode-marimo",
     "ms-python.python",
     "charliermarsh.ruff",
     "tamasfe.even-better-toml"

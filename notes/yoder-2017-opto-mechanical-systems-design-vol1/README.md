@@ -23,4 +23,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/yoder-2017-opto-mechanical-systems-design-vol1/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/yoder-2017-opto-mechanical-systems-design-vol1/` ("Script" on the library page).

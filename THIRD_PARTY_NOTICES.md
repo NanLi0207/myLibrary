@@ -15,11 +15,10 @@ must include their license texts and copyright notices.
 
 | Package | License |
 |---|---|
-| marimo | Apache-2.0 |
 | numpy | BSD-3-Clause (and bundled components under 0BSD, MIT, Zlib, CC0-1.0) |
-| scipy | BSD-3-Clause |
-| sympy | BSD-3-Clause |
-| matplotlib | Matplotlib License (PSF-based) |
+| scipy (`science` group) | BSD-3-Clause |
+| sympy (`science` group) | BSD-3-Clause |
+| matplotlib (`science` group) | Matplotlib License (PSF-based) |
 | pypdf | BSD-3-Clause |
 | pypdfium2 (with PDFium) | BSD-3-Clause / Apache-2.0, plus PDFium's dependency licenses |
 | rapidocr | Apache-2.0 |

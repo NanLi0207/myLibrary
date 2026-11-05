@@ -38,4 +38,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/fischer-2008-optical-system-design/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/fischer-2008-optical-system-design/` ("Script" on the library page).

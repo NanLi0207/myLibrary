@@ -1,7 +1,7 @@
 [project]
 name = "myLibrary"
 version = "0.1.0"
-description = "Study from your own PDF books: reading view with English-Chinese lookup, subject glossaries, search across your books, progress tracking, chapter notes and notebooks"
+description = "Study from your own PDF books: reading view with English-Chinese lookup, subject glossaries, search across your books, progress tracking and chapter notes"
 readme = "README.md"
 license = "PolyForm-Noncommercial-1.0.0"
 license-files = ["LICENSE"]
@@ -9,17 +9,13 @@ authors = [
     { name = "Nan Li" }
 ]
 requires-python = ">=3.14"
+# What the library itself needs: reading PDFs, the reading view, adding books, OCR for scans
 dependencies = [
-    "marimo>=0.25.2",
-    "matplotlib>=3.11.2",
-    "numpy>=2.5.4",
-    "onnxruntime>=1.31.1",
+    "onnxruntime>=1.31.1",  # runs the OCR model
     "pypdf>=6.21.4",
     "pypdfium2>=5.14.0",
-    "rapidocr>=3.10.0",
-    "reportlab>=5.1.0",
-    "scipy>=1.18.1",
-    "sympy>=1.14.0",
+    "rapidocr>=3.10.0",  # OCR for scanned books
+    "reportlab>=5.1.0",  # writes the OCR text layer
 ]
 
 [build-system]
@@ -31,11 +27,22 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.3",
 ]
+# For the chapter scripts in examples/ (checking a book's worked examples): installed by
+# `uv sync` by default; not needed just to read
+science = [
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
+    "scipy>=1.18.1",
+    "sympy>=1.14.0",
+]
 # Extra packages for one subject, installed with: uv sync --group optics
 optics = [
     "optiland>=0.6.3",  # lens design: ray tracing, aberrations, optimization
     "rayoptics>=0.9.10",  # reads Zemax .zmx and CODE V .seq files
 ]
+
+[tool.uv]
+default-groups = ["dev", "science"]
 
 [tool.ruff]
 extend-exclude = ["archive"]
@@ -45,7 +52,6 @@ line-length = 100
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
-"notebooks/**" = ["B018", "E702", "E501"]  # bare display expressions; long markdown lines
 "scripts/library_page.py" = ["E501"]  # embedded HTML/JS template
 
 [tool.pytest.ini_options]

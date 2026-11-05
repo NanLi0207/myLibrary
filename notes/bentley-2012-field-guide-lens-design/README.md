@@ -9,6 +9,8 @@
 
 ## Reading progress
 
+Last read: page 14 (Ch 1: Fundamentals of Optical Design), 2026-11-05
+
 - [ ] [Ch 1: Fundamentals of Optical Design](ch01-fundamentals-optical-design.md)
 - [ ] [Ch 2: Design Forms](ch02-design-forms.md)
 - [ ] [Ch 3: Improving a Design](ch03-improving-design.md)
@@ -21,4 +23,5 @@
 
 ## Notes
 
-One Markdown file per chapter (`chNN-*.md`). Notebooks live in `notebooks/bentley-2012-field-guide-lens-design/`.
+One Markdown file per chapter (`chNN-*.md`). Python scripts for checking the book's
+examples live in `examples/bentley-2012-field-guide-lens-design/` ("Script" on the library page).
