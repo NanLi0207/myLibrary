@@ -1,0 +1,494 @@
+"""Local reading server for myLibrary.
+
+    uv run scripts/library_server.py          # opens http://127.0.0.1:8765 in your browser
+
+"Read" / "Continue" on a book (or "Read" on one chapter) opens everything for that chapter:
+  - the PDF in the browser, at the page where the chapter starts
+  - in VS Code (the project window): the chapter's notes file and its marimo notebook,
+    notebooks/<slug>/chNN_<topic>.py (created on first use), shown in the marimo
+    extension's notebook editor (see workbench.editorAssociations in .vscode/settings.json)
+Ticking a chapter on the page writes "- [x]" into notes/<slug>/README.md.
+
+PDFs open in the reading view (PDF.js + word lookup, see reader.py): double-click a word
+for its glossary / dictionary meaning in Chinese, and save it to notes/<slug>/vocabulary.md.
+
+Only listens on 127.0.0.1, and every action needs the token embedded in the page,
+so other websites can't trigger it. Stop with Ctrl+C.
+"""
+
+import argparse
+import json
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import threading
+import urllib.request
+import webbrowser
+from datetime import date
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.metadata import version
+from pathlib import Path
+
+import book_search
+import catalog
+import library_page
+import reader as reading_view
+from add_book import short_title
+from book_ocr import has_text_layer
+from book_toc import CHAPTER_TITLE_RE, contents_pages, scanned_chapter_pages, tidy
+from pypdf import PdfReader
+
+ROOT = Path(__file__).resolve().parent.parent
+CATALOG = ROOT / "catalog.csv"
+CACHE = ROOT / ".cache" / "chapter_pages.json"
+TOKEN = secrets.token_urlsafe(24)
+
+_cache_lock = threading.Lock()
+_book_locks: dict[str, threading.Lock] = {}
+
+
+# --- where each chapter starts in the PDF -------------------------------------------------
+
+
+def _key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def _bare_title(title: str) -> str:
+    """'Ch 3: Aberrations' (as listed in the notes README) -> 'Aberrations'."""
+    return re.sub(r"^Ch\s*\d+:\s*", "", title)
+
+
+def find_chapter_pages(pdf: Path, chapters: list[dict]) -> dict[int, int]:
+    """{chapter number: 1-based PDF page}, from bookmarks or by finding chapter-opening pages."""
+    reader = PdfReader(pdf)
+    if not reader.outline and not has_text_layer(reader):
+        # Image-only scan: OCR the page tops (a few minutes once, then cached)
+        print(f"  finding chapter pages in {pdf.name} with OCR (first time only)...")
+        return scanned_chapter_pages(pdf, len(reader.pages))
+    pages: dict[int, int] = {}
+
+    def walk(items):
+        for item in items:
+            if isinstance(item, list):
+                walk(item)
+            elif (m := CHAPTER_TITLE_RE.match(tidy(item.title))) and int(m[1]) not in pages:
+                try:
+                    pages[int(m[1])] = reader.get_destination_page_number(item) + 1
+                except Exception:  # broken bookmark target
+                    pass
+
+    walk(reader.outline)
+    if pages:
+        return pages
+
+    # No numbered bookmarks: the chapter starts on the first page (after the Contents)
+    # whose top lines show "Chapter N" or the chapter's title. A title found further into the
+    # top lines only counts for the next chapter due: running text like "... symmetrical
+    # optical systems" mustn't make chapter "Optical Systems" start there. Once the book has
+    # shown "Chapter N" headings, that looser match isn't needed at all.
+    wanted = [c for c in chapters if c["number"] is not None]
+    titles = {c["number"]: _key(_bare_title(c["title"]))[:30] for c in wanted}
+    start = max(contents_pages(reader), default=-1) + 1
+    last = 0
+    numbered = False
+    for i in range(start, len(reader.pages)):
+        top = " ".join((reader.pages[i].extract_text() or "").strip().splitlines()[:4])
+        head = _key(top)
+        head_start = head.lstrip("0123456789")  # past a page number
+        due = min((n for n in titles if n > last and n not in pages), default=None)
+        for n in sorted(titles):
+            if n <= last or n in pages:
+                continue
+            by_number = re.match(rf"^\s*chapter\s*{n}\b", top, re.IGNORECASE)
+            title = titles[n]
+            by_title = len(title) >= 6 and (
+                head_start.startswith(title) or (n == due and not numbered and title in head)
+            )
+            numbered = numbered or bool(by_number)
+            if by_number or by_title:
+                pages[n], last = i + 1, n
+                break
+    return pages
+
+
+def chapter_page(slug: str, number: int | None, chapters: list[dict]) -> int | None:
+    if number is None:
+        return None
+    # One lookup per book at a time: the background warm-up and a Read click shouldn't both
+    # run the (slow) search for the same book
+    with _cache_lock:
+        book_lock = _book_locks.setdefault(slug, threading.Lock())
+    with book_lock:
+        with _cache_lock:
+            cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
+        if slug not in cache:
+            pdf = ROOT / catalog.load(CATALOG)[slug]["file"]
+            if not pdf.exists():
+                return None  # PDF deleted: notes and notebooks still open, just no page
+            found = find_chapter_pages(pdf, chapters)
+            with _cache_lock:
+                cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
+                cache[slug] = {str(k): v for k, v in found.items()}
+                CACHE.parent.mkdir(exist_ok=True)
+                CACHE.write_text(json.dumps(cache, indent=1), encoding="utf-8")
+    # Not found (e.g. OCR-garbled title): start of the nearest earlier chapter is close enough
+    known = {int(k): v for k, v in cache[slug].items() if int(k) <= number}
+    return known[max(known)] if known else None
+
+
+def warm_cache() -> None:
+    """Find chapter pages for every book in the background, so the first Read is quick;
+    also bring the full-text index (在我的书中 / In my books) up to date."""
+    try:
+        if n := book_search.update():
+            print(f"  full-text index updated ({n} book{'s' if n > 1 else ''})")
+    except Exception as e:
+        print(f"  ! couldn't update the full-text index: {e}")
+    for slug in catalog.load(CATALOG):
+        try:
+            chapter_page(slug, 1, library_page.chapters(slug))
+        except Exception as e:  # one damaged PDF shouldn't stop the others
+            print(f"  ! couldn't find chapter pages for {slug}: {e}")
+
+
+# --- notebooks ----------------------------------------------------------------------------
+
+NOTEBOOK_TEMPLATE = '''import marimo
+
+__generated_with = "{marimo_version}"
+app = marimo.App(width="medium")
+
+
+@app.cell
+def _():
+    import marimo as mo
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    import mylibrary
+
+    return mo, np, mylibrary, plt
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""
+    # {book}
+    ## {chapter}
+
+    Notes: `notes/{slug}/{note}`. Use this notebook to try the chapter's ideas:
+    re-derive equations, check worked examples, add sliders and plots.
+    """)
+    return
+
+
+if __name__ == "__main__":
+    app.run()
+'''
+
+
+def notebook_for(slug: str, chapter: dict, book_title: str) -> Path:
+    """notebooks/<slug>/chNN_<topic>.py, created from a starter template if it doesn't exist."""
+    folder = ROOT / "notebooks" / slug
+    existing = sorted(folder.glob(f"ch{chapter['number']:02d}_*.py"))
+    if existing:
+        return existing[0]
+    topic = "_".join(short_title(_bare_title(chapter["title"])).split("-")[:4])
+    path = folder / f"ch{chapter['number']:02d}_{topic}.py"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    def safe(text: str) -> str:
+        return text.replace('"""', "'''").replace("\\", "/")
+
+    path.write_text(
+        NOTEBOOK_TEMPLATE.format(
+            marimo_version=version("marimo"),
+            book=safe(book_title),
+            chapter=safe(chapter["title"]),
+            slug=slug,
+            note=chapter["note"],
+        ),
+        encoding="utf-8",
+    )
+    (folder / ".gitkeep").unlink(missing_ok=True)
+    return path
+
+
+def open_in_vscode(*files: Path) -> bool:
+    """Open files in the project's VS Code window (reused if it's already open).
+
+    Notebooks open in the marimo extension's notebook editor, thanks to the
+    workbench.editorAssociations setting in .vscode/settings.json.
+    """
+    code = shutil.which("code")
+    if not code:
+        return False
+    subprocess.Popen([code, str(ROOT), *map(str, files)], cwd=ROOT)
+    return True
+
+
+# --- actions ------------------------------------------------------------------------------
+
+
+def pdf_url(base_url: str, pdf_name: str, page: int | None = None) -> str:
+    """The reading view (PDF.js + word lookup) once it's set up, else the bare PDF."""
+    if reading_view.missing():
+        url = f"{base_url}/books/{pdf_name}"
+    else:
+        url = f"{base_url}/pdfjs/web/viewer.html?file=/books/{pdf_name}"
+    return url + (f"#page={page}" if page else "")
+
+
+def chapter_at(slug: str, page: int, chapters: list[dict]) -> dict | None:
+    """The chapter that page belongs to: the last one starting on or before it."""
+    chapter_page(slug, 1, chapters)  # makes sure the book's chapter pages are cached
+    with _cache_lock:
+        cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
+    starts = {int(n): p for n, p in cache.get(slug, {}).items() if p <= page}
+    if not starts:
+        return None
+    number = max(starts, key=lambda n: (starts[n], n))
+    return next((c for c in chapters if c["number"] == number), None)
+
+
+def save_position(slug: str, page: int) -> dict:
+    """Write "Last read: page N (Ch k: ...), date" under "## Reading progress" in the README."""
+    readme = ROOT / "notes" / slug / "README.md"
+    if not readme.exists():
+        return {}
+    chapter = chapter_at(slug, page, library_page.chapters(slug))
+    line = f"Last read: page {page}" + (f" ({chapter['title']})" if chapter else "")
+    line += f", {date.today().isoformat()}"
+    text = readme.read_text(encoding="utf-8")
+    new, count = library_page.LAST_READ_RE.subn(lambda _: line, text, count=1)
+    if not count:
+        heading = re.search(r"^## Reading progress[ \t]*\n(?:[ \t]*\n)?", text, re.MULTILINE)
+        if heading:
+            rest = text[heading.end() :].lstrip("\n")
+            new = text[: heading.end()] + line + "\n\n" + rest
+        else:
+            new = text.rstrip("\n") + "\n\n" + line + "\n"
+    if new != text:
+        readme.write_text(new, encoding="utf-8")
+    return library_page.last_read(slug) or {}
+
+
+def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = False) -> str:
+    """Open a chapter (PDF at its first page, notes, notebook); with resume, open the page
+    you last read and the chapter it belongs to."""
+    row = catalog.load(CATALOG)[slug]
+    chapters = library_page.chapters(slug)
+    last = library_page.last_read(slug) if resume else None
+    if last:
+        chapter = chapter_at(slug, last["page"], chapters)
+    else:
+        chapter = next((c for c in chapters if c["number"] == number), None)
+    notes_dir = ROOT / "notes" / slug
+    opened = []
+
+    if (ROOT / row["file"]).exists():
+        if last:
+            page = last["page"]
+        else:
+            page = chapter_page(slug, chapter["number"], chapters) if chapter else None
+        webbrowser.open(pdf_url(base_url, Path(row["file"]).name, page))
+        opened.append(f"PDF (p. {page})" if page else "PDF")
+    else:
+        opened.append("no PDF (it's missing from books/)")
+
+    note = notes_dir / chapter["note"] if chapter and chapter["note"] else notes_dir / "README.md"
+    if not note.exists():
+        note = notes_dir / "README.md"
+    files = [note]
+    if chapter:
+        files.append(notebook_for(slug, chapter, row["title"]))
+    if open_in_vscode(*files):
+        opened.append(
+            f"notes and notebook {files[1].name} in VS Code" if chapter else "notes in VS Code"
+        )
+    else:
+        opened.append("nothing in VS Code: its `code` command was not found")
+
+    what = chapter["title"] if chapter else row["title"]
+    if last:
+        what = f"Continuing at page {last['page']}" + (f" ({chapter['title']})" if chapter else "")
+    return f"{what}: opened " + ", ".join(opened)
+
+
+def tick(slug: str, number: int, done: bool) -> list[dict]:
+    readme = ROOT / "notes" / slug / "README.md"
+    text = readme.read_text(encoding="utf-8")
+    pattern = re.compile(rf"^- \[[ xX]\] (\[?Ch(?:apter)?\.?\s*{number}:)", re.MULTILINE)
+    new, count = pattern.subn(lambda m: f"- [{'x' if done else ' '}] {m[1]}", text, count=1)
+    if not count:
+        raise ValueError(f"chapter {number} not found in {readme.name}")
+    readme.write_text(new, encoding="utf-8")
+    return library_page.chapters(slug)
+
+
+# --- HTTP ---------------------------------------------------------------------------------
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "myLibrary"
+
+    def log_message(self, format, *args):  # keep the terminal quiet
+        pass
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.server.server_port}"
+
+    def _local_host(self) -> bool:
+        # Blocks DNS-rebinding: a page on another site can't pretend to be us
+        return self.headers.get("Host", "").split(":")[0] in {"127.0.0.1", "localhost"}
+
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, status: int, data: dict) -> None:
+        self._send(status, json.dumps(data).encode(), "application/json")
+
+    def do_GET(self):
+        if not self._local_host():
+            return self._send(HTTPStatus.FORBIDDEN, b"forbidden", "text/plain")
+        path = self.path.split("?")[0].split("#")[0]
+        if path in ("/", "/index.html"):
+            # library_page appends "/<file>.pdf" to pdf_base
+            pdf_base = pdf_url(self.base_url, "").removesuffix("/")
+            html = library_page.render({"token": TOKEN}, pdf_base=pdf_base)
+            return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
+        if path == "/pdfjs/web/viewer.html" and not reading_view.missing():
+            html = reading_view.viewer_html(TOKEN)
+            return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
+        if found := reading_view.static_file(path):
+            return self._send(HTTPStatus.OK, *found)
+        if m := re.fullmatch(r"/books/([a-z0-9-]+\.pdf)", path):
+            known = {Path(r["file"]).name for r in catalog.load(CATALOG).values()}
+            pdf = ROOT / "books" / m[1]
+            if m[1] in known and pdf.exists():
+                return self._send(HTTPStatus.OK, pdf.read_bytes(), "application/pdf")
+        self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
+
+    def do_POST(self):
+        if not self._local_host() or self.headers.get("X-Library-Token") != TOKEN:
+            return self._json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            if self.path == "/api/lookup":
+                text, context = str(body.get("text", "")), str(body.get("context", ""))[:1000]
+                return self._json(HTTPStatus.OK, reading_view.lookup(text, context))
+            if self.path == "/api/search":
+                current = body.get("slug") if isinstance(body.get("slug"), str) else None
+                found = book_search.search(str(body.get("text", ""))[:100], current)
+                return self._json(HTTPStatus.OK, found)
+            if self.path == "/api/glossary":
+                term, zh, definition = (
+                    str(body.get(k, ""))[:1000] for k in ("term", "zh", "definition")
+                )
+                name = body.get("glossary") if isinstance(body.get("glossary"), str) else None
+                try:
+                    added = reading_view.add_glossary_term(
+                        term, zh, definition, glossary_name=name or None
+                    )
+                except ValueError as e:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+                return self._json(HTTPStatus.OK, added)
+            slug = body.get("slug")
+            if slug not in catalog.load(CATALOG):
+                return self._json(HTTPStatus.NOT_FOUND, {"error": "unknown book"})
+            chapter = body.get("chapter")
+            if chapter is not None and not isinstance(chapter, int):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad chapter"})
+            if self.path == "/api/open":
+                resume = body.get("resume") is True
+                message = open_chapter(slug, chapter, self.base_url, resume)
+                return self._json(HTTPStatus.OK, {"message": message})
+            if self.path == "/api/position":
+                page = body.get("page")
+                if not isinstance(page, int) or page < 1:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad page"})
+                return self._json(HTTPStatus.OK, {"last_read": save_position(slug, page)})
+            if self.path == "/api/save-word":
+                page = body.get("page")
+                saved = reading_view.save_word(
+                    slug,
+                    catalog.load(CATALOG)[slug]["title"],
+                    str(body.get("text", "")),
+                    str(body.get("context", ""))[:1000],
+                    page if isinstance(page, int) else None,
+                )
+                return self._json(HTTPStatus.OK, saved)
+            if self.path == "/api/tick" and chapter is not None:
+                chapters = tick(slug, chapter, bool(body.get("done")))
+                library_page.build()  # keep the static copy in step
+                return self._json(HTTPStatus.OK, {"chapter_list": chapters})
+            self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
+        except Exception as e:
+            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
+
+
+def setup_reader() -> None:
+    try:
+        reading_view.setup()
+        print("Reading view ready: reload the library page.")
+    except Exception as e:
+        print(f"  ! reading view setup failed ({e}); try: uv run scripts/reader.py --setup")
+
+
+class Server(ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets a second server share the port and steal requests
+    allow_reuse_address = sys.platform != "win32"
+
+
+def already_running(port: int) -> bool:
+    """Is a myLibrary server answering on this port?"""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as response:
+            return response.headers.get("Server", "").startswith(Handler.server_version)
+    except OSError:
+        return False
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--no-browser", action="store_true")
+    args = parser.parse_args()
+
+    url = f"http://127.0.0.1:{args.port}"
+    if already_running(args.port):
+        print(f"myLibrary is already running at {url}; opening it.")
+        if not args.no_browser:
+            webbrowser.open(url)
+        return
+    try:
+        server = Server(("127.0.0.1", args.port), Handler)
+    except OSError as e:
+        sys.exit(f"Port {args.port} is used by another program ({e}); try --port 8766")
+    url = f"http://127.0.0.1:{server.server_port}"
+    print(f"myLibrary at {url}  (Ctrl+C to stop)")
+    threading.Thread(target=warm_cache, daemon=True).start()
+    if parts := reading_view.missing():
+        print(f"Setting up the reading view ({' + '.join(parts)}, one-time download ~72 MB);")
+        print("  until it's ready, books open as plain PDFs.")
+        threading.Thread(target=setup_reader, daemon=True).start()
+    if not args.no_browser:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping.")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,14 @@
+# Chapter 25: Bloopers and Blunders in Optics
+
+[Back to book](README.md)
+
+## Key ideas
+
+-
+
+## Equations
+
+## Questions
+
+## Try in a notebook
+

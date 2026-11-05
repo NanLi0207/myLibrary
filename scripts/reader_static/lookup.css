@@ -1,0 +1,223 @@
+/* Word-lookup popup in the PDF.js reading view (see lookup.js) */
+:root {
+  --ml-bg: #ffffff;
+  --ml-fg: #1f2328;
+  --ml-muted: #6b7280;
+  --ml-border: #d0d7de;
+  --ml-accent: #0b6bcb;
+  --ml-gloss-bg: #eef6ff;
+  --ml-tag-bg: #0b6bcb;
+  --ml-tag-fg: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ml-bg: #24272d;
+    --ml-fg: #e6e6e6;
+    --ml-muted: #9aa3ad;
+    --ml-border: #444b55;
+    --ml-accent: #6cb6ff;
+    --ml-gloss-bg: #1c2a3a;
+    --ml-tag-bg: #2f6fb2;
+    --ml-tag-fg: #ffffff;
+  }
+}
+.ml-popup,
+.ml-bubble {
+  position: fixed;
+  z-index: 100000;
+  background: var(--ml-bg);
+  color: var(--ml-fg);
+  border: 1px solid var(--ml-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  font: 14px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+.ml-popup {
+  width: min(420px, calc(100vw - 16px));
+  max-height: 70vh;
+  overflow: auto;
+  padding: 10px 12px;
+}
+.ml-bubble {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+}
+.ml-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.ml-word {
+  font: 600 18px/1.3 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: var(--ml-fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed var(--ml-border);
+  padding: 0 2px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ml-word:hover,
+.ml-word:focus {
+  border-bottom-color: var(--ml-accent);
+  outline: none;
+}
+.ml-phonetic,
+.ml-muted {
+  color: var(--ml-muted);
+}
+.ml-gloss {
+  background: var(--ml-gloss-bg);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin: 6px 0;
+}
+.ml-tag {
+  background: var(--ml-tag-bg);
+  color: var(--ml-tag-fg);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 1px 5px;
+  margin-right: 6px;
+}
+.ml-zh {
+  font-size: 16px;
+}
+.ml-note {
+  color: var(--ml-muted);
+  font-size: 12.5px;
+}
+/* The English translation next to each Chinese label */
+.ml-en {
+  font-size: 0.85em;
+  opacity: 0.75;
+  font-weight: normal;
+}
+.ml-def {
+  margin-top: 3px;
+}
+.ml-more-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.ml-small {
+  background: none;
+  border: 1px solid var(--ml-accent);
+  color: var(--ml-accent);
+  border-radius: 5px;
+  padding: 1px 8px;
+  font: inherit;
+  cursor: pointer;
+}
+.ml-small:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ml-results {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.ml-result {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--ml-bg);
+  color: var(--ml-fg);
+  border: 1px solid var(--ml-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 5px;
+  font: inherit;
+  cursor: pointer;
+}
+.ml-result:hover {
+  border-color: var(--ml-accent);
+}
+.ml-here {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--ml-accent);
+}
+.ml-snippet {
+  color: var(--ml-muted);
+  line-height: 1.4;
+}
+.ml-snippet mark {
+  background: #ffe58a;
+  color: #1f2328;
+  border-radius: 2px;
+}
+.ml-words {
+  margin: 6px 0;
+}
+.ml-wordrow {
+  margin-top: 2px;
+}
+.ml-phrase {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--ml-border);
+  font-weight: 600;
+}
+.ml-addterm {
+  margin-top: 8px;
+}
+.ml-form {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.ml-form input,
+.ml-form select,
+.ml-form textarea {
+  background: var(--ml-bg);
+  color: var(--ml-fg);
+  border: 1px solid var(--ml-border);
+  border-radius: 5px;
+  padding: 4px 6px;
+  font: inherit;
+  resize: vertical;
+}
+.ml-trans {
+  white-space: pre-line;
+  margin: 6px 0;
+}
+.ml-error {
+  color: #c0392b;
+}
+.ml-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.ml-button {
+  background: var(--ml-accent);
+  color: #fff;
+  border: 0;
+  border-radius: 5px;
+  padding: 3px 10px;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ml-button:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.ml-icon {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 0;
+}
+.ml-link {
+  color: var(--ml-accent);
+}

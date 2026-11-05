@@ -1,0 +1,28 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# marimo
+__marimo__/
+.marimo/
+
+# The books are copyrighted: they stay on this computer only, never in git.
+# (.gitkeep keeps the empty folder in a fresh clone, so new books have somewhere to go.)
+books/*
+!books/.gitkeep
+
+# Generated from catalog.csv + notes; contains local file paths
+library.html
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# chapter page numbers found by library_server.py
+.cache/
+
+# removed books, original scans, pre-bookmark copies: local only
+archive/

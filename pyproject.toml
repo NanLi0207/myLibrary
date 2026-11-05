@@ -1,0 +1,51 @@
+[project]
+name = "myLibrary"
+version = "0.1.0"
+description = "Study from your own PDF books: reading view with English-Chinese lookup, subject glossaries, search across your books, progress tracking, chapter notes and notebooks"
+readme = "README.md"
+authors = [
+    { name = "Nan Li" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "marimo>=0.25.2",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
+    "onnxruntime>=1.31.1",
+    "pypdf>=6.21.4",
+    "pypdfium2>=5.14.0",
+    "rapidocr>=3.10.0",
+    "reportlab>=5.1.0",
+    "scipy>=1.18.1",
+    "sympy>=1.14.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]
+# Extra packages for one subject, installed with: uv sync --group optics
+optics = [
+    "optiland>=0.6.3",  # lens design: ray tracing, aberrations, optimization
+    "rayoptics>=0.9.10",  # reads Zemax .zmx and CODE V .seq files
+]
+
+[tool.ruff]
+extend-exclude = ["archive"]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"notebooks/**" = ["B018", "E702", "E501"]  # bare display expressions; long markdown lines
+"scripts/library_page.py" = ["E501"]  # embedded HTML/JS template
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["scripts"]

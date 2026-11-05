@@ -1,0 +1,14 @@
+# Chapter 19: Polarization Issues in Optical Design
+
+[Back to book](README.md)
+
+## Key ideas
+
+-
+
+## Equations
+
+## Questions
+
+## Try in a notebook
+

@@ -1,0 +1,445 @@
+# myLibrary
+
+A self-hosted study companion for learning from your own PDF books, in any subject.
+
+- **Read** in a browser-based reading view that remembers where you stopped.
+- **Look up** any English word or phrase: double-click it for its meaning in your **subject
+  glossaries** (with a short definition in Chinese) and in an offline **English–Chinese
+  dictionary**.
+- **Search all your books at once** to see how different authors explain a term.
+- **Track progress** chapter by chapter, with a notes file and a Python notebook per chapter.
+
+Everything runs on your own computer. **No books are included**: bring your own PDFs.
+
+> The author uses it to learn optical design, so the repository ships with that as a worked
+> example: an optics glossary of ~300 terms, optional optics Python packages, and a small optics
+> helper module. Replace them with your own subject (see
+> [Use it for your own subject](#use-it-for-your-own-subject)).
+
+**Contents**
+
+1. [Quick start](#1-quick-start)
+2. [A typical study session](#2-a-typical-study-session)
+3. [The library page](#3-the-library-page)
+4. [The reading view](#4-the-reading-view)
+5. [Looking up words and terms (查词, look-up)](#5-looking-up-words-and-terms-查词-look-up)
+6. [Glossaries](#6-glossaries)
+7. [Notes and notebooks](#7-notes-and-notebooks)
+8. [Managing books](#8-managing-books)
+9. [Where things are stored](#9-where-things-are-stored)
+10. [Command reference](#10-command-reference)
+11. [Troubleshooting and FAQ](#11-troubleshooting-and-faq)
+12. [Built with](#12-built-with)
+
+---
+
+## 1. Quick start
+
+You need [uv](https://docs.astral.sh/uv/) (it installs Python and the packages) and, for notes
+and notebooks, VS Code with the **marimo** extension. The shortcut below is for Windows; on other
+systems start the server from a terminal.
+
+```powershell
+git clone <this repository> myLibrary
+cd myLibrary
+uv sync                                # install Python and the packages (.venv)
+uv run scripts/make_shortcut.py        # Windows: Desktop + Start menu shortcut "myLibrary"
+```
+
+Put your PDFs into `books/` and register them (see [Managing books](#8-managing-books)):
+
+```powershell
+uv run scripts/add_book.py --dry-run   # preview the names it will give them
+uv run scripts/add_book.py             # register them
+```
+
+**Every day:** double-click **myLibrary** (or press Win and type "myLibrary"; elsewhere run
+`uv run scripts/library_server.py`). The library page opens in your browser; click
+**Continue** on a book.
+
+The shortcut starts a small server in a **minimized window**. It only listens on your own
+computer (`http://127.0.0.1:8765`); close the window to stop it. Starting the shortcut while the
+server runs just opens the page again.
+
+The first start downloads the PDF viewer and the offline dictionary (~72 MB, once) and indexes
+your books for search (seconds). Until the download finishes, books open as plain PDFs without
+word lookup.
+
+### Use it for your own subject
+
+1. Create a glossary for your subject, e.g. `glossaries/biology.csv`, starting with the line
+   `term,zh,note,definition`, and give it a label in `glossaries/glossaries.toml` (see
+   [Glossaries](#6-glossaries)). Or start with no glossary: the first term you add from the
+   popup creates `glossaries/my-terms.csv`.
+2. Don't need optics? Delete `glossaries/optics.csv` (and its section in `glossaries.toml`), and
+   replace `src/mylibrary/paraxial.py` with your own code, or leave it.
+3. Add packages your subject needs with `uv add <package>` (or as a group, like `optics` in
+   `pyproject.toml`). For the optics example's packages: `uv sync --group optics`.
+
+## 2. A typical study session
+
+1. **Open the library** and click **Continue · p. N** on the book you're reading. Three things
+   open:
+   - the book, in the reading view, at the page where you stopped;
+   - in VS Code, the **notes** file for that chapter (`notes/<book>/chNN-*.md`);
+   - in VS Code, the chapter's **marimo notebook** (`notebooks/<book>/chNN_*.py`, created the
+     first time).
+2. **Read.** Double-click any word you don't know, or drag over a phrase (see
+   [section 5](#5-looking-up-words-and-terms-查词-look-up)). Save useful words with **加入生词本** (Save word).
+3. **Take notes** in your own words in the chapter notes file: key ideas, equations,
+   questions.
+4. **Try it** in the notebook: re-derive an equation, check a worked example, plot something.
+5. **Stop whenever you like.** Your page is saved automatically; just close the tab.
+6. When you've **finished a chapter**, tick it on the library page (Chapters → checkbox).
+
+## 3. The library page
+
+One card per book. Use the search box to filter (title, author, subject, chapter titles) and the
+sort menu to order the cards (title, author, newest, progress, recently added).
+
+| On a card | What it does |
+|---|---|
+| **Continue · p. N** | Opens the book at the page you last read, plus that chapter's notes and notebook |
+| **Start reading** / **Continue** (no page saved yet) | Opens the first chapter you haven't ticked |
+| **PDF** | Opens the book in the reading view at its first page (notes and notebook not opened) |
+| **Notes** | Opens the book's notes folder in VS Code |
+| **Chapters** | Shows the chapter list: **Read** opens one chapter; the checkbox ticks it |
+| Progress bar, "0/8 chapters · 3%" | How far you are (see below) |
+| "Last read: page 41 · Ch 2 · date" | Where you stopped |
+
+**Ticking chapters.** A ticked chapter is one you've marked as *finished*. Ticking writes
+`- [x]` into the book's `notes/<book>/README.md`; you can also edit that checklist by hand.
+Nothing ticks a chapter automatically: skimming isn't the same as finishing.
+
+**Progress** is whichever is further: the share of chapters ticked, or the page you last read out
+of the book's pages. **Sort: progress** puts the furthest-along book first, then the one read
+most recently.
+
+`uv run scripts/library_page.py` writes `library.html`, a static, read-only copy of the page
+(no buttons) that opens without the server. It's local only (not in git).
+
+## 4. The reading view
+
+Books open in **PDF.js** (Mozilla's PDF viewer, the one inside Firefox), served by the local
+server. Its toolbar works as usual: page number, zoom, search (Ctrl+F), sidebar with
+thumbnails and the book's outline.
+
+**Your place is saved automatically.** About 2 seconds after you stop on a page, and when you
+close the tab, the page is written to the book's notes README under "Reading progress":
+
+```
+Last read: page 41 (Ch 2: Design Forms), 2026-11-05
+```
+
+Opening a chapter just to look something up doesn't move your place; only turning pages does.
+Because it's in your notes, it's kept in git along with them.
+
+## 5. Looking up words and terms (查词, look-up)
+
+### Ways to look something up
+
+| You do | What happens |
+|---|---|
+| **Double-click a word** | A popup opens with its meaning |
+| **Drag over 1–6 words** (e.g. *veiling glare*) | Looked up right away, like a double-click |
+| **Drag over a longer passage** | A **翻译** (Translate) button appears; it opens Bing Translator (online) |
+| **Edit the word at the top of the popup** and press **Enter** | Looks up what you typed |
+
+If a drag starts or ends in the middle of a word, the whole word is taken ("eiling gla" →
+*veiling glare*), and the highlight on the page shows what was looked up. In **scanned books**
+the invisible OCR text can sit slightly off the printed letters, so a selection may still catch
+the wrong characters, or the OCR may have misread a letter. Then fix the word at the top of the
+popup and press Enter.
+
+### What the popup shows
+
+1. **The word**, its phonetics, and 🔊 to hear it read aloud.
+2. **Glossary meanings**, shown first, each tagged with its glossary's label (e.g.
+   *光学 Optics*): the Chinese term, a short definition and, where needed, a warning about the
+   everyday meaning. In optics, *stop* → 光阑 (aperture stop), not 停止 (to stop); *pupil* → 光瞳
+   (optical pupil), not 学生 (school pupil). If several glossaries have the term, you see each
+   subject's meaning. Longer terms around the word are found too: double-clicking *pupil* in
+   "the exit pupil" shows 出瞳 (exit pupil) as well as 光瞳 (pupil). For a longer selection, the
+   glossary terms *inside* it are listed.
+3. **Dictionary meaning** from ECDICT (an open-source English–Chinese dictionary, offline).
+   Plurals and verb forms are handled (*aberrations* → *aberration*, *matrices* → *matrix*).
+   For a phrase the dictionary doesn't know, each word's meaning is listed.
+4. **Learn more**, under each term:
+   - **📚 在我的书中** (In my books): the pages of *all* your books that discuss the term most, with a short
+     snippet (the book you're reading first). Click one to jump to that page. Often the best way
+     to really understand a term: see how two or three authors explain it.
+   - **Wikipedia**, **维基百科** (Chinese Wikipedia), **百度百科** (Baidu Baike), all online.
+5. **＋ 加入术语表** (Add to glossary): shown when the word or phrase isn't in a glossary yet
+   ([section 6](#6-glossaries)).
+6. **加入生词本** (Save word): adds the word to the book's vocabulary list.
+
+### Your vocabulary list
+
+**加入生词本** (Save word) adds a row to `notes/<book>/vocabulary.md`:
+
+```
+| Word | Phonetic | 中文 Chinese | Page | Added |
+|---|---|---|---|---|
+| vignetting |  | 渐晕 | 16 | 2026-11-05 |
+```
+
+(渐晕 is Chinese for *vignetting*.) The 中文 (Chinese) column takes the glossary meaning if
+there is one. Each word is saved once per book.
+
+### From the terminal
+
+```powershell
+uv run scripts/reader.py entrance pupil      # glossary + dictionary meaning
+uv run scripts/book_search.py vignetting     # where your books discuss it
+```
+
+## 6. Glossaries
+
+A general dictionary gives everyday meanings; a subject gives words special ones. Glossaries
+fix that: one CSV per subject in `glossaries/`, and **all of them are used**.
+
+```
+term,zh,note,definition
+vignetting,渐晕,,轴外光束的一部分被孔径光阑以外的通光口径挡住，使视场边缘照度下降；...
+```
+
+(In English: *vignetting*, 渐晕; "part of an off-axis beam is blocked by apertures other than
+the aperture stop, so the edge of the field gets darker; ...")
+
+| Column | Meaning |
+|---|---|
+| `term` | English term, singular (*entrance pupil*, not *entrance pupils*) |
+| `zh` | Chinese term (required) |
+| `note` | Optional: abbreviation or a warning (e.g. *PSF*, or *不是“学生”*: "not 'school pupil'") |
+| `definition` | Optional: short definition |
+
+`glossaries/glossaries.toml` (optional) sets how each glossary is labeled in the popup, which
+one new terms go to, and lets you switch one off without deleting it:
+
+```toml
+default = "optics"          # where ＋ 加入术语表 (Add to glossary) adds terms (else the first alphabetically)
+
+[optics]
+label = "光学 Optics"       # the tag shown in the popup (else the file name)
+
+[biology]
+label = "生物 Biology"
+# enabled = false           # stop using this glossary
+```
+
+**Adding terms.** Easiest from the popup: **＋ 加入术语表** (Add to glossary), type the
+Chinese term and (optionally) a definition in your own words, choose the glossary if you have
+several, then **保存** (Save).
+Or edit the CSV in VS Code or Excel (save as UTF-8). Changes show at the next lookup; no restart
+needed.
+
+**The bundled optics glossary** (`glossaries/optics.csv`, ~300 terms: paraxial optics,
+aberrations, image quality, design and tolerancing, stray light, coatings, lasers,
+optomechanics) shows what a good glossary looks like. Its definitions are short summaries; if
+one disagrees with your books, trust the book and correct the row.
+
+## 7. Notes and notebooks
+
+### Notes (`notes/<book>/`)
+
+| File | Contents |
+|---|---|
+| `README.md` | Book details, the chapter checklist (ticks), the "Last read" line |
+| `chNN-<chapter>.md` | One per chapter: headings for each section, plus *Key ideas*, *Equations*, *Questions*, *Try in a notebook* |
+| `vocabulary.md` | Words you saved while reading |
+
+The chapter files start with headings only. Write the notes **in your own words**; don't paste
+text from the books (they're copyrighted, and rewriting is how you learn it). Notes are plain
+Markdown, so equations can be written as `$E = mc^2$`.
+
+### Notebooks (`notebooks/<book>/chNN_<topic>.py`)
+
+[marimo](https://marimo.io) notebooks: reactive Python notebooks stored as plain `.py` files.
+They open in VS Code's marimo extension, or in the browser with
+`uv run marimo edit notebooks/<book>/chNN_<topic>.py`. Each starts with `numpy`, `matplotlib`
+and your `mylibrary` package imported. Ideas:
+
+- re-derive an equation with `sympy` and check it against the book;
+- reproduce a worked example, a table or a figure;
+- add a slider (`mo.ui.slider`) and watch how a result changes with a parameter;
+- fit a model to data with `scipy`.
+
+### Your own code (`src/mylibrary/`)
+
+When a function proves useful in more than one notebook, move it into `src/mylibrary/` and
+add a test in `tests/` that checks it against a result from a book. The example module
+`mylibrary.paraxial` (ray-transfer matrices for first-order optics) grew out of the optics books.
+
+## 8. Managing books
+
+### Naming
+
+Every book has one **slug**: `<first-author-surname>-<year>-<short-title>`, lowercase, e.g.
+`shannon-1997-art-science-optical-design`. The same slug names the PDF, its notes folder and
+its notebooks folder. Books are always PDFs.
+
+### Adding a book
+
+Put the PDF into `books/` with any file name, then:
+
+```powershell
+uv run scripts/add_book.py --dry-run   # preview: proposed name, and where each detail came from
+uv run scripts/add_book.py             # do it
+```
+
+The script identifies the book (from an ISBN, the PDF's metadata, the file name or the
+copyright page, looked up on Open Library), renames it to its slug, adds a row to `catalog.csv`,
+and creates the notes folder with one notes template per chapter, read from the PDF's table of
+contents. Check anything the dry run marks as coming from the "filename". If a detail is wrong:
+
+```powershell
+uv run scripts/add_book.py "books/scan123.pdf" --author "Warren J. Smith" --year 2008 --title "Modern Optical Engineering"
+```
+
+If the chapter list came out wrong, `--refresh-chapters` reads it again (your notes are kept).
+
+### Scanned books
+
+A scan has only page images, so its text can't be selected or searched. `add_book.py` offers to
+add an **invisible OCR text layer** (`--ocr` to always do it, `--no-ocr` to never), and at the
+end of every run it asks about each scan in `books/` that still has none (Enter = no). By hand:
+
+```powershell
+uv run scripts/ocr_pdf.py books/<slug>.pdf   # ~1.5 s per page; asks first
+```
+
+The page images stay the same; the original scan is kept in `archive/books/`. An interrupted
+run continues where it stopped. OCR text is never perfectly placed or perfectly spelled; see
+[section 5](#ways-to-look-something-up).
+
+### Bookmarks
+
+`uv run scripts/add_bookmarks.py` adds a clickable outline (chapters and sections) to books
+that have none, using the chapter pages the library has found. Books that already have
+bookmarks are never changed; originals are kept in `archive/books/`.
+
+### Removing a book
+
+```powershell
+uv run scripts/add_book.py --remove <slug> --dry-run   # preview
+uv run scripts/add_book.py --remove <slug>             # asks before moving anything
+```
+
+The PDF, notes and notebooks move to `archive/`; nothing is deleted. To bring a book back,
+move its files back and run `add_book.py`. If you only delete the PDF, the card stays and says
+"PDF missing"; its notes and notebooks still open.
+
+## 9. Where things are stored
+
+```
+books/<slug>.pdf          your books (local only: never in git, they're copyrighted)
+notes/<slug>/             your notes, ticks, last-read page, vocabulary
+notebooks/<slug>/         your marimo notebooks
+notebooks/library.py      the catalog as a searchable marimo table
+glossaries/               your subject glossaries (*.csv) and glossaries.toml
+catalog.csv               one row per book: title, authors, year, publisher, ISBN, pages, ...
+src/mylibrary/            your reusable Python code
+tests/                    checks for src/mylibrary and the scripts (uv run pytest)
+scripts/                  the tools behind all of this
+library.html              static copy of the library page (local only)
+archive/                  removed books, original scans (local only)
+.cache/                   rebuildable data (local only)
+```
+
+**Your own work** (back it up, never delete): `notes/`, `notebooks/`, `glossaries/`,
+`src/mylibrary/`, `catalog.csv`. It's all in git; commit and push to keep a copy.
+
+**The books are not in git**, because they're copyrighted: `books/` is listed in `.gitignore`.
+Git doesn't back them up, so keep your own copy of the PDFs somewhere else (an external drive,
+or a private cloud folder). If you publish your copy of this repository, only your notes,
+notebooks, glossaries and code go public, never the books.
+
+**Safe to delete** (rebuilt automatically when needed): everything in `.cache/`:
+
+| In `.cache/` | What | Rebuilt by |
+|---|---|---|
+| `reader/pdfjs/`, `reader/ecdict.db` | PDF viewer, dictionary | the server on start, or `uv run scripts/reader.py --setup` |
+| `reader/books.db` | full-text index for 在我的书中 (In my books) | the server on start |
+| `chapter_pages.json` | where each chapter starts in each PDF | the server, on first use |
+| `ocr/` | OCR results | `ocr_pdf.py` / `add_book.py` (slow: re-runs OCR) |
+
+## 10. Command reference
+
+Run these in the project folder (PowerShell, a terminal, or the VS Code terminal).
+
+| Command | Does |
+|---|---|
+| `uv run scripts/library_server.py` | Start the library (same as the shortcut); `--port 8766` to use another port, `--no-browser` to not open a tab |
+| `uv run scripts/make_shortcut.py` | (Re)create the Desktop and Start menu shortcuts (Windows) |
+| `uv run scripts/add_book.py --dry-run` / no flag | Preview / register new books in `books/` |
+| `uv run scripts/add_book.py --refresh-chapters` | Re-read chapter lists (keeps your notes) |
+| `uv run scripts/add_book.py --remove <slug>` | Move a book to `archive/` |
+| `uv run scripts/add_book.py --offline` | Don't look books up on Open Library |
+| `uv run scripts/ocr_pdf.py books/<slug>.pdf` | Add an OCR text layer to a scan |
+| `uv run scripts/add_bookmarks.py --dry-run` / no flag | Preview / add bookmarks to books without any |
+| `uv run scripts/reader.py <word or phrase>` | Look up a word in the terminal |
+| `uv run scripts/reader.py --setup` | Download the PDF viewer and dictionary |
+| `uv run scripts/book_search.py <term>` | Search all books for a term |
+| `uv run scripts/library_page.py` | Write the static `library.html` |
+| `uv run marimo edit notebooks` | Browse and open notebooks in the browser |
+| `uv run marimo edit notebooks/library.py` | The catalog as a marimo table |
+| `uv run marimo new` | A scratch notebook |
+| `uv sync` | Create or update the Python environment (`--group optics` adds the optics packages) |
+| `uv add <package>` | Add a Python package |
+| `uv run pytest` | Run the tests |
+| `uv run ruff check . ; uv run ruff format .` | Lint and format the code |
+
+`catalog.csv` also opens in Excel, or search it from the terminal:
+`Select-String -Path catalog.csv -Pattern aberration`.
+
+## 11. Troubleshooting and FAQ
+
+**Something new doesn't show up after an update.** The server may still be running old code:
+close its minimized window and start it again. Changes to the popup only need a reload of the
+book tab (F5).
+
+**Double-clicking does nothing / books open without the popup.** The viewer and dictionary may
+still be downloading on first start (see the server window), or the book was opened as a plain
+PDF from somewhere else. Open it from the library page.
+
+**"Port 8765 is used by another program".** Something else uses that port. Start with
+`uv run scripts/library_server.py --port 8766`.
+
+**Continue or Read opens the wrong page or chapter.** The chapter start pages are found once and
+cached. Delete the book's entry from `.cache/chapter_pages.json` (or the whole file) and restart
+the server to find them again; if the chapter *list* itself is wrong, run
+`uv run scripts/add_book.py --refresh-chapters`.
+
+**The selection in a scanned book catches the wrong letters.** Expected with OCR text; edit the
+word at the top of the popup and press Enter ([section 5](#ways-to-look-something-up)).
+
+**The dictionary gives the everyday meaning, not my subject's.** Add the term to your glossary
+(**＋ 加入术语表**, Add to glossary), with the Chinese term you found in your books.
+
+**`uv sync` removed the optics packages.** They're an optional group: `uv sync --group optics`.
+
+**在我的书中 (In my books) says the index is still being built.** The server indexes new or changed books in
+the background when it starts; try again in a few seconds.
+
+**What does "ticked" mean?** A chapter you've marked as finished with its checkbox; see
+[section 3](#3-the-library-page).
+
+**Is anything sent over the internet?** Only in three cases:
+- when you click Wikipedia, 维基百科 (Chinese Wikipedia), 百度百科 (Baidu Baike) or 翻译
+  (Translate), which sends the selected text to that site;
+- when adding a book, for the Open Library lookup (`--offline` skips it);
+- for the one-time download of the viewer and dictionary.
+
+Word lookups, book search and everything else run on your computer.
+
+**Other languages?** The dictionary is English → Chinese (ECDICT). Glossaries work for any
+subject, but their meanings are written in Chinese (the `zh` column).
+
+## 12. Built with
+
+- **[PDF.js](https://mozilla.github.io/pdf.js/)** (Mozilla): the PDF viewer
+- **[ECDICT](https://github.com/skywind3000/ECDICT)**: the offline English–Chinese dictionary
+- **marimo**: reactive notebooks stored as plain `.py` files (good for git diffs)
+- **numpy / scipy / sympy / matplotlib**: numerics, symbolic math, plots
+- **pypdf / pypdfium2 / rapidocr / reportlab**: reading PDFs, OCR for scans, writing text layers
+- **optiland / rayoptics** (optional `optics` group): lens design for the optics example

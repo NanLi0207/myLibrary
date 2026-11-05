@@ -1,0 +1,19 @@
+# Subject glossaries for the reading view's word lookup.
+#
+# Every <name>.csv in this folder is used (columns: term, zh, note, definition).
+# Here you can give each one the label the popup shows, switch one off, and choose
+# where "＋ 加入术语表" (Add to glossary) adds new terms by default.
+
+# The glossary new terms go to (otherwise: the first one alphabetically)
+default = "optics"
+
+[optics]
+label = "光学 Optics"   # Chinese name + English translation, shown on the popup's tags
+# enabled = false   # uncomment to stop using this glossary without deleting it
+
+# Another subject: create glossaries/biology.csv with the header line
+#   term,zh,note,definition
+# and give it a label:
+#
+# [biology]
+# label = "生物 Biology"
