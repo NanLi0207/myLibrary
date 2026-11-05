@@ -27,7 +27,9 @@ the server (`restart_later`).
 
 **The library page does everything without a terminal**: ＋ Add books (upload →
 `library_jobs.py`: identify, name, register in the background; asks for missing title/author/year),
-OCR button for scans (background, progress), Settings, Quit. Keep it that way: every feature the
+OCR button for scans (background, progress), ☁ Back up (`scripts/backup.py`: commits only the
+library folder with `--only`, refuses when unpushed commits touch code, never prompts for a
+password; shown only when the library is in a repo with an upstream), Settings, Quit. Keep it that way: every feature the
 package needs must work from the page.
 
 **The ready-to-use package** (paid, 9.9 RMB): `uv run scripts/build_package.py` builds

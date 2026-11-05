@@ -35,6 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
+import backup
 import book_search
 import catalog
 import library_jobs
@@ -494,7 +495,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             # library_page appends "/<file>.pdf" to pdf_base
             pdf_base = pdf_url(self.base_url, "").removesuffix("/")
-            api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE}
+            api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE,
+                   "backup": backup.available()}  # fmt: skip
             html = library_page.render(api, pdf_base=pdf_base)
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
         if path == "/pdfjs/web/viewer.html" and not reading_view.missing():
@@ -524,6 +526,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/books":  # the page refreshes itself after reading
                 pdf_base = pdf_url(self.base_url, "").removesuffix("/")
                 return self._json(HTTPStatus.OK, {"books": library_page.books(pdf_base)})
+            if self.path == "/api/backup":
+                return self._json(HTTPStatus.OK, backup.back_up())
             if self.path == "/api/jobs":
                 return self._json(HTTPStatus.OK, {"jobs": library_jobs.list_jobs()})
             if self.path == "/api/add-details":

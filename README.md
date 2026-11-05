@@ -117,7 +117,15 @@ search box to filter (title, author, subject, shelf, chapter titles) and the sor
 the cards (title, author, newest, progress, recently added).
 
 At the top: **＋ Add books** (choose PDFs to add, see [Managing books](#8-managing-books)),
-**⚙ Settings** (below) and **Quit** (stops myLibrary; your place in each book is already saved).
+**☁ Back up** (below), **⚙ Settings** (below) and **Quit** (stops myLibrary; your place in each
+book is already saved).
+
+**☁ Back up** saves your library to GitHub in one click: it commits only the library folder
+(notes, reading progress, vocabulary, shelves, topic notes, glossaries, catalog; never PDFs, and
+never other changes in the repository) and pushes it. It's shown when the library is in a git
+repository with a remote, as `library/` is here. If there are unpushed *code* changes, it stops
+and asks you to push those yourself; if GitHub can't be reached, it says so (your changes stay
+saved locally). From the terminal: `uv run scripts/backup.py`.
 
 | On a card | What it does |
 |---|---|
@@ -475,6 +483,7 @@ to use another one.
 | `uv run scripts/reader.py --setup` | Download the PDF viewer and dictionary |
 | `uv run scripts/book_search.py <term>` | Search all books for a term |
 | `uv run scripts/library_page.py` | Write the static `library.html` |
+| `uv run scripts/backup.py` | Back up the library to GitHub (like ☁ Back up) |
 | `uv run scripts/build_package.py` | Build the ready-to-use package: `dist/myLibrary-<version>-win64.zip` |
 | `uv run <library>/examples/<book>/chNN_<topic>.py` | Run a chapter script |
 | `uv sync` | Create or update the Python environment (`--group optics` adds the optics packages) |

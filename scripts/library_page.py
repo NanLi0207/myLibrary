@@ -650,6 +650,7 @@ if (API) {
   document.getElementById("tools").innerHTML = `
     <label class="tool" title="Add PDF books to the library">＋ Add books
       <input type="file" id="addFiles" accept=".pdf,application/pdf" multiple hidden></label>
+    ${API.backup ? `<button type="button" class="tool" id="backup" title="Save your notes, progress and vocabulary to GitHub">☁ Back up</button>` : ""}
     <button type="button" class="tool" id="openSettings">⚙ Settings</button>
     <button type="button" class="tool" id="quit" title="Stop myLibrary">Quit</button>`;
   document.getElementById("addFiles").addEventListener("change", async e => {
@@ -664,6 +665,18 @@ if (API) {
       }
     }
     pollJobs();
+  });
+  document.getElementById("backup")?.addEventListener("click", async e => {
+    const button = e.currentTarget;
+    button.disabled = true;
+    toast("Backing up…");
+    try {
+      toast((await api("/api/backup", {})).message);
+    } catch (err) {
+      toast(`Couldn't back up: ${err.message}`);
+    } finally {
+      button.disabled = false;
+    }
   });
   document.getElementById("openSettings").addEventListener("click", () =>
     openSettings().catch(err => toast(`Couldn't open the settings: ${err.message}`)));
