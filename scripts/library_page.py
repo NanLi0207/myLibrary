@@ -90,6 +90,10 @@ def scan_info(pdf: Path) -> tuple[bool, int]:
     return info
 
 
+def _mtime(path: Path) -> float:
+    return path.stat().st_mtime if path.exists() else 0.0
+
+
 def books(pdf_base: str | None = None) -> list[dict]:
     """Catalog rows plus chapter progress; pdf_base is the server URL prefix for PDFs."""
     result = []
@@ -103,6 +107,9 @@ def books(pdf_base: str | None = None) -> list[dict]:
                 "scan": scan_info(pdf)[0],
                 "ocr_minutes": max(1, round(scan_info(pdf)[1] * 1.5 / 60)),
                 "last_read": last_read(row["slug"]),
+                # When the notes README last changed (reading position, ticks): orders books
+                # read on the same day for "Sort: recently read"
+                "touched": _mtime(LIBRARY / "notes" / row["slug"] / "README.md"),
                 "pdf_missing": not pdf.exists(),
                 "pdf_uri": f"{pdf_base}/{pdf.name}" if pdf_base else pdf.as_uri(),
                 "notes_uri": "vscode://file/"
@@ -178,9 +185,9 @@ header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.01em; }
   color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 7px;
   padding: 5px 10px; }
 .actions a:hover, .actions button:hover { border-color: var(--accent); }
-.actions .read { background: var(--accent); color: var(--surface); border-color: var(--accent);
-  font-weight: 600; }
-.actions .read:hover { filter: brightness(1.1); }
+.actions .read, .actions .primary { background: var(--accent); color: var(--surface);
+  border-color: var(--accent); font-weight: 600; }
+.actions .read:hover, .actions .primary:hover { filter: brightness(1.1); }
 .actions .missing { font-size: 13px; color: var(--warn); border: 1px dashed var(--warn);
   border-radius: 7px; padding: 5px 10px; cursor: help; }
 .next { font-size: 13px; color: var(--muted); }
@@ -245,6 +252,7 @@ code { font-size: 12.5px; }
       <option value="year">Sort: newest</option>
       <option value="progress">Sort: progress</option>
       <option value="added">Sort: recently added</option>
+      <option value="recent">Sort: recently read</option>
     </select>
   </div>
   <section class="jobs" id="jobs" hidden></section>
@@ -373,13 +381,15 @@ function card(b) {
       : API && next && done(b) < n ? `<div class="next">Next: ${esc(next.title)}</div>` : ""}
     <div class="actions">
       ${readButton(b)}
+      ${API ? `<button type="button" class="primary" data-shelves title="Which shelves this book is on">Shelves</button>` : ""}
+      ${n ? `<button type="button" class="primary" data-toggle>Chapters</button>` : ""}
+    </div>
+    <div class="actions">
       ${b.pdf_missing ? `<span class="missing" title="books/${esc(b.slug)}.pdf is gone; notes and scripts are still here">PDF missing</span>`
         : `<a href="${esc(b.pdf_uri)}" target="_blank" rel="noopener">PDF</a>`}
       ${API ? `<button type="button" data-notes>Notes</button>` : `<a href="${esc(b.notes_uri)}">Notes</a>`}
-      ${API && b.scan && !b.pdf_missing ? `<button type="button" data-ocr title="This book is a scan: OCR adds a text layer, so its words can be looked up and searched">OCR (~${b.ocr_minutes} min)</button>` : ""}
       ${b.openlibrary ? `<a href="${esc(b.openlibrary)}" target="_blank" rel="noopener">Open Library</a>` : ""}
-      ${n ? `<button type="button" data-toggle>Chapters</button>` : ""}
-      ${API ? `<button type="button" data-shelves title="Which shelves this book is on">Shelves</button>` : ""}
+      ${API && b.scan && !b.pdf_missing ? `<button type="button" data-ocr title="This book is a scan: OCR adds a text layer, so its words can be looked up and searched">OCR (~${b.ocr_minutes} min)</button>` : ""}
     </div>
     ${n ? `<ol class="chapters" hidden>${chapters}</ol>` : ""}
   </article>`;
@@ -396,6 +406,11 @@ function render() {
       || (b.last_read?.date || "").localeCompare(a.last_read?.date || "")
       || a.title.localeCompare(b.title),
     added: (a, b) => (b.added || "").localeCompare(a.added || ""),
+    // last read first (same day: the one touched last); books not started yet at the end
+    recent: (a, b) => !!b.last_read - !!a.last_read
+      || (b.last_read?.date || "").localeCompare(a.last_read?.date || "")
+      || (b.last_read ? b.touched - a.touched : 0)
+      || a.title.localeCompare(b.title),
   }[sort.value];
   const shown = books
     .filter(b => !shelf || b.shelf_list.includes(shelf))

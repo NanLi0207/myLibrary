@@ -114,7 +114,7 @@ word lookup.
 One card per book. The **shelf bar** under the search box shows your subjects (All, 光学
 Optics, 激光 Lasers, …) with how many books each has; click one to see only those books. Use the
 search box to filter (title, author, subject, shelf, chapter titles) and the sort menu to order
-the cards (title, author, newest, progress, recently added).
+the cards (title, author, newest, progress, recently added, recently read).
 
 At the top: **＋ Add books** (choose PDFs to add, see [Managing books](#8-managing-books)),
 **☁ Back up** (below), **⚙ Settings** (below) and **Quit** (stops myLibrary; your place in each
