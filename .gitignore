@@ -10,6 +10,9 @@ __pycache__/
 books/*
 !books/.gitkeep
 
+# Copies of edited files kept by VS Code's "Local History" extension
+.history/
+
 # Generated from catalog.csv + notes; contains local file paths
 library.html
 
