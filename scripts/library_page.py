@@ -354,7 +354,6 @@ function chapterItem(c) {
 }
 
 function card(b) {
-  const subjects = (b.subjects || "").split(";").map(s => s.trim()).filter(Boolean).slice(0, 4);
   const n = b.chapter_list.length;
   const chapters = b.chapter_list.map(chapterItem).join("");
   const next = nextChapter(b);
@@ -367,7 +366,7 @@ function card(b) {
       ${b.pages ? `<span>${esc(b.pages)} pages</span>` : ""}
       ${b.isbn ? `<span>ISBN ${esc(b.isbn)}</span>` : ""}
     </div>
-    ${b.shelf_list.length || subjects.length ? `<div class="chips">${b.shelf_list.map(s => `<span class="chip shelf">${esc(shelfLabel(s))}</span>`).join("")}${subjects.map(s => `<span class="chip">${esc(s)}</span>`).join("")}</div>` : ""}
+    ${b.shelf_list.length ? `<div class="chips">${b.shelf_list.map(s => `<span class="chip shelf">${esc(shelfLabel(s))}</span>`).join("")}</div>` : ""}
     <div class="progress"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>
       ${n ? `${done(b)}/${n} chapters` : "no chapters"}${pct(b) > 0 ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : ""}</div>
     ${b.last_read ? `<div class="next">Last read: page ${b.last_read.page}${b.last_read.chapter ? ` · ${esc(b.last_read.chapter)}` : ""} · ${esc(b.last_read.date)}</div>`
@@ -696,6 +695,34 @@ if (API) {
     });
   });
   pollJobs();  // jobs still running from before a reload (e.g. a long OCR)
+}
+
+// Coming back from reading: show the latest page, progress and ticks without a manual refresh.
+// The reading tab saves your page as it closes, which can arrive a moment later: check twice.
+async function refreshBooks() {
+  try {
+    const fresh = (await api("/api/books", {})).books;
+    const keepOpen = openLists();
+    books.splice(0, books.length, ...fresh);
+    stats();
+    renderShelves();
+    render();
+    keepOpen.forEach(slug => grid.querySelector(`.card[data-slug="${CSS.escape(slug)}"] ol.chapters`)
+      ?.removeAttribute("hidden"));
+  } catch {}  // the server has stopped: keep showing what we have
+}
+let lastRefresh = 0;
+function refreshSoon() {
+  if (Date.now() - lastRefresh < 1000) return;  // focus + visibility fire together
+  lastRefresh = Date.now();
+  refreshBooks();
+  setTimeout(refreshBooks, 2000);
+}
+if (API) {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshSoon();
+  });
+  window.addEventListener("focus", refreshSoon);  // e.g. the PDF in another window
 }
 
 stats();

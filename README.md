@@ -128,7 +128,7 @@ At the top: **＋ Add books** (choose PDFs to add, see [Managing books](#8-manag
 | **OCR (~N min)** | Only on scanned books: adds a text layer so the book can be looked up and searched |
 | **Chapters** | Shows the chapter list: **Read** opens one chapter, **Script** its Python script; the checkbox ticks it |
 | **Shelves** | Which shelves the book is on, separated by `;` (e.g. `Optics; Lasers`) |
-| Green tags | The book's shelves (light tags: subjects from Open Library) |
+| Green tags | The book's shelves |
 | Progress bar, "0/8 chapters · 3%" | How far you are (see below) |
 | "Last read: page 41 · Ch 2 · date" | Where you stopped |
 

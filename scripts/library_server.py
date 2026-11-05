@@ -521,6 +521,9 @@ class Handler(BaseHTTPRequestHandler):
                 path = library_jobs.save_upload(name, self.rfile.read(length))
                 return self._json(HTTPStatus.OK, {"job": library_jobs.start_add(path)})
             body = json.loads(self.rfile.read(length) or b"{}")
+            if self.path == "/api/books":  # the page refreshes itself after reading
+                pdf_base = pdf_url(self.base_url, "").removesuffix("/")
+                return self._json(HTTPStatus.OK, {"books": library_page.books(pdf_base)})
             if self.path == "/api/jobs":
                 return self._json(HTTPStatus.OK, {"jobs": library_jobs.list_jobs()})
             if self.path == "/api/add-details":
