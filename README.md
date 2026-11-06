@@ -288,6 +288,16 @@ popup and press Enter.
    ([section 6](#6-glossaries)).
 6. **加入生词本** (Save word): adds the word to the book's vocabulary list.
 
+### Your marks in the PDF
+
+PDF.js's tools at the top right of the reading view (highlight, text, draw, image) mark the
+book itself: a few seconds after you stop marking, the PDF in your library is saved with your
+marks (**标注已保存** (Marks saved) shows bottom right), so they're there next time, in any PDF
+reader too. The PDF as it was before your first mark is kept in `archive/before-marks/`
+(⚙ Settings → Clear archive deletes it). Works for encrypted publisher PDFs too. Close the PDF
+in other programs (e.g. Acrobat) while marking it here: Windows won't let a file that's open
+elsewhere be replaced.
+
 ### Your vocabulary list
 
 **加入生词本** (Save word) adds a row to `notes/<book>/vocabulary.md`:

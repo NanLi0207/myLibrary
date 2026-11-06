@@ -27,6 +27,9 @@ No Python or command line needed; the dictionary and PDF viewer are included and
   Double-click a word, or drag over a phrase: its Chinese meaning, phonetics and sound.
 - “📚 在我的书中”（In my books）：在你所有的书里找到讲解这个词的页面。
   "📚 在我的书中" (In my books): the pages of all your books that explain the term.
+- 右上角的工具（高亮、文字、画笔）可以在书上做标注，几秒钟后自动保存到书里。
+  The tools at the top right (highlight, text, draw) mark the book; your marks are saved
+  into the PDF a few seconds later.
 - “加入生词本”（Save word）把单词加入这本书的生词本。
   "加入生词本" (Save word) adds the word to the book's vocabulary list.
 - 书库页上的“📇 Review words”（复习生词）把保存的生词做成卡片复习：空格键显示意思，

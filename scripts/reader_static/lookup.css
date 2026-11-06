@@ -221,3 +221,25 @@
 .ml-link {
   color: var(--ml-accent);
 }
+/* "标注已保存 (Marks saved)": bottom right, a moment after you stop marking */
+.ml-saved {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 100000;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 6px 12px;
+  background: var(--ml-bg);
+  color: var(--ml-fg);
+  border: 1px solid var(--ml-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  font: 13px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+.ml-saved[hidden] {
+  display: none;
+}
+.ml-saved.ml-problem {
+  border-color: #c2410c;
+  color: #c2410c;
+}

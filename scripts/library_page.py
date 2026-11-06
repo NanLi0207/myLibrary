@@ -515,7 +515,8 @@ code { font-size: 12.5px; }
     <label>Archive</label>
     <div class="row archive-row"><span id="archiveInfo">…</span>
       <button type="button" id="clearArchive">Clear archive</button></div>
-    <p class="hint">Removed books and papers, repeated copies and original scans (before OCR).
+    <p class="hint">Removed books and papers, repeated copies and original scans (before OCR)
+      and the PDFs as they were before your first highlight.
       Clearing deletes them for good; archived notes and scripts with your own work are kept.</p>
     <div class="row end"><button value="cancel">Cancel</button>
       <button type="button" class="primary" id="saveSettings">Save</button></div>

@@ -6,7 +6,7 @@
   "use strict";
   const token = window.MYLIBRARY_TOKEN;
   const file = new URLSearchParams(location.search).get("file") || "";
-  const slug = (file.match(/\/(?:books|papers)\/([a-z0-9-]+)\.pdf$/) || [])[1];
+  const slug = (file.match(/\/(?:books|papers|theses)\/([a-z0-9-]+)\.pdf$/) || [])[1];
   let popup = null;
   let bubble = null;
 
@@ -434,6 +434,66 @@
     document.addEventListener("visibilitychange", () => { if (document.hidden) save(true); });
   }
   trackPosition();
+
+  // Keep your marks: highlights, drawings, text and stamps made with PDF.js's tools are
+  // written into the library's PDF (reader.save_marks) a few seconds after you stop marking.
+  // Until then PDF.js warns before the tab closes; once saved, it doesn't.
+  async function keepMarks() {
+    const app = window.PDFViewerApplication;
+    if (!slug || !token || !app) return;
+    await app.initializedPromise;
+    const status = el("div", "ml-saved");
+    status.hidden = true;
+    document.body.append(status);
+    let hideTimer = null;
+    const show = (zh, en, problem = false) => {
+      status.replaceChildren(bi(zh, en));
+      status.classList.toggle("ml-problem", problem);
+      status.hidden = false;
+      clearTimeout(hideTimer);
+      if (!problem) hideTimer = setTimeout(() => { status.hidden = true; }, 2500);
+    };
+    let savedHash = null;  // the marks as last saved (null: as the PDF was opened)
+    let lastHash = null;
+    let quietSince = 0;
+    let saving = false;
+    let failures = 0;
+    app.eventBus.on("documentloaded", () => { savedHash = lastHash = null; });
+    setInterval(async () => {
+      const doc = app.pdfDocument;
+      if (!doc || saving || !app._annotationStorageModified) return;
+      const { hash } = doc.annotationStorage.serializable;
+      if (hash === savedHash) return doc.annotationStorage.resetModified();
+      if (hash !== lastHash) {  // still marking: wait until it's quiet for a moment
+        lastHash = hash;
+        quietSince = Date.now();
+        return;
+      }
+      if (Date.now() - quietSince < 2500 || failures > 2) return;
+      saving = true;
+      show("正在保存标注…", "Saving your marks…");
+      try {
+        const data = await doc.saveDocument();
+        const response = await fetch("/api/save-marks", {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf", "X-Library-Token": token, "X-Slug": slug },
+          body: data,
+        });
+        const answer = await response.json();
+        if (!response.ok) throw new Error(answer.error || response.statusText);
+        savedHash = hash;
+        failures = 0;
+        if (doc.annotationStorage.serializable.hash === hash) doc.annotationStorage.resetModified();
+        show("标注已保存", "Marks saved");
+      } catch (error) {
+        failures++;
+        show("标注没保存", `Marks not saved: ${error.message}`, true);
+      } finally {
+        saving = false;
+      }
+    }, 1000);
+  }
+  keepMarks();
 
   document.addEventListener("mousedown", (event) => {
     if (!event.target.closest?.(".ml-popup, .ml-bubble")) closeAll();

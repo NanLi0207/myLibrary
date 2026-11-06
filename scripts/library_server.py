@@ -585,6 +585,14 @@ class Handler(BaseHTTPRequestHandler):
                 name = unquote(self.headers.get("X-Filename", "book.pdf"))
                 path = library_jobs.save_upload(name, self.rfile.read(length))
                 return self._json(HTTPStatus.OK, {"job": library_jobs.start_add(path)})
+            if self.path == "/api/save-marks":  # the reading view: the PDF with your marks
+                row = catalog.load(CATALOG).get(self.headers.get("X-Slug", ""))
+                if not row or not row.get("file"):
+                    return self._json(HTTPStatus.NOT_FOUND, {"error": "unknown book"})
+                if length > library_jobs.MAX_UPLOAD:
+                    return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too big"})
+                data = self.rfile.read(length)
+                return self._json(HTTPStatus.OK, reading_view.save_marks(row["file"], data))
             body = json.loads(self.rfile.read(length) or b"{}")
             if self.path == "/api/books":  # the page refreshes itself after reading
                 return self._json(HTTPStatus.OK, {"books": library_page.books(self.pdf_base)})

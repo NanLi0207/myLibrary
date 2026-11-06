@@ -103,7 +103,11 @@ Example: `shannon-1997-art-science-optical-design`. The slug is used (inside the
   `scripts/reader.py` + `scripts/reader_static/`. Glossaries rank first when they match the book's shelves, subject or field by word (`reader.book_subject_words`: "Advanced optical system
   design" matches the `optics` glossary; the user's is `optics.csv`, label "光学 Optics": extend
   it with real optics terms). Full-text search of all books per page: `scripts/book_search.py` (index in the
-  library's `.cache/books.db`). Saved words: `notes/<slug>/vocabulary.md`;
+  library's `.cache/books.db`). Marks made with PDF.js's
+  editor tools are saved into the library's PDF (`lookup.js` `keepMarks`: `saveDocument()` a
+  few seconds after the annotation hash stops changing → `/api/save-marks` →
+  `reader.save_marks`: whole PDF, same page count, original kept once in
+  `archive/before-marks/`). Saved words: `notes/<slug>/vocabulary.md`;
   📇 Review words (library page, `scripts/vocab_review.py`, `/api/review`) turns them into
   spaced-repetition cards (one per word across books; Leitner boxes `BOX_DAYS`; progress in
   the library's `notes/vocabulary-review.json`; never edits the vocabulary files). Topic notes

@@ -579,6 +579,41 @@ def save_word(slug: str, title: str, text: str, context: str, page: int | None) 
     return {"word": word, "saved": True, "file": path.relative_to(LIBRARY).as_posix()}
 
 
+# --- your marks in the PDF -----------------------------------------------------------------
+
+
+def save_marks(file: str, data: bytes) -> dict:
+    """Write the PDF with your highlights, drawings and notes (PDF.js's saveDocument: the
+    original plus your marks) over the library's copy. The first time, the untouched original
+    is kept in archive/before-marks/. Refused if it isn't a whole PDF with the same pages."""
+    from pypdf import PdfReader
+
+    path = LIBRARY / file
+    if not path.is_file():
+        raise ValueError("the PDF isn't in the library any more")
+    if not data.startswith(b"%PDF-") or b"%%EOF" not in data[-2048:]:
+        raise ValueError("that isn't a whole PDF")
+    try:
+        new_pages = len(PdfReader(io.BytesIO(data)).pages)
+        old_pages = len(PdfReader(path).pages)
+    except Exception as e:
+        raise ValueError(f"the marked PDF can't be read ({e})") from None
+    if new_pages != old_pages:
+        raise ValueError(f"the marked PDF has {new_pages} pages, the book {old_pages}")
+    original = LIBRARY / "archive" / "before-marks" / file
+    if not original.exists():
+        original.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, original)
+    tmp = path.with_suffix(".pdf.part")
+    tmp.write_bytes(data)
+    try:
+        tmp.replace(path)
+    except PermissionError:
+        tmp.unlink(missing_ok=True)
+        raise ValueError("the PDF is open in another program; close it and mark again") from None
+    return {"saved": True, "bytes": len(data)}
+
+
 # --- serving the viewer -------------------------------------------------------------------
 
 
