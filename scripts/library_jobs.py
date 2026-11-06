@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 import add_book
+import book_meta
 import book_search
 import catalog
 import library_page
@@ -169,18 +170,23 @@ def refresh() -> dict:
 def _classify_all(job: dict, slugs: list[str]) -> None:
     """Look up the subject of each item (OpenAlex), put it on its subject's shelf when OpenAlex
     is sure, and give shelves to the items still on none."""
-    found, shelved = 0, []
+    found, shelved, unavailable = 0, [], ""
     try:
         for n, slug in enumerate(slugs, 1):
             _update(job, message=f"Looking up subjects: {n} of {len(slugs)}")
-            if subjects.classify(slug, add_book.LIBRARY, add_book.CATALOG):
-                found += 1
+            try:
+                if not unavailable and subjects.classify(slug, add_book.LIBRARY, add_book.CATALOG):
+                    found += 1
+            except book_meta.Unavailable as e:
+                unavailable = str(e)  # don't ask again for the rest; the next Refresh will
             topic = shelves.add_topic_shelf(slug, add_book.CATALOG)
             if topic or shelves.auto_shelve(slug, add_book.LIBRARY, add_book.CATALOG):
                 shelved.append(slug)
         library_page.build()
+        note = (f" OpenAlex couldn't answer ({unavailable}); Refresh again later (its free"
+                " daily limit resets at midnight UTC)." if unavailable else "")  # fmt: skip
         _finish(job, "done", f"Subjects found for {found} of {len(slugs)} items; "
-                f"{len(shelved)} put on shelves (change any with Shelves)")  # fmt: skip
+                f"{len(shelved)} put on shelves (change any with Shelves).{note}")  # fmt: skip
     except Exception as e:
         _finish(job, "error", f"Looking up subjects stopped: {e}")
 

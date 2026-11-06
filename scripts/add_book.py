@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+import book_meta
 import catalog
 import library_page
 import paths
@@ -660,8 +661,11 @@ def setup_book(pdf: Path, book: Book, meta: Meta, online: bool = True) -> None:
     # Its subject (OpenAlex), then shelves: the subject's, and yours that fit (only if it's on
     # none yet)
     if online and not catalog.load(CATALOG).get(slug, {}).get("topic"):
-        if found := subjects.classify(slug, LIBRARY, CATALOG):
-            print(f"  -> subject: {found['field']} / {found['topic']} ({found['score']})")
+        try:
+            if found := subjects.classify(slug, LIBRARY, CATALOG):
+                print(f"  -> subject: {found['field']} / {found['topic']} ({found['score']})")
+        except book_meta.Unavailable as e:
+            print(f"  ! subject not looked up ({e}); Refresh tries again later")
     if found := shelves.auto_shelve(slug, LIBRARY, CATALOG):
         print(f"  -> shelves: {'; '.join(found)} (change them with Shelves on the library page)")
 

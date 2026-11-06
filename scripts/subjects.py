@@ -80,19 +80,21 @@ def _same_title(a: str, b: str) -> bool:
 
 
 def lookup(row: dict) -> dict:
-    """{field, topic, score, source} for a catalog row ({} if OpenAlex doesn't know it)."""
+    """{field, topic, score, source} for a catalog row ({} if OpenAlex doesn't know it).
+    Raises book_meta.Unavailable when OpenAlex couldn't answer (e.g. its daily limit)."""
     found: list[tuple[str, str, float]] = []
     source = ""
     if doi := (row.get("doi") or "").strip():
         work = book_meta._get_json(
-            "https://api.openalex.org/works/doi:" + urllib.parse.quote(doi, safe="/")
+            "https://api.openalex.org/works/doi:" + urllib.parse.quote(doi, safe="/"), strict=True
         )
         if work:
             found, source = _topics(work), f"OpenAlex (DOI {doi})"
     if not found and row.get("title"):
         query = urllib.parse.quote(book_meta.clean_title(row["title"])[:150])
         results = (book_meta._get_json(
-            f"https://api.openalex.org/works?per-page=15&select=title,authorships,topics&search={query}"
+            f"https://api.openalex.org/works?per-page=15&select=title,authorships,topics&search={query}",
+            strict=True,
         ) or {}).get("results") or []  # fmt: skip
         author = surname(row.get("authors", "")) if row.get("authors") else ""
         for work in results:
@@ -123,7 +125,8 @@ def similar_works(row: dict) -> dict:
         return {}
     results = (book_meta._get_json(
         "https://api.openalex.org/works?per-page=10&select=topics&search="
-        + urllib.parse.quote(query[:200])
+        + urllib.parse.quote(query[:200]),
+        strict=True,
     ) or {}).get("results") or []  # fmt: skip
     votes: dict[tuple[str, str], float] = defaultdict(float)
     for work in results:
@@ -144,7 +147,9 @@ def _tried(library: Path) -> Path:
 
 
 def classify(slug: str, library: Path, catalog_path: Path) -> dict:
-    """Look up an item's subject and record it (catalog columns field, topic). Returns it."""
+    """Look up an item's subject and record it (catalog columns field, topic). Returns it.
+    Raises book_meta.Unavailable when OpenAlex couldn't answer: the item isn't marked as
+    tried then, so the next Refresh asks again."""
     row = catalog.load(catalog_path).get(slug)
     if not row:
         return {}

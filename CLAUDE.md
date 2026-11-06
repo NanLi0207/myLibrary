@@ -47,7 +47,10 @@ package needs must work from the page.
 `Start myLibrary.cmd`, bilingual `README.txt`, ECDICT license) plus a portable Python with only
 the core dependencies, PDF.js and the dictionary. `package.toml` marks package mode
 (`paths.IS_PACKAGE`): Python features off. Test a build unzipped in a clean environment (no uv
-on PATH, its own USERPROFILE/APPDATA) before calling it done.
+on PATH, its own USERPROFILE/APPDATA) before calling it done. The launcher's shortcuts go to
+the real Desktop and Start menu whatever the profile, so first write the unzipped folder's
+path to `<test APPDATA>/myLibrary/shortcuts-for.txt` (skips them), use another `--port`, and
+Quit the test server afterwards.
 
 Inside a library: `library.toml` (name, `[shelves]` labels like `Optics = "光学 Optics"`),
 `catalog.csv`, `books/` (never in git), `notes/<slug>/`, `notes/topics/<topic>.md`,

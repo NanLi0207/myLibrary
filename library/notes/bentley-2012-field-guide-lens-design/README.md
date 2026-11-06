@@ -4,7 +4,7 @@
 |---|---|
 | Author | Julie Bentley, Craig Olson |
 | Year | 2012 |
-| Publisher | ? |
+| Publisher | SPIE |
 | File | `books/bentley-2012-field-guide-lens-design.pdf` |
 
 ## Reading progress

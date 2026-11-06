@@ -16,6 +16,7 @@ import json
 import re
 import time
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ElementTree
@@ -448,18 +449,38 @@ def parse_filename(stem: str) -> Meta:
     return meta
 
 
+class Unavailable(OSError):
+    """The service couldn't answer (offline, daily limit used up, server error)."""
+
+
 def _get_json(
-    url: str, timeout: float = 10, attempts: int = 3, headers: dict | None = None
+    url: str,
+    timeout: float = 10,
+    attempts: int = 3,
+    headers: dict | None = None,
+    strict: bool = False,
 ) -> dict | None:
-    """None when offline or the service keeps failing, so callers fall back to local sources."""
+    """None when offline or the service keeps failing, so callers fall back to local sources.
+    strict: None only when the service says it has no such record (404); raises Unavailable
+    when it couldn't answer, so the caller can try again later."""
     headers = {"User-Agent": "myLibrary book organizer"} | (headers or {})
     request = urllib.request.Request(url, headers=headers)
+    reason = ""
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.load(response)
-        except OSError, ValueError:
-            time.sleep(attempt + 1)  # Open Library sometimes rate-limits quick bursts
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            reason = f"HTTP {e.code}"
+            if e.code == 429 and int(e.headers.get("Retry-After") or 0) > 60:
+                break  # a daily limit: waiting a few seconds won't help
+        except (OSError, ValueError) as e:
+            reason = str(e)
+        time.sleep(attempt + 1)  # Open Library sometimes rate-limits quick bursts
+    if strict:
+        raise Unavailable(f"{urllib.parse.urlsplit(url).netloc}: {reason}")
     return None
 
 

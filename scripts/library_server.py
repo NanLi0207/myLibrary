@@ -33,7 +33,7 @@ from datetime import date
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 import backup
 import book_search
@@ -500,6 +500,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        # Lets a second start see whose library this server shows (already_running)
+        self.send_header("X-myLibrary-Library", quote(str(LIBRARY)))
         self.end_headers()
         self.wfile.write(body)
 
@@ -687,13 +689,16 @@ class Server(ThreadingHTTPServer):
     allow_reuse_address = sys.platform != "win32"
 
 
-def already_running(port: int) -> bool:
-    """Is a myLibrary server answering on this port?"""
+def already_running(port: int) -> str | None:
+    """The library folder of the myLibrary server answering on this port ("" if it doesn't
+    say), or None when there is none."""
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as response:
-            return response.headers.get("Server", "").startswith(Handler.server_version)
+            if not response.headers.get("Server", "").startswith(Handler.server_version):
+                return None
+            return unquote(response.headers.get("X-myLibrary-Library", ""))
     except OSError:
-        return False
+        return None
 
 
 def main() -> None:
@@ -705,7 +710,13 @@ def main() -> None:
     paths.ensure_library()
 
     url = f"http://127.0.0.1:{args.port}"
-    if already_running(args.port):
+    if (running := already_running(args.port)) is not None:
+        if not running or Path(running).resolve() != LIBRARY.resolve():
+            sys.exit(
+                f"Another myLibrary is running at {url} with a different library"
+                f" ({running or 'an older version'}).\n"
+                f"Quit it from its page (Quit), or start this one with --port {args.port + 1}."
+            )
         print(f"myLibrary is already running at {url}; opening it.")
         if not args.no_browser:
             webbrowser.open(url)

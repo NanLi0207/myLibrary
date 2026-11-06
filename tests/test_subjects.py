@@ -184,3 +184,41 @@ def test_last_resort_the_clearly_closest_shelf():
     report = {"title": "UIC Guideline for Integrated Vegetation Management - Part A"}
     assert shelves.closest_shelf(report, rows, names) == "Weeds"
     assert shelves.closest_shelf({"title": "Pro Git"}, rows, names) == ""  # nothing close
+
+
+def test_an_item_is_not_marked_tried_when_openalex_cant_answer(tmp_path, monkeypatch):
+    path = tmp_path / "catalog.csv"
+    catalog.upsert(path, {"slug": "x-2001-y", "title": "Modern Lens Design"})
+
+    def daily_limit(row):
+        raise book_meta.Unavailable("api.openalex.org: HTTP 429")
+
+    monkeypatch.setattr(subjects, "lookup", daily_limit)
+    try:
+        subjects.classify("x-2001-y", tmp_path, path)
+    except book_meta.Unavailable:
+        pass
+    assert subjects.unclassified(tmp_path, path) == ["x-2001-y"]  # asked again next time
+
+
+def test_strict_requests_tell_no_record_from_no_answer(monkeypatch):
+    import io
+    import urllib.error
+
+    import pytest
+
+    def fail(code, retry_after="0"):
+        def urlopen(request, timeout):
+            raise urllib.error.HTTPError(
+                request.full_url, code, "", {"Retry-After": retry_after}, io.BytesIO()
+            )
+
+        return urlopen
+
+    monkeypatch.setattr(book_meta.time, "sleep", lambda s: None)
+    monkeypatch.setattr(book_meta.urllib.request, "urlopen", fail(404))
+    assert book_meta._get_json("https://api.openalex.org/works/doi:x", strict=True) is None
+    monkeypatch.setattr(book_meta.urllib.request, "urlopen", fail(429, "35149"))
+    with pytest.raises(book_meta.Unavailable):
+        book_meta._get_json("https://api.openalex.org/works?search=x", strict=True)
+    assert book_meta._get_json("https://api.openalex.org/works?search=x") is None

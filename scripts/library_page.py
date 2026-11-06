@@ -623,7 +623,7 @@ function stats() {
   const papers = books.filter(isPaper), theses = books.filter(isThesis);
   const read = papers.filter(b => done(b)).length;
   document.getElementById("stats").textContent =
-    `${count(books.length - papers.length - theses.length, "book")}${papers.length ? ` · ${count(papers.length, "paper")} (${read} read)` : ""}`
+    `${count(books.length - papers.length - theses.length, "book")}${papers.length ? ` · ${count(papers.length, "paper")}` : ""}`
     + (theses.length ? ` · ${theses.length} ${theses.length === 1 ? "thesis" : "theses"}` : "")
     + ` · ${pages.toLocaleString()} pages · ${dn - read} of ${ch - papers.length} chapters read`;
 }

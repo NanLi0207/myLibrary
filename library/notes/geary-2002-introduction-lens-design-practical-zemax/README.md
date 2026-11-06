@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Author | Joseph M.Geary |
+| Author | Joseph M. Geary |
 | Year | 2002 |
 | Publisher | Willmann-Bell |
 | File | `books/geary-2002-introduction-lens-design-practical-zemax.pdf` |
