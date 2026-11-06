@@ -35,9 +35,9 @@ Usage:
 """
 
 import argparse
-import json
 import re
 import sys
+import threading
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -46,6 +46,7 @@ import book_meta
 import catalog
 import library_page
 import paths
+import safe_io
 import shelves
 import subjects
 import thesis_meta
@@ -90,6 +91,10 @@ MAX_TITLE_WORDS = 5
 
 # Already-named files, e.g. shannon-1997-art-science-optical-design.pdf
 SLUG_RE = re.compile(r"^[a-z]+-\d{4}-[a-z0-9-]+$")
+# Filing documents (checking for repeats, taking a name, moving PDFs, merging, archiving): one
+# at a time, so concurrent jobs on the library page never take the same name or move the same
+# file. Identifying a document (the slow, online part) is not under it.
+FILING = threading.RLock()
 
 
 @dataclass
@@ -158,7 +163,7 @@ def write_chapter_notes(notes_dir: Path, chapters: list[Chapter]) -> None:
     for ch in chapters:
         note = notes_dir / chapter_filename(ch)
         if not note.exists():
-            note.write_text(chapter_note(ch), encoding="utf-8")
+            safe_io.write_text(note, chapter_note(ch))
     if chapters:
         print(f"  -> {len(chapters)} chapter templates in notes/{notes_dir.name}/")
 
@@ -196,16 +201,18 @@ def refresh_chapters(pdf: Path, dry_run: bool) -> None:
     write_chapter_notes(notes_dir, chapters)
     readme = notes_dir / "README.md"
     if readme.exists():
-        text = readme.read_text(encoding="utf-8")
-        if re.search(r"^- \[x\]", text, re.MULTILINE | re.IGNORECASE):
-            print("  ! README progress list has ticked chapters; left it as it is")
-        else:
-            text = re.sub(
+
+        def new_list(text: str) -> str:
+            if re.search(r"^- \[x\]", text, re.MULTILINE | re.IGNORECASE):
+                print("  ! README progress list has ticked chapters; left it as it is")
+                return text
+            return re.sub(
                 r"(## Reading progress\n\n)(?:- \[ \].*\n?)+",
                 lambda m: m[1] + progress_list(chapters) + "\n",
                 text,
             )
-            readme.write_text(text, encoding="utf-8")
+
+        safe_io.update_text(readme, new_list)  # a page turn may write "Last read" meanwhile
     if pdf.stem in catalog.load(CATALOG):
         catalog.upsert(CATALOG, {"slug": pdf.stem, "chapters": str(len(chapters))})
     forget_chapter_pages(pdf.stem)  # chapters changed, so the server looks their pages up again
@@ -213,11 +220,9 @@ def refresh_chapters(pdf: Path, dry_run: bool) -> None:
 
 def forget_chapter_pages(slug: str) -> None:
     """Drop a book from library_server.py's cache of chapter start pages."""
-    if not PAGE_CACHE.exists():
-        return
-    cache = json.loads(PAGE_CACHE.read_text(encoding="utf-8"))
-    if cache.pop(slug, None) is not None:
-        PAGE_CACHE.write_text(json.dumps(cache, indent=1), encoding="utf-8")
+    if PAGE_CACHE.exists():
+        safe_io.update_json(PAGE_CACHE, lambda cache: cache.pop(slug, None), {}, cache=True,
+                            indent=1)  # fmt: skip
 
 
 def archive_target(path: Path) -> Path:
@@ -240,16 +245,15 @@ def file_hash(path: Path) -> str:
     HASHES = LIBRARY / ".cache" / "hashes.json"  # noqa: N806  (LIBRARY can change in tests)
     stat = path.stat()
     key = f"{stat.st_size}:{stat.st_mtime_ns}"
-    cache = json.loads(HASHES.read_text(encoding="utf-8")) if HASHES.exists() else {}
+    cache = safe_io.load_json(HASHES, {}, cache=True)
     if (cached := cache.get(str(path))) and cached[0] == key:
         return cached[1]
     digest = hashlib.sha256()
     with path.open("rb") as f:
         while chunk := f.read(1 << 20):
             digest.update(chunk)
-    cache[str(path)] = [key, digest.hexdigest()]
-    HASHES.parent.mkdir(parents=True, exist_ok=True)
-    HASHES.write_text(json.dumps(cache, indent=0), encoding="utf-8")
+    found = [key, digest.hexdigest()]
+    safe_io.update_json(HASHES, lambda c: c.update({str(path): found}), {}, cache=True, indent=0)
     return digest.hexdigest()
 
 
@@ -281,7 +285,15 @@ def repeat_of(path: Path, meta: Meta, slug: str = "") -> tuple[str, str] | None:
 
 
 def move_to_archive(path: Path) -> Path:
-    """Move a file or folder to archive/<its folder>/ (never deleted); returns where it went."""
+    """Move a file or folder to archive/<its folder>/ (never deleted); returns where it went.
+    Only something inside one of the library's folders (books/, notes/, ...): never the library
+    itself, the archive, or anything outside."""
+    resolved, library = path.resolve(), LIBRARY.resolve()
+    inside = [library / f for f in ("books", "papers", "theses", "notes", "examples")] + [
+        p.resolve() for p in (BOOKS, PAPERS, THESES, NOTES, EXAMPLES)
+    ]
+    if not any(folder in resolved.parents for folder in inside):
+        raise ValueError(f"refusing to move {path} to the archive: it isn't a library item")
     target = archive_target(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     path.rename(target)
@@ -395,26 +407,30 @@ def merge_into(src: str, dst: str) -> list[str]:
     dst_dir.mkdir(parents=True, exist_ok=True)
     readme = dst_dir / "README.md"
     if src_dir.exists() and readme.exists():
-        text = readme.read_text(encoding="utf-8")
         old_readme = src_dir / "README.md"
         old = old_readme.read_text(encoding="utf-8") if old_readme.exists() else ""
-        # Ticks, by chapter number ("Read the paper" is chapter 1)
-        ticked = 0
-        for chapter in library_page.chapters_in(old):
-            if chapter["done"] and chapter["number"] is not None:
-                pattern = library_page.chapter_line(chapter["number"], boxes=" ")
-                text, count = pattern.subn(lambda m: f"- [x] {m[1]}", text, count=1)
-                ticked += count
-        if ticked:
-            moved.append(f"{ticked} ticked chapter{'s' if ticked > 1 else ''}")
-        # The page you last read (unless the kept copy has its own)
-        last = library_page.LAST_READ_RE.search(old)
-        if last and not library_page.LAST_READ_RE.search(text):
-            heading = re.search(r"^## Reading progress[ \t]*\n(?:[ \t]*\n)?", text, re.MULTILINE)
-            at = heading.end() if heading else len(text)
-            text = text[:at] + last[0] + "\n\n" + text[at:].lstrip("\n")
-            moved.append("last-read page")
-        readme.write_text(text, encoding="utf-8")
+
+        def merged(text: str) -> str:
+            # Ticks, by chapter number ("Read the paper" is chapter 1)
+            ticked = 0
+            for chapter in library_page.chapters_in(old):
+                if chapter["done"] and chapter["number"] is not None:
+                    pattern = library_page.chapter_line(chapter["number"], boxes=" ")
+                    text, count = pattern.subn(lambda m: f"- [x] {m[1]}", text, count=1)
+                    ticked += count
+            if ticked:
+                moved.append(f"{ticked} ticked chapter{'s' if ticked > 1 else ''}")
+            # The page you last read (unless the kept copy has its own)
+            last = library_page.LAST_READ_RE.search(old)
+            if last and not library_page.LAST_READ_RE.search(text):
+                heading = re.search(r"^## Reading progress[ \t]*\n(?:[ \t]*\n)?", text,
+                                    re.MULTILINE)  # fmt: skip
+                at = heading.end() if heading else len(text)
+                text = text[:at] + last[0] + "\n\n" + text[at:].lstrip("\n")
+                moved.append("last-read page")
+            return text
+
+        safe_io.update_text(readme, merged)  # a page turn may write "Last read" meanwhile
     # Notes you wrote: into the same chapter's template (still empty, so nothing is lost)
     for note in sorted(src_dir.glob("*.md")):
         if note.name == "README.md" or is_untouched_template(note):
@@ -424,7 +440,7 @@ def merge_into(src: str, dst: str) -> list[str]:
             target = next(iter(sorted(dst_dir.glob(f"{m[1]}-*.md"))), target)
         if target.exists() and not is_untouched_template(target):
             target = target.with_name(f"{target.stem}-from-{src}.md")
-        target.write_text(note.read_text(encoding="utf-8"), encoding="utf-8")
+        safe_io.write_text(target, note.read_text(encoding="utf-8"))
         moved.append("vocabulary" if note.name == "vocabulary.md" else f"notes {note.name}")
     # Chapter scripts
     scripts = sorted((EXAMPLES / src).glob("*.py"))
@@ -444,7 +460,7 @@ def richer_than_library(path: Path, meta: Meta, slug: str) -> str:
     text, bookmarks, more pages); "" if it doesn't, e.g. an identical file. Its details are
     another matter: fill_details() adds them either way."""
     row = catalog.load(CATALOG).get(slug)
-    if not row:
+    if not row or not row.get("file"):  # no PDF recorded: nothing to compare with or replace
         return ""
     old_pdf = LIBRARY / row["file"]
     if not old_pdf.is_file():
@@ -457,8 +473,11 @@ def richer_than_library(path: Path, meta: Meta, slug: str) -> str:
 
 def fill_details(slug: str, meta: Meta) -> list[str]:
     """Details a repeat knows that the library's entry lacks (DOI, journal, keywords, ...):
-    added to the entry. Returns their names."""
-    row = catalog.load(CATALOG).get(slug, {})
+    added to the entry. Returns their names. Never creates an entry (one without its file
+    would make the next repeat take the library folder for the book's PDF)."""
+    row = catalog.load(CATALOG).get(slug)
+    if not row:
+        return []
     fill = {k: v for k, v in meta_row(meta).items() if k in INFO_FIELDS and v and not row.get(k)}
     if fill:
         catalog.upsert(CATALOG, {"slug": slug, **fill})
@@ -470,6 +489,8 @@ def replace_pdf(slug: str, path: Path, meta: Meta) -> Path:
     or a DOI): it takes the old PDF's place under the same name, so your notes and progress stay
     with it; the old PDF goes to archive/. Returns where the old one went."""
     row = catalog.load(CATALOG)[slug]
+    if not row.get("file", "").lower().endswith(".pdf"):
+        raise ValueError(f"the entry {slug} has no PDF file recorded; nothing was replaced")
     pdf = LIBRARY / row["file"]
     old = move_to_archive(pdf) if pdf.exists() else pdf
     path.rename(pdf)
@@ -619,14 +640,14 @@ def setup_book(pdf: Path, book: Book, meta: Meta, online: bool = True) -> None:
     if is_paper:  # one notes file, and "Read the paper" instead of chapters
         chapters = []
         if not readme.exists():
-            readme.write_text(paper_readme(book, relative, meta), encoding="utf-8")
+            safe_io.write_text(readme, paper_readme(book, relative, meta))
         notes = notes_dir / "notes.md"
         if not notes.exists():
-            notes.write_text(PAPER_NOTES.format(title=book.title), encoding="utf-8")
+            safe_io.write_text(notes, PAPER_NOTES.format(title=book.title))
     else:
         chapters = book_chapters(pdf)
         if not readme.exists():
-            readme.write_text(notes_readme(book, relative, chapters, meta), encoding="utf-8")
+            safe_io.write_text(readme, notes_readme(book, relative, chapters, meta))
         write_chapter_notes(notes_dir, chapters)
     catalog.upsert(
         CATALOG,
@@ -699,13 +720,35 @@ def handle_repeat(path: Path, meta: Meta, slug: str, dry_run: bool = False) -> t
     return False, f"{details}this copy was moved to archive/{kept.parent.name}/{kept.name}"
 
 
-def file_book(path: Path, book: Book, meta: Meta, online: bool = True) -> Path:
-    """Move a new PDF into books/, papers/ or theses/ under its slug and set it up; returns
-    where it is now."""
+def place_book(path: Path, book: Book, meta: Meta) -> Path:
+    """Move a new PDF into books/, papers/ or theses/ under its slug; returns where it is now.
+    (The library page holds FILING around find_repeat + this, so two jobs can't take one name.)"""
     folder = folder_for(meta.kind)
     target = folder / f"{book.slug}{path.suffix.lower()}"
     folder.mkdir(parents=True, exist_ok=True)
-    path.rename(target)
+    path.rename(target)  # never replaces: on Windows rename fails if the name is taken
+    return target
+
+
+def reserve_row(pdf: Path, book: Book, meta: Meta) -> None:
+    """The catalog row's essentials (name, file, title, authors, year), written in the same
+    FILING step that took the file's name: a copy of the same work arriving meanwhile sees a
+    whole entry, with its file. setup_book fills in the rest."""
+    catalog.upsert(CATALOG, {
+        "slug": pdf.stem,
+        "type": meta.kind if meta.kind in ("paper", "thesis") else "book",
+        "title": book.title,
+        "authors": book.author,
+        "year": book.year,
+        "file": f"{pdf.parent.name}/{pdf.name}",
+        "notes": f"notes/{pdf.stem}/",
+        "added": date.today().isoformat(),
+    })  # fmt: skip
+
+
+def file_book(path: Path, book: Book, meta: Meta, online: bool = True) -> Path:
+    """Move a new PDF into place under its slug and set it up; returns where it is now."""
+    target = place_book(path, book, meta)
     setup_book(target, book, meta, online)
     return target
 

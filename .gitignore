@@ -7,7 +7,9 @@ __pycache__/
 
 # The books are copyrighted: they stay on this computer only, never in git, wherever they are.
 # (.gitkeep keeps the library's empty books/ folder in a fresh clone.)
+# Both spellings: macOS and Linux tell .pdf and .PDF apart, so one rule alone would miss some
 *.pdf
+*.PDF
 library/books/*
 !library/books/.gitkeep
 library/papers/*
@@ -23,6 +25,10 @@ local.toml
 #   archive/  removed books, original scans, pre-bookmark copies
 .cache/
 archive/
+
+# The previous version of the reading log and review progress, kept on this computer in case
+# the file is ever damaged (scripts/safe_io.py)
+*.bak
 
 # Generated from catalog.csv + notes; contains local file paths
 library.html

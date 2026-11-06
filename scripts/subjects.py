@@ -10,7 +10,6 @@ catalog, and, when OpenAlex is sure of the topic, a shelf with that name (see sh
     uv run scripts/subjects.py --apply    look up the items that have none yet, and shelve them
 """
 
-import json
 import urllib.parse
 from collections import defaultdict
 from pathlib import Path
@@ -18,6 +17,7 @@ from pathlib import Path
 import book_meta
 import catalog
 import paths
+import safe_io
 from book_meta import _words, surname
 
 LIBRARY = paths.LIBRARY
@@ -162,17 +162,18 @@ def classify(slug: str, library: Path, catalog_path: Path) -> dict:
         }
         catalog.upsert(catalog_path, {"slug": slug, **subject})
     else:
-        tried = _tried(library)
-        known = json.loads(tried.read_text(encoding="utf-8")) if tried.exists() else []
-        tried.parent.mkdir(parents=True, exist_ok=True)
-        tried.write_text(json.dumps(sorted(set(known) | {slug})), encoding="utf-8")
+
+        def add(known: list) -> None:
+            known[:] = sorted(set(known) | {slug})
+
+        # A cache: if it's ever damaged it starts again (those items are just asked again)
+        safe_io.update_json(_tried(library), add, [], cache=True)
     return found
 
 
 def unclassified(library: Path, catalog_path: Path) -> list[str]:
     """Items with no subject yet, not already looked up in vain."""
-    tried = _tried(library)
-    known = set(json.loads(tried.read_text(encoding="utf-8"))) if tried.exists() else set()
+    known = set(safe_io.load_json(_tried(library), [], cache=True))
     return [
         s for s, r in catalog.load(catalog_path).items() if not r.get("topic") and s not in known
     ]

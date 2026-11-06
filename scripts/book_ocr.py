@@ -5,12 +5,12 @@ install). Results are cached in .cache/ocr/, so each page is only read once (~1.
 Used by book_toc.py to read the printed Contents of a scanned book.
 """
 
-import json
 import logging
 from pathlib import Path
 from statistics import median
 
 import paths
+import safe_io
 
 LIBRARY = paths.LIBRARY
 CACHE_DIR = LIBRARY / ".cache" / "ocr"
@@ -67,7 +67,7 @@ def ocr_pages(pdf: Path, pages: list[int], top: float | None = None) -> dict[int
     enough to spot a chapter's opening heading.
     """
     cache_file = _cache_file(pdf, f"-top{int(top * 100)}" if top else "")
-    cache = json.loads(cache_file.read_text(encoding="utf-8")) if cache_file.exists() else {}
+    cache = safe_io.load_json(cache_file, {}, cache=True)  # damaged: those pages are read again
     missing = [i for i in pages if str(i) not in cache]
     if missing:
         import pypdfium2 as pdfium
@@ -90,8 +90,7 @@ def ocr_pages(pdf: Path, pages: list[int], top: float | None = None) -> dict[int
             ]
             cache[str(i)] = "\n".join(" ".join(b[4] for b in line) for line in group_lines(boxes))
         document.close()
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        safe_io.write_json(cache_file, cache, ensure_ascii=False)  # whole or not at all
     return {i: cache.get(str(i), "") for i in pages}
 
 
@@ -105,7 +104,7 @@ def ocr_boxes(pdf: Path, page: int, document=None) -> list[list]:
     Pass an open pypdfium2 `document` when calling for many pages.
     """
     cache_file = _cache_file(pdf, "-boxes")
-    cache = json.loads(cache_file.read_text(encoding="utf-8")) if cache_file.exists() else {}
+    cache = safe_io.load_json(cache_file, {}, cache=True)  # damaged: those pages are read again
     if str(page) not in cache:
         import pypdfium2 as pdfium
 
@@ -123,8 +122,7 @@ def ocr_boxes(pdf: Path, page: int, document=None) -> list[list]:
             if score >= MIN_SCORE and text.strip():
                 boxes.append([round(v / RENDER_SCALE, 2) for v in _bounds(box)] + [text])
         cache[str(page)] = boxes
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_file.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+        safe_io.write_json(cache_file, cache, ensure_ascii=False)  # whole or not at all
     return cache[str(page)]
 
 

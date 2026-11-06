@@ -18,6 +18,7 @@ from urllib.parse import quote
 import catalog
 import citation
 import paths
+import safe_io
 import subjects
 import thesis_meta
 from book_ocr import has_text_layer
@@ -53,13 +54,13 @@ def last_read(slug: str) -> dict | None:
     readme = readme_path(slug)
     if not readme.exists():
         return None
-    m = LAST_READ_RE.search(readme.read_text(encoding="utf-8"))
+    m = LAST_READ_RE.search(safe_io.read_text(readme))
     return {"page": int(m[1]), "chapter": m[2] or "", "date": m[3]} if m else None
 
 
 def chapters(slug: str) -> list[dict]:
     readme = readme_path(slug)
-    return chapters_in(readme.read_text(encoding="utf-8")) if readme.exists() else []
+    return chapters_in(safe_io.read_text(readme)) if readme.exists() else []
 
 
 def chapters_in(text: str) -> list[dict]:
@@ -156,7 +157,7 @@ def render(api: dict | None = None, pdf_base: str | None = None) -> str:
 
 
 def build() -> Path:
-    PAGE.write_text(render(), encoding="utf-8")
+    safe_io.write_text(PAGE, render())
     return PAGE
 
 
@@ -1457,14 +1458,16 @@ if (API) {
   const reviewBody = document.getElementById("reviewBody");
   const reviewBook = document.getElementById("reviewBook");
   let reviewCards = [], reviewQueue = [], reviewShown = false, reviewDone = 0, reviewInfo = {};
+  let reviewError = "";  // e.g. notes/vocabulary-review.json damaged: shown, never hidden
   async function loadReview() {
     try {
       reviewInfo = await api("/api/review", {});
+      reviewError = "";
       reviewCards = reviewInfo.due;
       const count = document.getElementById("reviewCount");
       count.textContent = reviewCards.length;
       count.hidden = !reviewCards.length;
-    } catch {}
+    } catch (e) { reviewError = e.message; }
   }
   function reviewFilter() {
     const counts = new Map(), titles = new Map();
@@ -1559,6 +1562,10 @@ if (API) {
   }
   document.getElementById("openReview").addEventListener("click", async () => {
     await loadReview();
+    if (reviewError) {
+      reviewBody.innerHTML = `<p>⚠ ${esc(reviewError)}</p>`;
+      return reviewDialog.showModal();
+    }
     reviewFilter();
     startReview();
     reviewDialog.showModal();
@@ -1592,12 +1599,22 @@ if (API) {
   };
   const longDate = iso => new Date(iso + "T12:00:00").toLocaleDateString(undefined,
     {weekday: "short", year: "numeric", month: "short", day: "numeric"});
-  let logData = null;
+  let logData = null, logError = "";
   async function loadLog() {
+    const link = document.getElementById("openLog");
     try {
       logData = await api("/api/reading-log", {});
-    } catch { return; }
-    const link = document.getElementById("openLog");
+      logError = "";
+    } catch (e) {
+      // A damaged notes/reading-log.json is said, not hidden (it's kept as it is, see safe_io)
+      logData = null;
+      logError = e.message;
+      link.textContent = "· ⚠ Reading log can't be read ›";
+      link.title = logError;
+      link.hidden = false;
+      return;
+    }
+    link.title = "";
     const parts = [];
     if (logData.streak) parts.push(`🔥 ${logData.streak}-day streak`);
     if (logData.week_seconds) parts.push(`${minutes(logData.week_seconds)} this week`);
@@ -1640,8 +1657,10 @@ if (API) {
   }
   document.getElementById("openLog").addEventListener("click", async () => {
     await loadLog();
-    if (!logData) return toast("Couldn't load the reading log");
-    document.getElementById("logBody").innerHTML = logHtml(logData);
+    if (!logData && !logError) return toast("Couldn't load the reading log");
+    document.getElementById("logBody").innerHTML = logData ? logHtml(logData)
+      : `<p>⚠ ${esc(logError)}</p>`;
+    if (!logData) return document.getElementById("logDialog").showModal();
     document.getElementById("logDialog").showModal();
     const wrap = document.querySelector("#logBody .cal-wrap");
     wrap.scrollLeft = wrap.scrollWidth;  // this week in view on a narrow screen

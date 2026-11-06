@@ -6,6 +6,66 @@ and per-chapter Python scripts for checking a book's worked examples. No marimo/
 Keep the tool subject-neutral: nothing in `scripts/` should assume optics. The repo is public;
 the books never go in it. See README.md.
 
+## Working on this project (always apply)
+
+**ROADMAP.md is the plan; DEVELOPMENT_SPEC.md is the product spec.** At the start of any
+development session, read ROADMAP.md: the architecture, the gap analysis, the known bugs (IDs
+like D1, B5, L3), the v0.3/v0.4/v0.5 tasks and the design notes. Read DEVELOPMENT_SPEC.md for
+the goals, principles and constraints behind them (local-first, offline-first, optional
+network and AI, no destructive migrations, no rewrites). Work through the current milestone in
+order; don't start the next milestone, or features outside it, unless the user asks. Keep
+ROADMAP.md current in the same change as the code: tick finished tasks with the version, add
+bugs and limitations you find (name the function or file; line numbers drift), remove ones you
+fix, and update the architecture and gap analysis when they change. If a plan changes, change
+the file rather than leaving it stale. Don't claim a feature works unless it was verified; say
+when browser, Windows-specific or package testing wasn't done.
+
+**Stable IDs (from v0.3).** Once the catalog has an `id` column (ROADMAP task 3.1), new
+sidecar data (anchors, annotations, topic links) refers to documents by `id`, not slug or
+title. Slugs stay the file and folder names.
+
+**Protect the user's data.** Notes, vocabulary, topic notes, reading log, review progress,
+marks in PDFs, `catalog.csv` and `library.toml` are the user's work. Never delete them; move to
+the library's `archive/` (`add_book.move_to_archive`, which refuses anything outside the
+library's folders).
+
+**Write files through `scripts/safe_io.py`, never with `Path.write_text` or `open("w")`:**
+- `write_text`/`write_bytes` are atomic.
+- A read-change-write goes through `update_text`/`update_json` (they take the file's lock), or
+  holds `safe_io.lock_for(path)`.
+- Catalog changes go through `catalog.upsert`/`set_field`/`remove`.
+- JSON goes through `load_json`: `cache=True` for rebuildable caches; user data keeps a `.bak`
+  and raises `DamagedFile` rather than being replaced.
+- Several threads write at once (one per job, plus request threads).
+- Steps that move PDFs or take a name hold `add_book.FILING`. Keep anything slow or online out
+  of it.
+- Multi-step operations that must not be cut off by Quit run inside `safe_io.critical()`.
+- Long jobs check `library_jobs._stopping` at safe points.
+
+**The user's standing rules for development (2026-11-06):**
+- Never modify, delete, migrate or overwrite files in the real `library/`.
+- Test destructive, concurrency, damage and recovery cases only in temporary folders with
+  invented data.
+- Don't reset, clean or normalize the line-ending-only changes git shows under `library/`.
+- Don't revert or overwrite `library/notes/reading-log.json`.
+- No broad staging (`git add -A`, `git add .`).
+- No automatic commits or pushes.
+- Explain any production data migration and get agreement before implementing it.
+
+**Checks before calling a change done:** `uv run pytest`, `uv run ruff check .`,
+`uv run ruff format --check .` (CI runs the same on Windows). Add or update tests for every
+behavior change; test with a temporary library (see `tests/conftest.py`), never the real one.
+For page or reader changes, also try it in the browser with
+`uv run scripts/library_server.py --port <other port>`. The JavaScript in `library_page.py` and
+`reader_static/` has no tests yet, so check it by hand and say what you checked.
+
+**Environment:** Windows, Python 3.14 via uv (installed with winget). A terminal opened before
+uv was installed won't find it; restart VS Code. Use forward-slash paths and UTF-8 explicitly
+when reading/writing text.
+
+**Versions:** `pyproject.toml` `version` is the package version; bump it and rebuild the
+package only when the user asks for a package release.
+
 ## Tool vs. library (always keep them apart)
 
 - **The tool**: `scripts/`, `tests/`, docs, `pyproject.toml`. Its own cache (`.cache/reader/`:

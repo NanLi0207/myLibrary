@@ -5,7 +5,10 @@ Browse it on the library page, or search it e.g. with `Select-String aberration 
 """
 
 import csv
+import io
 from pathlib import Path
+
+import safe_io
 
 COLUMNS = [
     "slug",
@@ -40,37 +43,51 @@ COLUMNS = [
 
 
 def load(path: Path) -> dict[str, dict[str, str]]:
+    # Always a whole file: it's only ever replaced in one go (safe_io), never rewritten in place
     if not path.exists():
         return {}
-    with path.open(newline="", encoding="utf-8-sig") as f:
-        return {row["slug"]: row for row in csv.DictReader(f)}
+    text = safe_io.read_bytes(path).decode("utf-8-sig")  # waits out a write in progress
+    return {row["slug"]: row for row in csv.DictReader(io.StringIO(text, newline=""))}
 
 
 def _write(path: Path, rows: dict[str, dict[str, str]]) -> None:
+    # Columns you added yourself (e.g. in Excel) are kept, after the tool's own
+    extra = list(dict.fromkeys(k for r in rows.values() for k in r if k and k not in COLUMNS))
+    out = io.StringIO(newline="")
+    # extrasaction: a row with more cells than the header has them under None; dropped as before
+    writer = csv.DictWriter(out, fieldnames=COLUMNS + extra, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(sorted(rows.values(), key=lambda r: r["slug"]))
     # utf-8-sig so Excel shows accents (e.g. Sasián) correctly
-    with path.open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=COLUMNS)
-        writer.writeheader()
-        writer.writerows(sorted(rows.values(), key=lambda r: r["slug"]))
+    safe_io.write_text(path, out.getvalue(), encoding="utf-8-sig", newline="")
+
+
+def _change(path: Path, change):
+    """Load, change, write catalog.csv as one step: one writer at a time, so concurrent jobs
+    (several uploads, Refresh, Shelves) never lose each other's rows."""
+    with safe_io.lock_for(path), safe_io.critical():
+        rows = load(path)
+        result = change(rows)
+        if result is not False:
+            _write(path, rows)
+        return result
 
 
 def remove(path: Path, slug: str) -> bool:
-    rows = load(path)
-    if rows.pop(slug, None) is None:
-        return False
-    _write(path, rows)
-    return True
+    return _change(path, lambda rows: rows.pop(slug, None) is not None)
 
 
 def set_field(path: Path, slug: str, field: str, value: str) -> None:
     """Set one column of one book, even to an empty value (upsert keeps old values instead)."""
     if field not in COLUMNS:
         raise ValueError(f"unknown column {field}")
-    rows = load(path)
-    if slug not in rows:
-        raise KeyError(slug)
-    rows[slug][field] = value
-    _write(path, rows)
+
+    def change(rows):
+        if slug not in rows:
+            raise KeyError(slug)
+        rows[slug][field] = value
+
+    _change(path, change)
 
 
 def split_list(value: str) -> list[str]:
@@ -85,9 +102,13 @@ def split_list(value: str) -> list[str]:
 
 def upsert(path: Path, row: dict[str, str]) -> None:
     """Add or update one book; keeps the original 'added' date and any columns not given."""
-    rows = load(path)
-    old = rows.get(row["slug"], {})
-    rows[row["slug"]] = {c: row.get(c) or old.get(c, "") for c in COLUMNS} | {
-        "added": old.get("added") or row.get("added", "")
-    }
-    _write(path, rows)
+
+    def change(rows):
+        old = rows.get(row["slug"], {})
+        rows[row["slug"]] = (
+            old  # your own columns stay
+            | {c: row.get(c) or old.get(c, "") for c in COLUMNS}
+            | {"added": old.get("added") or row.get("added", "")}
+        )
+
+    _change(path, change)

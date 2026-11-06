@@ -22,6 +22,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+import safe_io
+
 APP = Path(__file__).resolve().parent.parent
 IS_PACKAGE = (APP / "package.toml").exists()
 if IS_PACKAGE:
@@ -56,7 +58,15 @@ def _saved() -> dict:
     if not SETTINGS_FILE.exists():
         return {}
     with open(SETTINGS_FILE, "rb") as f:
-        return tomllib.load(f)
+        try:
+            return tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            # Never fall back to the defaults: that would open (and create) another library,
+            # and the next save would write over your other settings
+            raise SystemExit(
+                f"The settings file {SETTINGS_FILE} can't be read ({e}). Fix that line in a text "
+                "editor (or delete the file to start with the default settings)."
+            ) from None
 
 
 def load_settings() -> dict:
@@ -64,13 +74,24 @@ def load_settings() -> dict:
     return SETTINGS_DEFAULTS | _saved()
 
 
+_TOML_ESCAPES = {"\\": "\\\\", '"': '\\"', "\b": "\\b", "\t": "\\t", "\n": "\\n", "\f": "\\f",
+                 "\r": "\\r"}  # fmt: skip
+
+
 def _toml_value(value) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     text = str(value)
-    if "'" not in text and "\n" not in text:
+    control = any(ord(c) < 0x20 or ord(c) == 0x7F for c in text)
+    if "'" not in text and not control:
         return f"'{text}'"  # literal string: backslashes in Windows paths stay as they are
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
+    # Basic string: every character a TOML reader would refuse is escaped, so the settings file
+    # always stays readable (an unreadable one would stop every script)
+    escaped = "".join(
+        _TOML_ESCAPES.get(c) or (f"\\u{ord(c):04X}" if ord(c) < 0x20 or ord(c) == 0x7F else c)
+        for c in text
+    )
+    return f'"{escaped}"'
 
 
 def save_settings(updates: dict) -> dict:
@@ -83,8 +104,7 @@ def save_settings(updates: dict) -> dict:
     saved = _saved() | updates
     lines = ["# myLibrary settings (see scripts/paths.py)"]
     lines += [f"{key} = {_toml_value(value)}" for key, value in saved.items()]
-    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    safe_io.write_text(SETTINGS_FILE, "\n".join(lines) + "\n")
     return SETTINGS_DEFAULTS | saved
 
 

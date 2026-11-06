@@ -46,6 +46,7 @@ import library_page
 import paths
 import reader as reading_view
 import reading_log
+import safe_io
 import vocab_review
 from add_book import short_title
 from book_ocr import has_text_layer
@@ -141,11 +142,14 @@ def chapter_page(slug: str, number: int | None, chapters: list[dict]) -> int | N
             if not pdf.exists():
                 return None  # PDF deleted: notes and scripts still open, just no page
             found = find_chapter_pages(pdf, chapters)
+            pages = {str(k): v for k, v in found.items()}
+
+            def add(cached: dict) -> dict:
+                cached[slug] = pages
+                return cached
+
             with _cache_lock:
-                cache = _read_cache()
-                cache[slug] = {str(k): v for k, v in found.items()}
-                CACHE.parent.mkdir(exist_ok=True)
-                CACHE.write_text(json.dumps(cache, indent=1), encoding="utf-8")
+                cache = safe_io.update_json(CACHE, add, {}, cache=True, indent=1)
     # Not found (e.g. OCR-garbled title): start of the nearest earlier chapter is close enough
     known = {int(k): v for k, v in cache[slug].items() if int(k) <= number}
     return known[max(known)] if known else None
@@ -365,8 +369,9 @@ def pdf_url(base_url: str, file: str, page: int | None = None) -> str:
 
 
 def _read_cache() -> dict:
-    """{slug: {chapter: start page}} (call it holding _cache_lock)."""
-    return json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
+    """{slug: {chapter: start page}} (call it holding _cache_lock). A damaged cache is rebuilt
+    (chapter pages are found again), instead of breaking every Read."""
+    return safe_io.load_json(CACHE, {}, cache=True)
 
 
 def chapter_at(slug: str, page: int, chapters: list[dict]) -> dict | None:
@@ -390,17 +395,20 @@ def save_position(slug: str, page: int) -> dict:
     chapter = None if is_paper else chapter_at(slug, page, library_page.chapters(slug))
     line = f"Last read: page {page}" + (f" ({chapter['title']})" if chapter else "")
     line += f", {date.today().isoformat()}"
-    text = readme.read_text(encoding="utf-8")
-    new, count = library_page.LAST_READ_RE.subn(lambda _: line, text, count=1)
-    if not count:
-        heading = re.search(r"^## Reading progress[ \t]*\n(?:[ \t]*\n)?", text, re.MULTILINE)
-        if heading:
-            rest = text[heading.end() :].lstrip("\n")
-            new = text[: heading.end()] + line + "\n\n" + rest
-        else:
-            new = text.rstrip("\n") + "\n\n" + line + "\n"
-    if new != text:
-        readme.write_text(new, encoding="utf-8")
+
+    def with_position(text: str) -> str:
+        new, count = library_page.LAST_READ_RE.subn(lambda _: line, text, count=1)
+        if not count:
+            heading = re.search(r"^## Reading progress[ \t]*\n(?:[ \t]*\n)?", text, re.MULTILINE)
+            if heading:
+                rest = text[heading.end() :].lstrip("\n")
+                new = text[: heading.end()] + line + "\n\n" + rest
+            else:
+                new = text.rstrip("\n") + "\n\n" + line + "\n"
+        return new
+
+    # One writer at a time: a chapter tick at the same moment isn't lost
+    safe_io.update_text(readme, with_position)
     return library_page.last_read(slug) or {}
 
 
@@ -495,7 +503,7 @@ def topic_note(term: str) -> Path:
         found = book_search.search(term, limit=8)["results"]
         sources = "\n".join(f"- {r['title']}: PDF page {r['page']}" for r in found) or "-"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(TOPIC_TEMPLATE.format(term=term, sources=sources), encoding="utf-8")
+        safe_io.write_text(path, TOPIC_TEMPLATE.format(term=term, sources=sources))
     return path
 
 
@@ -508,12 +516,15 @@ def open_topic(term: str) -> dict:
 
 def tick(slug: str, number: int, done: bool) -> list[dict]:
     readme = library_page.readme_path(slug)
-    text = readme.read_text(encoding="utf-8")
     pattern = library_page.chapter_line(number)
-    new, count = pattern.subn(lambda m: f"- [{'x' if done else ' '}] {m[1]}", text, count=1)
-    if not count:
-        raise ValueError(f"chapter {number} not found in {readme.name}")
-    readme.write_text(new, encoding="utf-8")
+
+    def ticked(text: str) -> str:
+        new, count = pattern.subn(lambda m: f"- [{'x' if done else ' '}] {m[1]}", text, count=1)
+        if not count:
+            raise ValueError(f"chapter {number} not found in {readme.name}")
+        return new
+
+    safe_io.update_text(readme, ticked)
     return library_page.chapters(slug)
 
 
@@ -553,6 +564,19 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(data).encode(), "application/json")
 
     def do_GET(self):
+        try:
+            self._get()
+        except Exception as e:  # e.g. a typo in library.toml: say so instead of a blank page
+            message = (f"myLibrary couldn't show this page: {e}\n\nFix the file named above "
+                       "(or ask for help with this message), then reload.")  # fmt: skip
+            print(f"  ! GET {self.path}: {e!r}")
+            try:
+                self._send(HTTPStatus.INTERNAL_SERVER_ERROR, message.encode(),
+                           "text/plain; charset=utf-8")  # fmt: skip
+            except OSError:
+                pass  # the browser went away
+
+    def _get(self):
         if not self._local_host():
             return self._send(HTTPStatus.FORBIDDEN, b"forbidden", "text/plain")
         path = self.path.split("?")[0].split("#")[0]
@@ -632,8 +656,13 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/folder-backup":  # 💾 Back up: a zip (+ PDFs) in a folder
                 return self._json(HTTPStatus.OK, folder_backup.back_up())
             if self.path == "/api/quit":
-                threading.Thread(target=self.server.shutdown, daemon=True).start()
-                return self._json(HTTPStatus.OK, {"message": "myLibrary has stopped"})
+                running = sum(j["status"] == "working" for j in library_jobs.list_jobs())
+                threading.Thread(target=stop, args=(self.server,), daemon=True).start()
+                message = "myLibrary has stopped"
+                if running:  # they reach a safe point first (stop): nothing is left half done
+                    message = (f"myLibrary stops as soon as {running} running "
+                               f"job{'s' if running > 1 else ''} reach a safe point")  # fmt: skip
+                return self._json(HTTPStatus.OK, {"message": message})
             if self.path == "/api/review":  # 📇 Review words: the cards due; an answer
                 if isinstance(body.get("answer"), dict):
                     word = str(body["answer"].get("word", ""))[:200]
@@ -734,6 +763,7 @@ def restart_later(server) -> None:
 
     def go() -> None:
         time.sleep(0.5)  # let the answer reach the page first
+        finish_jobs()  # os._exit below would otherwise cut running jobs off mid-write
         server.shutdown()
         server.server_close()
         args, skip = [], False
@@ -748,6 +778,23 @@ def restart_later(server) -> None:
         os._exit(0)
 
     threading.Thread(target=go, daemon=True).start()
+
+
+def finish_jobs(timeout: float = 120) -> None:
+    """Before the process ends: running jobs reach a safe point and file writes finish
+    (library_jobs.shutdown); says what's going on, as it can take a moment."""
+    running = [j["file"] for j in library_jobs.list_jobs() if j["status"] == "working"]
+    if running:
+        print(f"Finishing {len(running)} running job(s) first: {', '.join(running)}")
+    result = library_jobs.shutdown(timeout)
+    if result["unfinished"]:
+        print(f"  ! still running, stopped between steps: {', '.join(result['unfinished'])}")
+
+
+def stop(server) -> None:
+    """Quit: finish the jobs safely, then stop serving (main() returns)."""
+    finish_jobs()
+    server.shutdown()
 
 
 def setup_reader() -> None:
@@ -813,6 +860,7 @@ def main() -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping.")
+        finish_jobs(timeout=30)
 
 
 if __name__ == "__main__":

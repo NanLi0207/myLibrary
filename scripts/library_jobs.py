@@ -16,6 +16,7 @@ import book_search
 import catalog
 import library_page
 import ocr_pdf
+import safe_io
 import shelves
 import subjects
 from book_meta import identify
@@ -23,6 +24,21 @@ from book_meta import identify
 MAX_UPLOAD = 1_000_000_000  # 1 GB: bigger than any book, smaller than a mistake
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
+_threads: set[threading.Thread] = set()  # running jobs, so quitting can wait for them
+_stopping = threading.Event()  # set by shutdown(): no new jobs; OCR stops between pages
+_upload_lock = threading.Lock()  # choosing an upload's file name
+
+
+class Stopped(Exception):
+    """myLibrary is quitting: the job stops at a safe point."""
+
+
+STOPPED = "myLibrary was quit"
+
+
+def _check_running() -> None:
+    if _stopping.is_set():
+        raise ValueError("myLibrary is stopping; start it again to do this")
 
 
 def _new_job(kind: str, **fields) -> dict:
@@ -70,7 +86,44 @@ def _finish(job: dict, status: str, message: str, **fields) -> None:
 
 
 def _in_background(target, *args) -> None:
-    threading.Thread(target=target, args=args, daemon=True).start()
+    def run() -> None:
+        try:
+            target(*args)
+        finally:
+            with _lock:
+                _threads.discard(threading.current_thread())
+
+    thread = threading.Thread(target=run, daemon=True)
+    with _lock:
+        _threads.add(thread)
+    thread.start()
+
+
+def shutdown(timeout: float = 60) -> dict:
+    """Before quitting (Quit, a library change, Ctrl+C): start nothing new, let running jobs
+    reach a safe point (an add finishes filing its book; OCR stops after its current page,
+    which is cached), then wait for every file operation in progress (safe_io). Waits at most
+    `timeout` seconds for the jobs; a file operation is always waited for. Returns
+    {"unfinished": [jobs still running]}."""
+    _stopping.set()
+    end = time.monotonic() + timeout
+    while True:
+        with _lock:
+            running = [t for t in _threads if t.is_alive()]
+        if not running or time.monotonic() >= end:
+            break
+        running[0].join(min(0.2, max(0.0, end - time.monotonic())))
+    # Whatever is still running can't start another file operation now, and one in progress
+    # is finished first (each is short: one file, or filing one book)
+    safe_io.close(timeout=max(30.0, end - time.monotonic()))
+    unfinished = [j["file"] for j in list_jobs() if _active(j)]
+    return {"unfinished": unfinished}
+
+
+def reopen() -> None:
+    """Undo shutdown() (tests)."""
+    _stopping.clear()
+    safe_io.reopen()
 
 
 # --- adding books -------------------------------------------------------------------------------
@@ -80,19 +133,30 @@ def save_upload(name: str, data: bytes) -> Path:
     """Write an uploaded PDF into the library's books/ under a safe, unused name."""
     if not data.startswith(b"%PDF"):
         raise ValueError(f"{name} is not a PDF")
+    _check_running()
     stem = re.sub(r"[^\w\s().,'-]+", "_", Path(name).stem).strip(" ._") or "book"
     add_book.BOOKS.mkdir(parents=True, exist_ok=True)
-    target = add_book.BOOKS / f"{stem[:120]}.pdf"
-    n = 2
-    while target.exists():
-        target = add_book.BOOKS / f"{stem[:120]} ({n}).pdf"
-        n += 1
-    target.write_bytes(data)
+    # Written to a hidden temporary file first (a half-written PDF never shows up in books/),
+    # then given a free name; the name is chosen and taken in one step, so two uploads called
+    # the same never end up in one file
+    tmp = add_book.BOOKS / f".upload-{uuid.uuid4().hex[:12]}.part"
+    try:
+        safe_io.write_bytes(tmp, data)
+        with _upload_lock, safe_io.critical():
+            target = add_book.BOOKS / f"{stem[:120]}.pdf"
+            n = 2
+            while target.exists():
+                target = add_book.BOOKS / f"{stem[:120]} ({n}).pdf"
+                n += 1
+            tmp.replace(target)
+    finally:
+        tmp.unlink(missing_ok=True)
     return target
 
 
 def start_add(path: Path) -> dict:
     """Identify, name and register an uploaded book (in the background)."""
+    _check_running()
     job = _new_job("add", file=path.name, path=str(path), message="Identifying the book…")
     _in_background(_add, job, path)
     return job
@@ -102,6 +166,7 @@ def start_download(url: str, title: str = "") -> dict:
     """Download a free (open-access) PDF found with "Find online", then add it like an upload."""
     if not re.match(r"https?://", url):
         raise ValueError("not a web address")
+    _check_running()
     name = (title or "download")[:100]
     job = _new_job("add", file=name, message="Downloading…")
     _in_background(_download, job, url, name)
@@ -137,6 +202,7 @@ def refresh() -> dict:
     theses/ by hand. New files are identified, named and registered; files already named
     (renamed by hand) get their notes and catalog row. One after another in the background
     (they all write catalog.csv), each with its own line in the jobs panel."""
+    _check_running()
     with _lock:  # files a job is already working on (e.g. Refresh clicked twice)
         busy = {j.get("path") for j in _jobs.values() if _active(j)}
     new = [p for p in add_book.library_pdfs()
@@ -173,6 +239,10 @@ def _classify_all(job: dict, slugs: list[str]) -> None:
     found, shelved, unavailable = 0, [], ""
     try:
         for n, slug in enumerate(slugs, 1):
+            if _stopping.is_set():  # the rest are looked up by the next Refresh
+                _finish(job, "error", f"Stopped after {n - 1} of {len(slugs)} items: {STOPPED}; "
+                        "Refresh looks up the rest")  # fmt: skip
+                return
             _update(job, message=f"Looking up subjects: {n} of {len(slugs)}")
             try:
                 if not unavailable and subjects.classify(slug, add_book.LIBRARY, add_book.CATALOG):
@@ -193,6 +263,9 @@ def _classify_all(job: dict, slugs: list[str]) -> None:
 
 def _one_after_another(steps: list) -> None:
     for target, job, *args in steps:
+        if _stopping.is_set():  # not started: the file is still there for the next Refresh
+            _finish(job, "error", f"Not started: {STOPPED}; Refresh adds it next time")
+            continue
         _update(job, message="Identifying…")
         target(job, *args)
 
@@ -216,14 +289,22 @@ def _register(job: dict, path: Path) -> None:
         return
     try:
         meta = _identify(path)
-        if repeat := add_book.repeat_of(path, meta):
-            return _repeat(job, path, meta, *repeat)
-        book = add_book.Book(meta.title, meta.author, meta.year, meta.publisher)
-        add_book.setup_book(path, book, meta)
+        with add_book.FILING:  # see _add
+            _check_stopping(job)
+            repeat = add_book.repeat_of(path, meta)
+            if repeat:
+                return _repeat(job, path, meta, *repeat)
+            book = add_book.Book(meta.title, meta.author, meta.year, meta.publisher)
+            with safe_io.critical():
+                add_book.reserve_row(path, book, meta)
+        with safe_io.critical():  # notes and catalog row written before quitting
+            add_book.setup_book(path, book, meta)
         library_page.build()
         _in_background(book_search.update)
         added = f"Added the {add_book.kind_word(meta)} “{book.title}”" + _on_shelves(path.stem)
         _finish(job, "done", added, slug=path.stem)
+    except Stopped:
+        _finish(job, "error", f"Not registered: {STOPPED}; Refresh does it next time")
     except Exception as e:
         _finish(job, "error", f"Couldn't add {path.name}: {e}")
 
@@ -242,7 +323,8 @@ def _repeat(job: dict, path: Path, meta, slug: str, reason: str) -> None:
     """A copy of something already in the library: never added twice (add_book.handle_repeat:
     a better file replaces the library's PDF, otherwise it goes to archive/)."""
     title = catalog.load(add_book.CATALOG).get(slug, {}).get("title") or slug
-    replaced, what = add_book.handle_repeat(path, meta, slug)
+    with add_book.FILING, safe_io.critical():  # moves PDFs: never two at once, never cut off
+        replaced, what = add_book.handle_repeat(path, meta, slug)
     if replaced:
         library_page.build()
         _in_background(book_search.update)
@@ -253,6 +335,11 @@ def _repeat(job: dict, path: Path, meta, slug: str, reason: str) -> None:
 def check_catalog_repeats() -> list[dict]:
     """Refresh also looks for the same work entered twice: the copy without your work goes to
     archive/ (with its notes); if both have your work, the pair is only reported."""
+    with add_book.FILING, safe_io.critical():  # merging and archiving move files: one at a time
+        return _check_catalog_repeats()
+
+
+def _check_catalog_repeats() -> list[dict]:
     jobs = []
     rows = catalog.load(add_book.CATALOG)
     for pair in add_book.catalog_repeats():
@@ -335,12 +422,22 @@ def _add(job: dict, path: Path) -> None:
         _finish(job, "error", f"Not added: {problem}; the file was left as it is")
         return
     try:
-        meta = _identify(path)  # never leaves the title, author or year empty
+        meta = _identify(path)  # never leaves the title, author or year empty (in parallel)
         book = add_book.Book(meta.title.strip(), meta.author.strip(), meta.year.strip(),
                              meta.publisher)  # fmt: skip
-        if repeat := add_book.find_repeat(path, meta, book):
-            return _repeat(job, path, meta, *repeat)
-        target = add_book.file_book(path, book, meta)
+        # Filing is one step at a time: checking for a repeat and taking the name must not
+        # interleave with another job doing the same (two copies of one book dropped together)
+        with add_book.FILING:
+            _check_stopping(job)
+            repeat = add_book.find_repeat(path, meta, book)
+            if repeat:
+                return _repeat(job, path, meta, *repeat)
+            with safe_io.critical():
+                target = add_book.place_book(path, book, meta)
+                add_book.reserve_row(target, book, meta)
+        # Notes and the catalog row (other books are filed meanwhile); quitting waits for it
+        with safe_io.critical():
+            add_book.setup_book(target, book, meta)
         scan = ocr_pdf.needs_ocr(target)
         library_page.build()
         _in_background(book_search.update)  # make it searchable (在我的书中 / In my books)
@@ -353,8 +450,17 @@ def _add(job: dict, path: Path) -> None:
             slug=book.slug,
             scan=scan,
         )
+    except Stopped:
+        _finish(job, "error", f"Not added: {STOPPED}; {path.name} is still in "
+                f"{path.parent.name}/, and Refresh adds it next time")  # fmt: skip
     except Exception as e:  # shown on the page (in the History)
         _finish(job, "error", f"Couldn't add {path.name}: {e}")
+
+
+def _check_stopping(job: dict) -> None:
+    """Before filing a book: once quitting, leave the file where it is (Refresh adds it)."""
+    if _stopping.is_set():
+        raise Stopped()
 
 
 # --- OCR --------------------------------------------------------------------------------------
@@ -366,9 +472,14 @@ def start_ocr(slug: str) -> dict:
     pdf = add_book.LIBRARY / row["file"] if row.get("file") else add_book.BOOKS / f"{slug}.pdf"
     if not pdf.exists():
         raise ValueError("that book's PDF isn't in the library")
-    if any(j["kind"] == "ocr" and j["status"] == "working" for j in list_jobs()):
-        raise ValueError("another book is being OCR'd; try again when it's done")
-    job = _new_job("ocr", slug=slug, done=0, total=0, message="Starting OCR…")
+    _check_running()
+    with _lock:  # checking and starting in one step: two clicks can't start two OCRs
+        if any(j["kind"] == "ocr" and j["status"] == "working" for j in _jobs.values()):
+            raise ValueError("another book is being OCR'd; try again when it's done")
+        job = {"id": uuid.uuid4().hex[:12], "kind": "ocr", "status": "working",
+               "started": time.time(), "slug": slug, "done": 0, "total": 0,
+               "message": "Starting OCR…"}  # fmt: skip
+        _jobs[job["id"]] = job
     _in_background(_ocr, job, pdf)
     return job
 
@@ -376,6 +487,8 @@ def start_ocr(slug: str) -> dict:
 def _ocr(job: dict, pdf: Path) -> None:
     def progress(done: int, total: int) -> None:
         _update(job, done=done, total=total, message=f"OCR page {done} of {total}")
+        if _stopping.is_set():  # the PDF isn't touched until every page is done
+            raise Stopped()
 
     try:
         ocr_pdf.make_searchable(pdf, progress)
@@ -384,5 +497,8 @@ def _ocr(job: dict, pdf: Path) -> None:
         book_search.update()
         library_page.build()
         _finish(job, "done", "OCR finished: the book can now be searched and looked up")
+    except Stopped:
+        _finish(job, "error", f"OCR stopped because {STOPPED}; the book is unchanged. Start OCR "
+                "again: the pages already read are remembered")  # fmt: skip
     except (Exception, SystemExit) as e:  # SystemExit: the PDF is open elsewhere (ocr_pdf)
         _finish(job, "error", f"OCR failed: {str(e).strip(' !')}")

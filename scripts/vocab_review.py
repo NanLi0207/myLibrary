@@ -7,13 +7,13 @@ Progress is the library's notes/vocabulary-review.json ({word: {box, due, right,
 it's backed up with the notes. The vocabulary files themselves are never changed here.
 """
 
-import json
 import re
 from datetime import date, timedelta
 from pathlib import Path
 
 import catalog
 import paths
+import safe_io
 
 LIBRARY = paths.LIBRARY
 # Days until the next review, by box: 0 = new (due now), then one box up per right answer
@@ -26,11 +26,9 @@ def state_path(library: Path) -> Path:
 
 
 def _load_state(library: Path) -> dict:
-    path = state_path(library)
-    try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except ValueError:  # a broken file: start again rather than stop the page
-        return {}
+    """Your progress. A damaged file is never taken for "no progress" (that would be saved over
+    it): its previous version is used, else safe_io.DamagedFile says what to do."""
+    return safe_io.load_json(state_path(library), {})
 
 
 def read_vocabulary(text: str) -> list[dict]:
@@ -58,7 +56,7 @@ def cards(library: Path, catalog_path: Path, today: date | None = None) -> list[
     for vocab in sorted((library / "notes").glob("*/vocabulary.md")):
         slug = vocab.parent.name
         book = rows.get(slug, {})
-        for row in read_vocabulary(vocab.read_text(encoding="utf-8")):
+        for row in read_vocabulary(safe_io.read_text(vocab)):
             key = row["word"].lower()
             card = found.setdefault(
                 key,
@@ -102,27 +100,29 @@ def answer(library: Path, word: str, knew: bool, today: date | None = None) -> d
     key = word.strip().lower()
     if not key:
         raise ValueError("no word")
-    state = _load_state(library)
-    card = state.get(key, {"box": 0, "right": 0, "wrong": 0})
-    missed_today = card.get("missed") == today.isoformat()
-    if not knew or missed_today:
-        box = 1
-    else:
-        box = min(int(card.get("box", 0)) + 1, len(BOX_DAYS) - 1)
-    card |= {
-        "box": box,
-        "due": (today + timedelta(days=BOX_DAYS[box])).isoformat(),
-        "right": int(card.get("right", 0)) + knew,
-        "wrong": int(card.get("wrong", 0)) + (not knew),
-        "last": today.isoformat(),
-    }
-    if not knew:
-        card["missed"] = today.isoformat()
-    state[key] = card
-    path = state_path(library)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=1, sort_keys=True), "utf-8")
-    return {"word": word, "box": box, "due": card["due"]}
+
+    def record(state: dict) -> dict:
+        card = state.get(key, {"box": 0, "right": 0, "wrong": 0})
+        missed_today = card.get("missed") == today.isoformat()
+        if not knew or missed_today:
+            box = 1
+        else:
+            box = min(int(card.get("box", 0)) + 1, len(BOX_DAYS) - 1)
+        card |= {
+            "box": box,
+            "due": (today + timedelta(days=BOX_DAYS[box])).isoformat(),
+            "right": int(card.get("right", 0)) + knew,
+            "wrong": int(card.get("wrong", 0)) + (not knew),
+            "last": today.isoformat(),
+        }
+        if not knew:
+            card["missed"] = today.isoformat()
+        state[key] = card
+        return {"word": word, "box": box, "due": card["due"]}
+
+    # One answer at a time; notes/vocabulary-review.json.bak keeps the previous version
+    return safe_io.update_json(state_path(library), record, {}, backup=True,
+                               ensure_ascii=False, indent=1, sort_keys=True)  # fmt: skip
 
 
 def summary(library: Path, catalog_path: Path, today: date | None = None) -> dict:

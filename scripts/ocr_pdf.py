@@ -19,6 +19,7 @@ from pathlib import Path
 from statistics import median
 
 import paths
+import safe_io
 from book_ocr import group_lines, has_text_layer, ocr_boxes
 from pypdf import PdfReader, PdfWriter, Transformation
 
@@ -127,9 +128,10 @@ def replace_pdf(pdf: Path, new: Path, keep: Path) -> None:
     holds an earlier original (then the old file, itself a derived copy, is dropped)."""
     keep.parent.mkdir(parents=True, exist_ok=True)
     try:
-        if not keep.exists():
-            pdf.rename(keep)
-        new.replace(pdf)
+        with safe_io.critical():  # two steps that belong together: quitting waits for both
+            if not keep.exists():
+                pdf.rename(keep)
+            new.replace(pdf)
     except PermissionError:
         raise SystemExit(
             f"  ! {pdf.name} is open in another program (browser tab, PDF viewer, VS Code), so "

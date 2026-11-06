@@ -30,6 +30,7 @@ from pathlib import Path
 
 import catalog
 import paths
+import safe_io
 
 LIBRARY = paths.LIBRARY
 CACHE = paths.APP / ".cache" / "reader"
@@ -559,14 +560,6 @@ def save_word(slug: str, title: str, text: str, context: str, page: int | None) 
         raise ValueError("nothing to save")
     path = LIBRARY / "notes" / slug / "vocabulary.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    if not existing:
-        existing = VOCAB_HEADER.format(title=title)
-    saved_words = {
-        m[1].strip().lower() for m in re.finditer(r"^\| ([^|]+) \|", existing, re.MULTILINE)
-    }
-    if word.lower() in saved_words:
-        return {"word": word, "saved": False, "file": path.relative_to(LIBRARY).as_posix()}
 
     def cell(value) -> str:
         return str(value or "").replace("|", "/").replace("\n", " ").strip()
@@ -575,7 +568,17 @@ def save_word(slug: str, title: str, text: str, context: str, page: int | None) 
         f"| {cell(word)} | {cell(entry.get('phonetic'))} | {cell(meaning)} | "
         f"{cell(page)} | {date.today().isoformat()} |\n"
     )
-    path.write_text(existing.rstrip("\n") + "\n" + row, encoding="utf-8")
+    # One save at a time (two words saved quickly from two tabs), the file replaced whole
+    with safe_io.lock_for(path), safe_io.critical():
+        existing = safe_io.read_text(path) if path.exists() else ""
+        if not existing:
+            existing = VOCAB_HEADER.format(title=title)
+        saved_words = {
+            m[1].strip().lower() for m in re.finditer(r"^\| ([^|]+) \|", existing, re.MULTILINE)
+        }
+        if word.lower() in saved_words:
+            return {"word": word, "saved": False, "file": path.relative_to(LIBRARY).as_posix()}
+        safe_io.write_text(path, existing.rstrip("\n") + "\n" + row)
     return {"word": word, "saved": True, "file": path.relative_to(LIBRARY).as_posix()}
 
 
@@ -601,16 +604,18 @@ def save_marks(file: str, data: bytes) -> dict:
     if new_pages != old_pages:
         raise ValueError(f"the marked PDF has {new_pages} pages, the book {old_pages}")
     original = LIBRARY / "archive" / "before-marks" / file
-    if not original.exists():
-        original.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, original)
-    tmp = path.with_suffix(".pdf.part")
-    tmp.write_bytes(data)
-    try:
-        tmp.replace(path)
-    except PermissionError:
-        tmp.unlink(missing_ok=True)
-        raise ValueError("the PDF is open in another program; close it and mark again") from None
+    with safe_io.lock_for(path), safe_io.critical():  # quitting never cuts this off
+        if not original.exists():  # copied whole or not at all: it's kept only once
+            original.parent.mkdir(parents=True, exist_ok=True)
+            part = original.with_name(original.name + ".part")
+            shutil.copy2(path, part)
+            part.replace(original)
+        try:
+            safe_io.write_bytes(path, data)
+        except PermissionError:
+            raise ValueError(
+                "the PDF is open in another program; close it and mark again"
+            ) from None
     return {"saved": True, "bytes": len(data)}
 
 

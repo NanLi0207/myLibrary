@@ -1,4 +1,5 @@
 import book_ocr
+import library_jobs
 import library_page
 import library_server
 import pytest
@@ -13,3 +14,10 @@ def no_writes_to_real_project(tmp_path, monkeypatch):
     monkeypatch.setattr(book_ocr, "CACHE_DIR", tmp_path / ".cache" / "ocr")
     # No subject lookups online in tests (a test that needs one gives its own answer)
     monkeypatch.setattr(subjects, "lookup", lambda row: {})
+
+
+@pytest.fixture(autouse=True)
+def not_quitting():
+    """A test that quits (library_jobs.shutdown) doesn't leave the next one unable to write."""
+    yield
+    library_jobs.reopen()

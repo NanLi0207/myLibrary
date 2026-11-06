@@ -9,11 +9,11 @@ minute; this module adds it up per day and book in the library's notes/reading-l
 (s = seconds read, p = the pages you looked at.) It's backed up with your notes.
 """
 
-import json
 from datetime import date, timedelta
 from pathlib import Path
 
 import catalog
+import safe_io
 
 MAX_STEP = 120  # seconds one report may add (the page sends every minute)
 READING_DAY = 5 * 60  # this much reading makes a day count for the streak
@@ -25,11 +25,9 @@ def log_path(library: Path) -> Path:
 
 
 def load(library: Path) -> dict:
-    path = log_path(library)
-    try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    except ValueError:  # a broken file: start again rather than stop reading
-        return {}
+    """The whole log. A damaged file is never taken for an empty log (that would be saved over
+    your history): its previous version is used, else safe_io.DamagedFile says what to do."""
+    return safe_io.load_json(log_path(library), {})
 
 
 def record(
@@ -39,14 +37,17 @@ def record(
     day = (today or date.today()).isoformat()
     seconds = max(0, min(int(seconds), MAX_STEP))
     pages = sorted({int(p) for p in pages if isinstance(p, int) and 0 < p < 100_000})
-    log = load(library)
-    entry = log.setdefault(day, {}).setdefault(slug, {"s": 0, "p": []})
-    entry["s"] = int(entry.get("s", 0)) + seconds
-    entry["p"] = sorted(set(entry.get("p", [])) | set(pages))
-    path = log_path(library)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(log, ensure_ascii=False, indent=1, sort_keys=True), "utf-8")
-    return {"day": day, "seconds": entry["s"], "pages": len(entry["p"])}
+
+    def add(log: dict) -> dict:
+        entry = log.setdefault(day, {}).setdefault(slug, {"s": 0, "p": []})
+        entry["s"] = int(entry.get("s", 0)) + seconds
+        entry["p"] = sorted(set(entry.get("p", [])) | set(pages))
+        return {"day": day, "seconds": entry["s"], "pages": len(entry["p"])}
+
+    # One report at a time (two open books report at once); notes/reading-log.json.bak keeps
+    # the previous version in case the file is ever damaged
+    return safe_io.update_json(log_path(library), add, {}, backup=True,
+                               ensure_ascii=False, indent=1, sort_keys=True)  # fmt: skip
 
 
 def _day_totals(log: dict) -> dict[str, tuple[int, int]]:
