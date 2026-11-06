@@ -114,12 +114,60 @@ word lookup.
 One card per book. The **shelf bar** under the search box shows your subjects (All, 光学
 Optics, 激光 Lasers, …) with how many books each has; click one to see only those books. Use the
 search box to filter (title, author, subject, shelf, chapter titles) and the sort menu to order
-the cards (title, author, newest, progress, recently added, recently read). The **Books and
-papers** menu shows only books or only papers.
+the cards (title, author, newest, progress, recently added, recently read). The first menu (**All**,
+Books, Papers, Theses) shows only one kind.
+
+**Every item gets a subject**, from [OpenAlex](https://openalex.org)'s classification of 250
+million works (26 fields, about 4,500 topics, based on the Scopus subject areas): a paper or
+thesis by its DOI, a book by its title and author. Its card shows it, e.g. "工程 Engineering ›
+Railway Engineering and Dynamics", and the **Field** menu next to the search box shows one field
+at a time (the shelf bar then lists that field's shelves only). When OpenAlex is sure of the
+topic (score ≥ 0.5), **the topic becomes a shelf**, a new one if you have none like it, so items
+from any field sort themselves. Give a topic shelf a Chinese name in `library.toml`
+(`"Railway Engineering and Dynamics" = "铁路工程与动力学 Railway Engineering and Dynamics"`).
+An item OpenAlex has no record of (a report, a small publisher's book) gets the topic most
+works *like it* are about, if most of them agree (e.g. a ZEMAX lens-design book: 72% of similar
+works are "Advanced optical system design"). Still on no shelf? It goes on the shelf it's
+clearly most like (the same typical words), or stays unshelved rather than guessed.
+**⟳ Refresh** looks up the subject of items that don't have one yet; `uv run scripts/subjects.py`
+shows them all (`--apply`: the same as Refresh does).
+
+**Shelves you make yourself are added too** (with the Shelves button), the way you used them: a shelf whose
+name is in the item's details ("lens design" in the title, "lasers" in the keywords), a shelf
+whose items it closely resembles (same typical words), or the shelf of a subject glossary whose
+specialist terms it uses (光学 Optics: "focal length", "diffraction"). Shelves you always use
+together come together (every Lens design book is also on Optics). Only your own shelves are
+used, nothing is guessed on weak evidence (a railway paper stays unshelved), and an item you've
+shelved yourself is never changed. The History says where it went; **Shelves** on its card
+changes it. `uv run scripts/shelves.py` shows what it would suggest for every item next to your
+own choice; `--apply` shelves the items that are on no shelf.
+
+**▦ Cards / ☰ List** switches between one card per item and a compact list (remembered; a
+library of more than 24 items starts as a list). Each line of the list shows the kind, title,
+authors, year, journal / publisher / university, shelves, ISBN or DOI (a link), progress, the
+page and date you last read, and **Continue · p. N** (or **Start reading**). Click a line, or
+press Enter on it, to unfold its full card with all its buttons; click again to fold it. **▾ Unfold
+all** opens every line shown, **▴ Fold all** closes them again; the column names sort the list (title, author, year, progress, last
+read).
 
 At the top: **＋ Add** (choose PDFs to add, see [Managing books](#8-managing-books)),
+**⟳ Refresh** (adds PDFs you copied into `books/`, `papers/` or `theses/` yourself, the same
+as running `add_book.py`: each is identified, named and registered, with its progress shown on
+the page), **🔎 Find online** (below),
 **☁ Back up** (below), **⚙ Settings** (below) and **Quit** (stops myLibrary; your place in each
 book is already saved).
+
+**🔎 Find online** searches for books, papers and theses on the internet. Type anything: a
+**DOI**, an **arXiv number**, an **ISBN**, a **title**, an **author** or a **topic**. A DOI, arXiv
+number or ISBN finds that one work (Crossref / DataCite, arXiv, Open Library); anything else is
+searched on [OpenAlex](https://openalex.org) (some 250 million papers, books and theses), plus
+that person's most cited works when you type a name, and Open Library for books. Each result shows
+authors, year, journal or university, how often it's cited, **✓ In your library** if you already
+have it, a **DOI** link and **Free to read** when there's a legal open-access copy. When that free
+copy is a PDF, **＋ Add to library** downloads it and adds it like an upload (recognised, named,
+filed). The same words can be searched on Google Scholar, Semantic Scholar, 百度学术 (Baidu
+Scholar), 知网 (CNKI), arXiv, Google Books, Open Library and WorldCat with one click. When the
+library's own search box finds nothing, it offers **🔎 Search online** for the same words.
 
 **☁ Back up** saves your library to GitHub in one click: it commits only the library folder
 (notes, reading progress, vocabulary, shelves, topic notes, glossaries, catalog; never PDFs, and
@@ -138,7 +186,7 @@ saved locally). From the terminal: `uv run scripts/backup.py`.
 | **Chapters** | Shows the chapter list: **Read** opens one chapter, **Script** its Python script; the checkbox ticks it |
 | **Shelves** | Which shelves the book is on, separated by `;` (e.g. `Optics; Lasers`) |
 | **Mark as read** | Papers only (instead of Chapters): mark the paper as read, or not |
-| **DOI** | Papers: the paper's page at its publisher |
+| **DOI** | Papers and theses: its page at the publisher or university |
 | **Cite ▾** | A menu of citation formats, each with a preview; click one to copy it: APA, IEEE, GB/T 7714 (中国国标 Chinese standard), BibTeX (LaTeX) and RIS (EndNote, Zotero, Mendeley) |
 | Green tags | The book's shelves |
 | Progress bar, "0/8 chapters · 3%" | How far you are (see below) |
@@ -363,10 +411,36 @@ its scripts folder. Books are always PDFs.
 
 ### Adding a book
 
-**From the library page:** click **＋ Add** and choose one or more PDFs. Each is copied
+**From the library page:** click **＋ Add** and choose one or more PDFs, or simply **drag
+PDFs from your file explorer onto the page** (other files are skipped). Each is copied
 into your library, identified (ISBN, the PDF's details, Open Library), named and registered in
-the background; a panel shows the progress. If the title, author or year can't be found, the
-page asks for them. A scanned book gets an **OCR** button (see below).
+the background; a panel shows the progress. When they're done, the messages fold away under
+**🕘 History** (click to open or close it; it also says if anything went wrong, and **Clear**
+empties it). A damaged PDF (e.g. a download that stopped halfway) is not added; it's left
+where it is, with a message. Nothing has to be typed in: whatever can't be
+found online comes from the PDF itself (the title in large print on its first pages, a year
+printed there or the date the PDF was made, the author in its details, else "Unknown").
+Copy-protected publisher PDFs (encrypted, but readable) work too. A copy of something already
+in the library is never added twice, however it comes in (＋ Add, dragging, Find online,
+⟳ Refresh, `add_book.py`): it's a repeat if it has the **same DOI**, the **same ISBN** (books and
+theses; a paper may carry its proceedings volume's ISBN), **identical contents**, or the same
+author, year and title. The copy that offers **more information** is kept: searchable text (rather than a bare
+scan) first, then more details (DOI, ISBN, journal, keywords, ...), then bookmarks, then more
+pages. So a new copy that's better than the library's (e.g. the same paper with a text layer,
+or the complete version) **replaces its PDF**, keeping your notes and progress; a copy that
+isn't is moved to `archive/`. Either way, details the library's entry lacked (a DOI, the
+journal, ...) are added to it, and the History says what happened.
+
+**⟳ Refresh** also checks what's already in the library. Of two entries for the same work,
+the one with more information is kept (identical copies: the one added first). If the other one
+holds your work, it's **moved over first**: ticked chapters, the last-read page, your notes
+(into the same chapter's notes), saved words, chapter scripts and shelves. The other entry then
+goes to `archive/` complete, as a backup. If both hold your work, nothing is touched and the
+History names the pair for you to decide.
+
+**⚙ Settings → Clear archive** shows how much `archive/` holds and deletes it for good, after
+asking: the removed and repeated PDFs, original scans and empty note templates. Archived notes,
+notebooks and scripts with your own work are always kept (and listed). A scanned book gets an **OCR** button (see below).
 
 **From the terminal:** put the PDF into your library's `books/` folder with any file name, then:
 
@@ -404,7 +478,7 @@ Papers live in the library's own **`papers/`** folder, next to `books/`. Add the
    paper was reprinted, the version whose year is printed on the page wins (the original, not a
    later reprint). A **scanned** paper's first page is read with OCR first (a few seconds).
 
-Only if all three fail does the page ask for the title, author and year. A PDF in `papers/` is
+If all three fail, the details come from the PDF itself (nothing is asked). A PDF in `papers/` is
 always a paper; one added through the page or put into `books/` becomes a paper when it's
 recognised as one, and is moved to `papers/`. It gets the same kind of name as a book
 (`doe-2019-freeform-optics-compact-imaging`).
@@ -416,6 +490,31 @@ first page's "Keywords:" line, else OpenAlex) and shown as small tags on its car
 shelf tags. On the library page a paper shows its
 journal, **Mark as read** instead of Chapters, and a **DOI** link; **Read** / **Continue** open it
 at page 1 (or where you stopped) with `notes.md`.
+
+### Theses
+
+PhD, master's (and bachelor's or diploma) theses live in **`theses/`**. Add them like anything
+else (**＋ Add**, or put them into `books/` or `theses/` and run `add_book.py`): a thesis is
+recognised by its **title page**, which says what it is in a formula every university uses,
+for example *"A thesis submitted … for the degree of Doctor of Philosophy"*, *"Master Thesis"*,
+*"Dissertation zur Erlangung des Doktorgrades"*, *"Proefschrift ter verkrijging van de graad van
+doctor"*, *"Thèse de doctorat"* or *"博士学位论文"* (doctoral dissertation). It's moved to `theses/`
+and its details are filled in, found in this order:
+
+1. its **DOI** on the first pages: Crossref, or DataCite (which most university repositories use);
+2. its **arXiv number** (arXiv's comment often says "PhD thesis");
+3. [OpenAlex](https://openalex.org), which lists millions of theses from university
+   repositories, searched with the title (used only if its whole title is on the title page);
+4. the **title page itself**: the title (its largest text), the author (after "by", "vorgelegt
+   von", "door", …), the year, the **degree**, the **university** and the **supervisors**
+   ("Supervisor:", "Promotor:", "Erstgutachter:", "指导教师" (supervisor), …).
+
+The title page's spelling and printed year win when they agree with what's found online (so a
+thesis defended in 2002 but put online in 2003 is 2002). Like a book, a thesis gets one notes
+template per chapter; its README and card show the degree ("PhD thesis", "Master's thesis"),
+university and supervisors, and **Cite** gives the thesis forms (APA "[Doctoral dissertation,
+University]", IEEE "Ph.D. dissertation", GB/T 7714 "[D]", BibTeX `@phdthesis` /
+`@mastersthesis`, RIS `THES`). A PDF in `theses/` is always a thesis.
 
 ### Scanned books
 
@@ -467,6 +566,7 @@ myLibrary/                   the tool (this repository)
 ├── catalog.csv              one row per book: title, authors, year, ISBN, pages, shelves, ...
 ├── books/<slug>.pdf         your books (never in git: they're copyrighted)
 ├── papers/<slug>.pdf        your papers (never in git either)
+├── theses/<slug>.pdf        your theses (never in git either)
 ├── notes/<slug>/            per book: notes, ticks, last-read page, vocabulary
 ├── notes/topics/            your topic notes, across books
 ├── glossaries/              your subject glossaries (*.csv) and glossaries.toml
@@ -512,7 +612,7 @@ to use another one.
 | `uv run scripts/add_book.py --dry-run` / no flag | Preview / register new books in `books/` |
 | `uv run scripts/add_book.py --refresh-chapters` | Re-read chapter lists (keeps your notes) |
 | `uv run scripts/add_book.py --remove <slug>` | Move a book to `archive/` |
-| `uv run scripts/add_book.py --refresh-keywords` | Fill in keywords for papers that have none |
+| `uv run scripts/add_book.py --refresh-keywords` | Fill in keywords for papers and theses that have none |
 | `uv run scripts/add_book.py --offline` | Don't look books up on Open Library |
 | `uv run scripts/ocr_pdf.py books/<slug>.pdf` | Add an OCR text layer to a scan |
 | `uv run scripts/add_bookmarks.py --dry-run` / no flag | Preview / add bookmarks to books without any |

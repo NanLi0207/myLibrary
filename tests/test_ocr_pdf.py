@@ -43,9 +43,11 @@ def test_add_book_asks_about_remaining_scans(tmp_path, monkeypatch):
 
     import add_book
 
-    for name in ("BOOKS", "PAPERS", "EXAMPLES", "NOTES"):
+    for name in ("BOOKS", "PAPERS", "THESES", "EXAMPLES", "NOTES"):
         monkeypatch.setattr(add_book, name, tmp_path / name.lower())
     monkeypatch.setattr(add_book, "CATALOG", tmp_path / "catalog.csv")
+    monkeypatch.setattr(add_book, "LIBRARY", tmp_path)
+    monkeypatch.setattr(add_book, "ARCHIVE", tmp_path / "archive")
     monkeypatch.setattr(ocr_pdf, "ARCHIVE_BOOKS", tmp_path / "archive" / "books")
     monkeypatch.setattr(ocr_pdf, "OUTPUT_DIR", tmp_path / ".cache" / "ocr-output")
     add_book.BOOKS.mkdir()

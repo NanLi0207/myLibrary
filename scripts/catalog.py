@@ -9,7 +9,7 @@ from pathlib import Path
 
 COLUMNS = [
     "slug",
-    "type",  # "book" (or empty: a book) or "paper"
+    "type",  # "book" (or empty: a book), "paper" or "thesis"
     "title",
     "authors",
     "year",
@@ -20,10 +20,16 @@ COLUMNS = [
     "issue",
     "page_range",
     "doi",
+    "degree",  # theses: PhD / Master / Bachelor / Diploma, university, supervisors
+    "institution",
+    "supervisors",
     "pages",
     "chapters",
     "subjects",
-    "keywords",  # papers: their own keywords, "laser; weed control"
+    "keywords",  # papers and theses: their own keywords, "laser; weed control"
+    "field",  # subject (OpenAlex): field, "Engineering"; topic; how sure OpenAlex is (0-1)
+    "topic",
+    "topic_score",
     "shelves",  # your own grouping, e.g. "Optics; Lasers"
     "file",
     "notes",

@@ -29,8 +29,9 @@ ISBN_RE = re.compile(
 # A DOI: "10." + registrant + "/" + suffix (e.g. 10.1364/OE.27.012345)
 DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"<>]+)", re.IGNORECASE)
 # Crossref types that are papers (everything else, e.g. "book" or "monograph", is a book)
+# ("dissertation" is a thesis)
 PAPER_TYPES = {"journal-article", "proceedings-article", "posted-content", "report",
-               "dissertation", "peer-review", "article", "preprint"}  # fmt: skip
+               "peer-review", "article", "preprint"}  # fmt: skip
 # An arXiv identifier: "arXiv:2101.01234v2" in the text, or a file named "2101.01234v2.pdf"
 ARXIV_RE = re.compile(r"arxiv[:\s]*(\d{4}\.\d{4,5})(?:v\d+)?", re.IGNORECASE)
 ARXIV_NAME_RE = re.compile(r"^(\d{4}\.\d{4,5})(?:v\d+)?$")
@@ -50,8 +51,10 @@ NOISE_RES = [
     )
 ]
 BAD_METADATA = re.compile(
-    r"^(untitled|title|unknown|document|microsoft word|book|pdf|\W*)$|\.(pdf|docx?|indd|tex)\b|"
-    r"^\d+$|^[a-z]:\\|adobe|acrobat|calibre|"
+    # placeholders some programs write (ReportLab: "anonymous")
+    r"^(untitled|title|unknown|anonymous|author|user|admin|owner|document|microsoft word|book|"
+    r"pdf|\W*)$|\.(pdf|docx?|indd|tex)\b|"
+    r"\.dvi\b|^\d+$|^[a-z]:\\|adobe|acrobat|calibre|"
     # web addresses, e-mails and the software that made the PDF (e.g. "https://imagemagick.org")
     r"://|www\.|@|\.(com|org|net|edu|io)\b|imagemagick|ghostscript|abbyy|scansnap|"
     r"pdftk|distiller|pdfcreator|libreoffice|openoffice|latex|\btex\b|mathematica|matlab",
@@ -90,13 +93,16 @@ class Meta:
     pages: str = ""
     subjects: str = ""
     url: str = ""
-    kind: str = "book"  # or "paper"
+    kind: str = "book"  # or "paper" or "thesis"
     doi: str = ""
     journal: str = ""
     volume: str = ""
     issue: str = ""
     page_range: str = ""
-    keywords: str = ""  # papers: "laser; weed control; ..."
+    keywords: str = ""  # papers and theses: "laser; weed control; ..."
+    degree: str = ""  # theses: "PhD", "Master", "Bachelor", "Diploma"
+    institution: str = ""  # theses: the university
+    supervisors: str = ""  # theses: "Prof. A; Dr. B"
     sources: dict[str, str] = field(default_factory=dict)  # field -> where it came from
 
     def fill(self, source: str, **values: str) -> None:
@@ -169,7 +175,10 @@ def crossref(doi: str) -> Meta:
         " ".join(filter(None, (a.get("given"), a.get("family")))) or a.get("name", "")
         for a in work.get("author") or []
     ]
-    dates = [work.get(k, {}).get("date-parts", [[None]])[0][0] for k in ("issued", "published")]
+    dates = [
+        (work.get(k) or {}).get("date-parts", [[None]])[0][0]
+        for k in ("issued", "published", "approved")  # "approved": when a thesis was accepted
+    ]
     year = next((str(y) for y in dates if y), "")
     first = lambda key: (work.get(key) or [""])[0]  # noqa: E731
     meta.fill(
@@ -185,7 +194,11 @@ def crossref(doi: str) -> Meta:
         doi=doi,
         url=f"https://doi.org/{doi}",
     )
-    meta.kind = "paper" if work.get("type") in PAPER_TYPES else "book"
+    if work.get("type") == "dissertation":
+        meta.kind, meta.journal, meta.publisher = "thesis", "", ""
+        meta.fill(source, institution=(work.get("institution") or [{}])[0].get("name", ""))
+    else:
+        meta.kind = "paper" if work.get("type") in PAPER_TYPES else "book"
     return meta
 
 
@@ -212,21 +225,33 @@ def arxiv(identifier: str) -> Meta:
     entry = feed.find(f"{atom}entry") if feed is not None else None
     if entry is None or entry.find(f"{atom}title") is None:
         return Meta()
+    # The comment often says what it is: "PhD thesis", "Master thesis, EPFL"
+    comment = entry.findtext("{http://arxiv.org/schemas/atom}comment", "")
+    thesis = re.search(
+        r"\b(?:ph\.?\s?d\.?|doctoral|master'?s?|bachelor'?s?|diploma|m\.?\s?sc\.?)\s+"
+        r"(?:thesis|dissertation)\b|\bdissertation\b",
+        comment,
+        re.IGNORECASE,
+    )
     published_doi = entry.findtext("{http://arxiv.org/schemas/atom}doi", "").strip()
-    if published_doi:
+    if published_doi and not thesis:  # a thesis's arXiv copy is the thesis itself
         journal = crossref(published_doi.lower())
         if journal.title:
             journal.kind = "paper"
             return journal
-    meta = Meta(kind="paper")
+    meta = Meta(kind="thesis" if thesis else "paper")
     source = f"arXiv ({identifier})"
+    if thesis:
+        from thesis_meta import degree
+
+        meta.fill(source, degree=degree(thesis[0]))
     names = [a.findtext(f"{atom}name", "").strip() for a in entry.findall(f"{atom}author")]
     meta.fill(
         source,
         title=entry.findtext(f"{atom}title", ""),
         author="; ".join(n for n in names if n),
         year=entry.findtext(f"{atom}published", "")[:4],
-        journal="arXiv preprint",
+        journal="" if thesis else "arXiv preprint",
         doi=f"10.48550/arxiv.{identifier}",  # arXiv's own DOI for the preprint
         url=f"https://arxiv.org/abs/{identifier}",
     )
@@ -400,9 +425,12 @@ def parse_filename(stem: str) -> Meta:
     return meta
 
 
-def _get_json(url: str, timeout: float = 10, attempts: int = 3) -> dict | None:
+def _get_json(
+    url: str, timeout: float = 10, attempts: int = 3, headers: dict | None = None
+) -> dict | None:
     """None when offline or the service keeps failing, so callers fall back to local sources."""
-    request = urllib.request.Request(url, headers={"User-Agent": "myLibrary book organizer"})
+    headers = {"User-Agent": "myLibrary book organizer"} | (headers or {})
+    request = urllib.request.Request(url, headers=headers)
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -468,23 +496,41 @@ def open_library_search(title: str, author: str) -> Meta:
     return meta
 
 
-def identify(path: Path, online: bool = True, paper: bool = False) -> Meta:
-    """Title, authors, year and the rest. With `paper` (a file in papers/), it's a paper even if
-    nothing online knows it."""
-    filename = parse_filename(path.stem)
+# A name this tool gave a file before ("<author>-<year>-<title-words>"): it says nothing new,
+# and if the first guess was wrong it would only repeat it
+OUR_NAME_RE = re.compile(r"^[a-z]+-\d{4}-[a-z0-9-]+$")
+
+
+def identify(path: Path, online: bool = True, paper: bool = False, thesis: bool = False) -> Meta:
+    """Title, authors, year and the rest. With `paper` (a file in papers/) it's a paper, with
+    `thesis` (a file in theses/) a thesis, even if nothing online knows it. Never leaves the
+    title, author or year empty (see fill_gaps), so nothing has to be typed in."""
+    pdf: dict = {}  # what _identify read from the PDF, for fill_gaps
+    meta = _identify(path, online, paper, thesis, pdf)
+    fill_gaps(meta, path, pdf)
+    return meta
+
+
+def _identify(path: Path, online: bool, paper: bool, thesis: bool, pdf: dict) -> Meta:
+    filename = Meta() if OUR_NAME_RE.match(path.stem) else parse_filename(path.stem)
     isbns = find_isbns(path.stem)
     pdf_title = pdf_author = front_text = first_pages = pages = ""
     info: dict = {}
+    texts: list[str] = []  # the text of each of the first pages
+    sized_of = lambda index: []  # noqa: E731  (a page's lines with font sizes, for theses)
     if path.suffix.lower() == ".pdf":
         try:
             reader = PdfReader(path)
             pages = str(len(reader.pages))
             info = reader.metadata or {}
             pdf_title, pdf_author = info.get("/Title") or "", info.get("/Author") or ""
-            front_text = "\n".join(p.extract_text() or "" for p in reader.pages[:FRONT_PAGES])
+            texts = [p.extract_text() or "" for p in reader.pages[:FRONT_PAGES]]
+            front_text = "\n".join(texts)
+            sized_of = lambda index: thesis_meta.page_lines(reader.pages[index])  # noqa: E731
+            pdf.update(info=info, texts=texts, sized_of=sized_of)
             # A paper's own DOI is in its metadata or on its first page; later pages hold the
             # references, full of other papers' DOIs
-            page_text = "\n".join(p.extract_text() or "" for p in reader.pages[:2])
+            page_text = "\n".join(texts[:2])
             if online and not page_text.strip() and reader.pages:
                 # A scan (old papers often are): read the first page with OCR (~2 s), so its
                 # title, authors and any DOI can be looked up. Decided on the pages' own text:
@@ -492,6 +538,8 @@ def identify(path: Path, online: bool = True, paper: bool = False) -> Meta:
                 from book_ocr import ocr_pages
 
                 page_text = ocr_pages(path, [0]).get(0, "")
+                texts = [page_text]
+                pdf.update(texts=texts, sized_of=lambda index: [])
             first_pages = "\n".join(
                 [str(info.get(k) or "") for k in ("/doi", "/DOI", "/Subject", "/Keywords")]
                 + [page_text]
@@ -500,13 +548,20 @@ def identify(path: Path, online: bool = True, paper: bool = False) -> Meta:
             print(f"  ! couldn't read the PDF ({e})")
         isbns += [i for i in find_isbns(front_text) if i not in isbns]
 
+    # A thesis says so on its title page ("A thesis submitted ... Doctor of Philosophy")
+    if thesis or (not paper and thesis_meta.find_title_page(texts)):
+        meta = thesis_meta.identify_thesis(
+            path.stem, texts, sized_of, online, find_arxiv(path.stem, first_pages)
+        )
+        return _finish_thesis(meta, filename, info, pages, isbns, "\n".join(texts[:8]), online)
+
     # A paper, found online in this order: its DOI (Crossref has everything, journal
     # included), its arXiv number, or its title and authors searched on Crossref
     if online:
         found = Meta()
         for doi in find_dois(path.stem + " " + first_pages)[:2]:
             found = crossref(doi)
-            if found.kind == "paper" and found.title:
+            if found.kind in ("paper", "thesis") and found.title:
                 break
         else:
             if identifier := find_arxiv(path.stem, first_pages):
@@ -515,7 +570,10 @@ def identify(path: Path, online: bool = True, paper: bool = False) -> Meta:
                 found = crossref_search(first_pages)
                 if not found.title:
                     found = openalex_search(first_pages)
-        if found.kind == "paper" and found.title:
+        if found.kind == "thesis" and found.title and not paper:  # e.g. "PhD thesis" on arXiv
+            return _finish_thesis(found, filename, info, pages, isbns, front_text, online)
+        if found.kind in ("paper", "thesis") and found.title:
+            found.kind = "paper"
             found.fill("PDF", pages=pages)
             found.keywords = paper_keywords(info, first_pages, found.doi, online)
             return found
@@ -528,11 +586,15 @@ def identify(path: Path, online: bool = True, paper: bool = False) -> Meta:
         meta.fill("PDF metadata", title=str(pdf_title))
     if looks_like_name(str(pdf_author)):
         meta.fill("PDF metadata", author=str(pdf_author))
-    for key in ("title", "author", "year", "publisher"):
+    # A filename like "ccc.10297" is no title: then the large text on the first pages is
+    # tried first (fill_gaps), and the filename only after that
+    if looks_like_title(filename.title):
+        meta.fill(filename.sources.get("title", "filename"), title=filename.title)
+    for key in ("author", "year", "publisher"):
         meta.fill(filename.sources.get(key, "filename"), **{key: getattr(filename, key)})
     if years := COPYRIGHT_RE.findall(front_text):
         meta.fill("copyright page", year=max(years))
-    if paper:  # nothing online knows it: the PDF's own details, and the user fills the rest
+    if paper:  # nothing online knows it: the PDF's own details (fill_gaps does the rest)
         meta.kind = "paper"
         meta.keywords = paper_keywords(info, first_pages, online=False)
         return meta
@@ -541,3 +603,66 @@ def identify(path: Path, online: bool = True, paper: bool = False) -> Meta:
         for key in ("author", "year", "publisher"):
             meta.fill(found.sources.get(key, ""), **{key: getattr(found, key)})
     return meta
+
+
+def _finish_thesis(
+    meta: Meta, filename: Meta, info: dict, pages: str, isbns: list[str], front: str, online: bool
+) -> Meta:
+    """What the thesis lookup left open: pages, ISBN (Dutch theses have one), keywords, and
+    the PDF's details or the filename for anything still missing."""
+    meta.kind = "thesis"
+    meta.fill("PDF", pages=pages)
+    if isbns:
+        meta.fill("PDF", isbn=isbn13(isbns[0]))
+    pdf_title, pdf_author = str(info.get("/Title") or ""), str(info.get("/Author") or "")
+    if looks_like_title(pdf_title):
+        meta.fill("PDF metadata", title=pdf_title)
+    if looks_like_name(pdf_author):
+        meta.fill("PDF metadata", author=pdf_author)
+    for key in ("title", "author", "year"):
+        meta.fill(filename.sources.get(key, "filename"), **{key: getattr(filename, key)})
+    meta.keywords = meta.keywords or paper_keywords(info, front, meta.doi, online)
+    return meta
+
+
+def page_title(texts: list[str], sized_of, author: str = "") -> str:
+    """The title printed on the first pages: their largest text that isn't a label, a date or
+    the author (e.g. "Modern Railway Track" on a cover page)."""
+    for index, text in enumerate(texts[:3]):
+        if len(text.strip()) < 10:  # a cover image, a blank page
+            continue
+        title = thesis_meta.title_on_page(text, sized_of(index) if sized_of else [], author)
+        if looks_like_title(title) and len(title) <= 200:
+            return title
+    return ""
+
+
+def fill_gaps(meta: Meta, path: Path, pdf: dict) -> None:
+    """Whatever is still missing after every lookup, from the PDF itself, so a book is never
+    left waiting for someone to type its details: the title on its first pages or its
+    filename; a year printed on its first page, else when the PDF was made; the author in the
+    PDF's details, else "Unknown"."""
+    texts, info = pdf.get("texts") or [], pdf.get("info") or {}
+    if not meta.title:
+        meta.fill("first pages", title=page_title(texts, pdf.get("sized_of"), meta.author))
+    if not meta.title:
+        name = "" if OUR_NAME_RE.match(path.stem) else clean_filename(path.stem)
+        meta.fill("filename", title=name or path.stem.replace("-", " "))
+    if not meta.year:
+        this_year = time.localtime().tm_year
+        years = [y for y in re.findall(r"(1[5-9]\d{2}|20\d{2})", texts[0] if texts else "")
+                 if int(y) <= this_year]  # fmt: skip
+        meta.fill("first page", year=max(years) if years else "")
+    if not meta.year:
+        if m := re.search(r"(1[89]\d{2}|20\d{2})", str(info.get("/CreationDate") or "")):
+            meta.fill("when the PDF was made", year=m[1])
+    if not meta.year:
+        meta.fill("file date", year=str(time.localtime(path.stat().st_mtime).tm_year))
+    if not meta.author:
+        pdf_author = str(info.get("/Author") or "")
+        meta.fill("PDF metadata", author=pdf_author if looks_like_name(pdf_author) else "")
+    if not meta.author:
+        meta.fill("nothing found", author="Unknown")
+
+
+import thesis_meta  # noqa: E402  (uses this module's helpers)

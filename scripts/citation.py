@@ -1,7 +1,7 @@
-"""Citations for a book or paper in catalog.csv: the "Cite" menu on the library page.
+"""Citations for a book, paper or thesis in catalog.csv: the "Cite" menu on the library page.
 
 APA (7th ed.), IEEE, GB/T 7714-2015 (the Chinese national standard), BibTeX and RIS
-(EndNote, Zotero, Mendeley). Each made from the catalog row; books and papers differ.
+(EndNote, Zotero, Mendeley). Each made from the catalog row; books, papers and theses differ.
 """
 
 import re
@@ -72,6 +72,23 @@ def _is_paper(row: dict) -> bool:
     return row.get("type") == "paper"
 
 
+def _is_thesis(row: dict) -> bool:
+    return row.get("type") == "thesis"
+
+
+# How each style names a thesis, by degree: (APA, IEEE)
+THESIS_NAMES = {
+    "PhD": ("Doctoral dissertation", "Ph.D. dissertation"),
+    "Master": ("Master's thesis", "M.S. thesis"),
+    "Bachelor": ("Bachelor's thesis", "B.S. thesis"),
+    "Diploma": ("Diploma thesis", "Diploma thesis"),
+}
+
+
+def _thesis_name(row: dict, style: int) -> str:
+    return THESIS_NAMES.get(row.get("degree", ""), ("Thesis", "Thesis"))[style]
+
+
 # --- APA (7th edition) ----------------------------------------------------------------------------
 
 
@@ -97,6 +114,9 @@ def apa(row: dict) -> str:
             where += f", {row['volume']}" + (f"({row['issue']})" if row.get("issue") else "")
         if row.get("page_range"):
             where += f", {_pages(row)}"
+    if _is_thesis(row):  # Doe, J. (2011). Title [Doctoral dissertation, University]. DOI
+        where = ", ".join(filter(None, (_thesis_name(row, 0), row.get("institution", ""))))
+        return f"{who} ({year})." + (f" {title}" if title else "") + f" [{where}].{doi}"
     head = f"{who} ({year})." + (f" {title}." if title else "")
     if _is_paper(row):
         return f"{head} {where}.{doi}" if where else f"{head}{doi}"
@@ -116,6 +136,9 @@ def ieee(row: dict) -> str:
     else:
         who = ", ".join(names[:-1]) + f", and {names[-1]}"
     title, year = row.get("title", ""), row.get("year", "")
+    if _is_thesis(row):  # J. Doe, "Title," Ph.D. dissertation, University, 2011.
+        parts = [_thesis_name(row, 1), row.get("institution", ""), year]
+        return f'{_lead(who, ", ")}"{title}," ' + ", ".join(p for p in parts if p) + "."
     if not _is_paper(row):
         publisher = f" {row['publisher']}," if row.get("publisher") else ""
         return f"{_lead(who, ', ')}{title}.{publisher} {year}."
@@ -142,6 +165,9 @@ def gbt(row: dict) -> str:
     names = [f"{family.upper()} {initials(given, dot='')}".strip() for given, family in people[:3]]
     who = ", ".join(names) + (", et al" if len(people) > 3 else "")
     title, year = row.get("title", ""), row.get("year", "")
+    if _is_thesis(row):  # [D]: 学位论文 (thesis)
+        school = f"{row['institution']}, " if row.get("institution") else ""
+        return f"{_lead(who, '. ')}{title}[D]. {school}{year}."
     if not _is_paper(row):
         publisher = f"{row['publisher']}, " if row.get("publisher") else ""
         return f"{_lead(who, '. ')}{title}[M]. {publisher}{year}."
@@ -165,11 +191,15 @@ def bibtex(row: dict) -> str:
     title, year = row.get("title", ""), row.get("year", "")
     first_word = next((w for w in ascii_words(title) if w not in STOP), "untitled")
     key = f"{surname(row.get('authors', ''))}{year}{first_word}"
-    is_paper = _is_paper(row)
+    is_paper, is_thesis = _is_paper(row), _is_thesis(row)
+    degree = row.get("degree", "")
     fields = {
         "author": " and ".join(_escape(a) for a in authors(row.get("authors", ""))),
         "title": "{" + _escape(title) + "}",  # keep its capitals
         "journal": _escape(row.get("journal", "")) if is_paper else "",
+        "school": _escape(row.get("institution", "")) if is_thesis else "",
+        # @mastersthesis also serves bachelor's and diploma theses, with their own type
+        "type": _thesis_name(row, 0) if is_thesis and degree in ("Bachelor", "Diploma") else "",
         "year": year,
         "volume": row.get("volume", ""),
         "number": row.get("issue", ""),
@@ -179,6 +209,8 @@ def bibtex(row: dict) -> str:
         "doi": row.get("doi", ""),
     }
     kind = "article" if is_paper and fields["journal"] else ("misc" if is_paper else "book")
+    if is_thesis:
+        kind = "phdthesis" if degree == "PhD" else ("mastersthesis" if degree else "phdthesis")
     lines = [f"  {name} = {{{value}}}," for name, value in fields.items() if value]
     return f"@{kind}{{{key},\n" + "\n".join(lines) + "\n}"
 
@@ -187,8 +219,8 @@ def bibtex(row: dict) -> str:
 
 
 def ris(row: dict) -> str:
-    is_paper = _is_paper(row)
-    lines = [f"TY  - {'JOUR' if is_paper else 'BOOK'}"]
+    is_paper, is_thesis = _is_paper(row), _is_thesis(row)
+    lines = [f"TY  - {'JOUR' if is_paper else 'THES' if is_thesis else 'BOOK'}"]
     lines += [f"AU  - {family}, {given}".rstrip(", ") for given, family in _people(row)]
     first, _, last = row.get("page_range", "").partition("-")
     for tag, value in (
@@ -199,7 +231,8 @@ def ris(row: dict) -> str:
         ("IS", row.get("issue")),
         ("SP", first),
         ("EP", last),
-        ("PB", "" if is_paper else row.get("publisher")),
+        ("PB", row.get("institution") if is_thesis else "" if is_paper else row.get("publisher")),
+        ("M3", _thesis_name(row, 0) if is_thesis else ""),
         ("SN", "" if is_paper else row.get("isbn")),
         ("DO", row.get("doi")),
     ):

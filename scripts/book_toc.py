@@ -37,8 +37,10 @@ SUBSECTION_RE = re.compile(r"^\d{1,2}(?:\.\d{1,2}){2,}\b")
 BARE_CHAPTER_RE = re.compile(r"^(\d{1,2})\.?\s+([A-Za-z].*)$")
 HEADING_START_RE = re.compile(r"^(?:chapter\s+\d|\d{1,2}(?:\.\d{1,2})*\.?\s)", re.IGNORECASE)
 # A contents line ends in a page number; OCR turns some into "s", "io", "^" or "I"
+# (possessive "++": a long dot leader could otherwise be split in exponentially many ways,
+# which hung on letter-spaced contents such as "2 . 1 A b s o r p t i o n ......... 8")
 PAGE_TOKEN_RE = re.compile(
-    r"(?:\s|\.{2,})+(\d{1,4}|[ivxlcdm]{1,7}|[^\s\-]{1,2})\s*$", re.IGNORECASE
+    r"(?:\s|\.{2,})++(\d{1,4}|[ivxlcdm]{1,7}|[^\s\-]{1,2})\s*$", re.IGNORECASE
 )
 PAGE_HEADER_RE = re.compile(
     r"^(?:[ivxlcdm]+|\d+)?\s*(?:table of )?contents\s*(?:[ivxlcdm]+|\d+)?$", re.I

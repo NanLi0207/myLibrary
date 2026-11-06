@@ -26,7 +26,17 @@ app (that can run it). The library page's ⚙ Settings edits them; changing the 
 the server (`restart_later`).
 
 **The library page does everything without a terminal**: ＋ Add (upload →
-`library_jobs.py`: identify, name, register in the background; asks for missing title/author/year),
+`library_jobs.py`: identify, name, register in the background; never asks: `book_meta.fill_gaps`
+fills a missing title/year/author from the PDF itself; a name this tool gave before is not
+trusted (`OUR_NAME_RE`); repeats (`add_book.repeat_of`: same DOI, same ISBN for non-papers, identical file by
+SHA-256 with size prefilter, or same slug) always go to `archive/` from every path, CLI included;
+the richer copy wins (`info_score`: text layer, filled INFO_FIELDS, bookmarks, pages): on
+adding, a better *file* replaces the PDF in place (`replace_pdf`), details always merge
+(`fill_details`); Refresh runs `catalog_repeats` (keeps the richer entry, ties: the older),
+`merge_into` copies the other's work (ticks, Last read, written notes into the matching
+chapter template, vocabulary, scripts, shelves) before archiving it; both with work: report only; Settings → Clear archive (`library_jobs.clear_archive`) deletes only
+documents (.pdf/.djvu/.epub), empty note templates and .gitkeep, and keeps everything else; ⟳ Refresh = `library_jobs.refresh`;
+`cryptography` is a core dependency because publisher PDFs are often AES-encrypted),
 OCR button for scans (background, progress), ☁ Back up (`scripts/backup.py`: commits only the
 library folder with `--only`, refuses when unpushed commits touch code, never prompts for a
 password; shown only when the library is in a repo with an upstream), Settings, Quit. Keep it that way: every feature the
@@ -105,6 +115,43 @@ top of page 1 → `crossref_search()` (accepted only if the whole title is on th
 PDFs are served from `/books/` and `/papers/`; links use the catalog's `file`. A paper's notes: README with one checklist item
 `library_page.PAPER_ITEM` ("Read the paper", counts as chapter 1) + `notes.md`. Citations
 (Cite button): `scripts/citation.py` (BibTeX).
+
+**Theses** live in the library's `theses/` folder (catalog `type` = thesis, plus `degree`
+PhD/Master/Bachelor/Diploma, `institution`, `supervisors`; `publisher` stays empty).
+`scripts/thesis_meta.py` recognises one by its title page (`find_title_page`: formulas such as
+"thesis submitted", "Dissertation zur Erlangung", "Proefschrift", "博士学位论文" (doctoral
+dissertation), on a sparse page or as a line of its own) and fills details from: a DOI →
+Crossref (`dissertation` type) or DataCite (`doi_csl`); arXiv (its comment); OpenAlex
+`type:dissertation`; the title page (title = largest font, author after "by"/"von"/"door",
+degree, university, supervisors). The page's printed year and spelling win when they agree.
+A thesis has chapters like a book. A PDF in `theses/` is always a thesis.
+
+**Subjects**: `scripts/subjects.py`: OpenAlex topics (DOI, else title search filtered by
+title and author, all matching records' topic scores added up) -> catalog `field`, `topic`,
+`topic_score`; `SURE` = 0.5 makes the topic a shelf (`shelves.add_topic_shelf`, and first in
+`auto_shelve`, where other subjects' shelves are then left out). Looked up when adding (online)
+and by Refresh for items without one (`.cache/subjects_tried.json` avoids asking again).
+No record: `similar_works` (main topics of the works found for title + keywords, share >=
+`VOTE` 0.3). In `auto_shelve`, after the sure topic and the user's own shelves: a less sure topic
+(>= `LESS_SURE` 0.3), then `closest_shelf` (similarity >= `CLOSEST`, 2+ shared words, twice the
+runner-up). The user's old hand-made shelves (Optics, Lens design, ...) were removed on
+2026-11-06 at their request: shelves are now the subjects. `FIELDS_ZH`: the 26 fields in
+Chinese. tests/conftest.py stubs `subjects.lookup`.
+
+**Shelves for new items**: `scripts/shelves.py` (`auto_shelve`, called from
+`add_book.setup_book` for items on no shelf; never overrides the user's shelves, never invents
+one): shelf name in title/keywords/subjects/journal (stemmed), similarity to the shelf's items
+(words typical of the shelf vs the rest, shelves with 2+ items, 2+ shared words), glossary
+specialist terms (multi-word or 8+ letters, 2+ needed) for the glossary's shelf, and shelves
+always used together (3+ items, 90%). Pass the library/catalog paths in (tests).
+
+**🔎 Find online** (library page; `scripts/find_online.py`, `/api/find-online`): a DOI →
+Crossref/DataCite + OpenAlex (free copy); arXiv number → arXiv; ISBN → Open Library; other text →
+OpenAlex works search, the matching author's works (only if every typed word is in the name),
+and Open Library books. Results are marked "in your library" (DOI, ISBN, or title + year).
+"＋ Add to library" (`/api/download`, `library_jobs.start_download`) only for legal open-access
+PDFs; a link that returns a web page is refused with a message, never scraped. Never add
+shadow-library sources (Sci-Hub, LibGen, Anna's Archive).
 
 Books are always PDFs (the user's choice; don't add DjVu/EPUB tooling). The script reads the
 PDF's table of contents (bookmarks, else the printed Contents pages; for image-only scans the

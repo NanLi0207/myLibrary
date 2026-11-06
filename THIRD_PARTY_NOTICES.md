@@ -24,9 +24,13 @@ must include their license texts and copyright notices.
 | rapidocr | Apache-2.0 |
 | onnxruntime | MIT |
 | reportlab | BSD |
+| cryptography (opens copy-protected PDFs; its Windows build includes OpenSSL) | Apache-2.0 OR BSD-3-Clause; OpenSSL: Apache-2.0 |
+| cffi (used by cryptography) | MIT-0 |
+| pycparser (used by cffi) | BSD-3-Clause |
 | optiland (optional `optics` group) | MIT |
 | rayoptics (optional `optics` group) | BSD-3-Clause |
 
 These packages also install their own dependencies, each under its own license; `uv tree`
 lists them all. The license text of each installed package is in its folder under
-`.venv/Lib/site-packages/` (`*.dist-info/`).
+`.venv/Lib/site-packages/` (`*.dist-info/`); in the ready-to-use package, under
+`runtime/site-packages/`.

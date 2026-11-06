@@ -11,10 +11,11 @@ from pypdf import PdfWriter
 @pytest.fixture(autouse=True)
 def isolated_library(tmp_path, monkeypatch):
     """Never let a test touch the real books/, papers/, notes/, examples/ or catalog.csv."""
-    for name in ("BOOKS", "PAPERS", "EXAMPLES", "NOTES"):
+    for name in ("BOOKS", "PAPERS", "THESES", "EXAMPLES", "NOTES"):
         monkeypatch.setattr(add_book, name, tmp_path / name.lower())
     monkeypatch.setattr(add_book, "CATALOG", tmp_path / "catalog.csv")
     monkeypatch.setattr(add_book, "ARCHIVE", tmp_path / "archive")
+    monkeypatch.setattr(add_book, "LIBRARY", tmp_path)
     monkeypatch.setattr(add_book, "PAGE_CACHE", tmp_path / ".cache" / "chapter_pages.json")
 
 
@@ -208,7 +209,7 @@ def test_remove_book_archives_everything(tmp_path):
     script = tmp_path / "examples" / "doe-2015-practical-lens-design" / "ch01_basics.py"
     script.parent.mkdir(parents=True)
     script.write_text("print('my check')\n", encoding="utf-8")
-    add_book.PAGE_CACHE.parent.mkdir()
+    add_book.PAGE_CACHE.parent.mkdir(exist_ok=True)
     add_book.PAGE_CACHE.write_text('{"doe-2015-practical-lens-design": {"1": 3}}', encoding="utf-8")
 
     add_book.remove_book("doe-2015-practical-lens-design", dry_run=True, yes=True)
@@ -266,3 +267,24 @@ def test_chapter_opening_ignores_running_headers():
     assert chapter_opening("Chapter 4", ch) == 2
     assert chapter_opening("284 IMAGE ANALYSIS", ch) == 1  # running header: title only
     assert chapter_opening("4.1 Image Quality Measures", ch) == 0
+
+
+def test_details_are_never_left_empty(tmp_path):
+    """No ISBN, no metadata, a meaningless name: title from the page, year from the PDF's date,
+    author "Unknown"; and a name this tool gave before isn't trusted."""
+    from reportlab.pdfgen import canvas
+
+    pdf = tmp_path / "ccc.10297.pdf"
+    c = canvas.Canvas(str(pdf))
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(72, 700, "Modern Railway Track")
+    c.setFont("Helvetica", 10)
+    c.drawString(72, 650, "Some smaller text on the cover page of the book.")
+    c.setCreator("Microsoft Word")
+    c.save()
+    meta = identify(pdf, online=False)
+    assert (meta.title, meta.author) == ("Modern Railway Track", "Unknown")
+    assert meta.year.isdigit() and meta.sources["year"] in ("when the PDF was made", "file date")
+
+    named = pdf.rename(tmp_path / "esveld-2001-esveld.pdf")  # a wrong earlier guess
+    assert identify(named, online=False).title == "Modern Railway Track"

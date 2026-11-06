@@ -33,7 +33,7 @@ def library(tmp_path, monkeypatch):
     for module in (library_server, library_page):
         monkeypatch.setattr(module, "LIBRARY", tmp_path)
         monkeypatch.setattr(module, "CATALOG", tmp_path / "catalog.csv")
-    for name in ("BOOKS", "PAPERS", "EXAMPLES", "NOTES"):
+    for name in ("BOOKS", "PAPERS", "THESES", "EXAMPLES", "NOTES"):
         monkeypatch.setattr(add_book, name, tmp_path / name.lower())
     monkeypatch.setattr(add_book, "LIBRARY", tmp_path)
     monkeypatch.setattr(add_book, "CATALOG", tmp_path / "catalog.csv")

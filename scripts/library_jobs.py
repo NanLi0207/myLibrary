@@ -15,7 +15,9 @@ import book_search
 import catalog
 import library_page
 import ocr_pdf
-from book_meta import identify
+import shelves
+import subjects
+from book_meta import fill_gaps, identify
 from pypdf import PdfReader
 
 MAX_UPLOAD = 1_000_000_000  # 1 GB: bigger than any book, smaller than a mistake
@@ -36,15 +38,31 @@ def _update(job: dict, **fields) -> None:
         job.update(fields)
 
 
+HISTORY = 50  # finished jobs kept for the page's History (since the server started)
+
+
+def _active(job: dict) -> bool:
+    return job["status"] in ("working", "needs_details")
+
+
 def list_jobs() -> list[dict]:
-    """Jobs still running, waiting for details, or finished in the last 10 minutes."""
-    now = time.time()
+    """Jobs still running, then the finished ones of this session, newest first (at most
+    HISTORY; older ones are forgotten)."""
     with _lock:
-        return [
-            dict(j)
-            for j in _jobs.values()
-            if j["status"] in ("working", "needs_details") or now - j.get("ended", now) < 600
+        finished = sorted((j for j in _jobs.values() if not _active(j)),
+                          key=lambda j: j.get("ended", 0), reverse=True)  # fmt: skip
+        for old in finished[HISTORY:]:
+            del _jobs[old["id"]]
+        return [dict(j) for j in _jobs.values() if _active(j)] + [
+            dict(j) for j in finished[:HISTORY]
         ]
+
+
+def clear_history() -> None:
+    """Forget the finished jobs ("Clear" in the page's History); running ones go on."""
+    with _lock:
+        for job_id in [i for i, j in _jobs.items() if not _active(j)]:
+            del _jobs[job_id]
 
 
 def _finish(job: dict, status: str, message: str, **fields) -> None:
@@ -80,6 +98,247 @@ def start_add(path: Path) -> dict:
     return job
 
 
+def start_download(url: str, title: str = "") -> dict:
+    """Download a free (open-access) PDF found with "Find online", then add it like an upload."""
+    if not re.match(r"https?://", url):
+        raise ValueError("not a web address")
+    name = (title or "download")[:100]
+    job = _new_job("add", file=name, message="Downloading…")
+    _in_background(_download, job, url, name)
+    return job
+
+
+def _download(job: dict, url: str, name: str) -> None:
+    import urllib.request
+
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "Mozilla/5.0 (myLibrary)", "Accept": "application/pdf,*/*"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = response.read(MAX_UPLOAD + 1)
+        if len(data) > MAX_UPLOAD:
+            raise ValueError("the file is too big")
+        if not data.startswith(b"%PDF"):  # many "free" links lead to a web page first
+            raise ValueError(
+                "the link gave a web page, not a PDF. Open it, download the PDF there and "
+                "drag it onto this page"
+            )
+        path = save_upload(f"{name}.pdf", data)
+    except Exception as e:
+        _finish(job, "error", f"Couldn't download it: {e}")
+        return
+    _update(job, path=str(path), message="Identifying…")
+    _add(job, path, {})
+
+
+def refresh() -> dict:
+    """ "⟳ Refresh": what `uv run scripts/add_book.py` does, for PDFs put into books/, papers/ or
+    theses/ by hand. New files are identified, named and registered; files already named
+    (renamed by hand) get their notes and catalog row. One after another in the background
+    (they all write catalog.csv), each with its own line in the jobs panel."""
+    with _lock:  # files a job is already working on (e.g. Refresh clicked twice)
+        busy = {j.get("path") for j in _jobs.values()
+                if j["status"] in ("working", "needs_details")}  # fmt: skip
+    new = [p for p in add_book.library_pdfs()
+           if not add_book.SLUG_RE.match(p.stem) and str(p) not in busy]  # fmt: skip
+    named = [p for p in add_book.unregistered_named_books() if str(p) not in busy]
+    steps = [
+        (_add, _new_job("add", file=p.name, path=str(p), message="Waiting…", by_hand=True), p, {})
+        for p in new
+    ] + [
+        (_register, _new_job("add", file=p.name, path=str(p), message="Waiting…"), p) for p in named
+    ]
+    # Items with no subject yet (added before subjects existed, or offline): look them up
+    todo = subjects.unclassified(add_book.LIBRARY, add_book.CATALOG)
+    if todo:
+        job = _new_job("subjects", file="Subjects", message=f"Waiting… ({len(todo)} items)")
+        steps.append((_classify_all, job, todo))
+    repeats = check_catalog_repeats()  # the same work entered twice before
+    moved = sum(j["status"] == "duplicate" for j in repeats)
+    note = f" · {moved} repeat{'s' if moved > 1 else ''} moved to archive/" if moved else ""
+    if len(repeats) > moved:
+        note += f" · {len(repeats) - moved} repeat(s) to check, see History"
+    if steps:
+        _in_background(_one_after_another, steps)
+        found = len(new) + len(named)
+        what = [f"found {found} new PDF{'s' if found > 1 else ''}"] if found else []
+        what += [f"looking up the subjects of {len(todo)} items"] if todo else []
+        return {"started": len(steps), "message": "; ".join(what).capitalize() + note}
+    library_page.build()  # nothing new: still bring the static copy up to date
+    return {"started": 0, "repeats": len(repeats),
+            "message": f"Nothing new: every PDF is already in the library{note}"}  # fmt: skip
+
+
+def _classify_all(job: dict, slugs: list[str]) -> None:
+    """Look up the subject of each item (OpenAlex), put it on its subject's shelf when OpenAlex
+    is sure, and give shelves to the items still on none."""
+    found, shelved = 0, []
+    try:
+        for n, slug in enumerate(slugs, 1):
+            _update(job, message=f"Looking up subjects: {n} of {len(slugs)}")
+            if subjects.classify(slug, add_book.LIBRARY, add_book.CATALOG):
+                found += 1
+            topic = shelves.add_topic_shelf(slug, add_book.LIBRARY, add_book.CATALOG)
+            if topic or shelves.auto_shelve(slug, add_book.LIBRARY, add_book.CATALOG):
+                shelved.append(slug)
+        library_page.build()
+        _finish(job, "done", f"Subjects found for {found} of {len(slugs)} items; "
+                f"{len(shelved)} put on shelves (change any with Shelves)")  # fmt: skip
+    except Exception as e:
+        _finish(job, "error", f"Looking up subjects stopped: {e}")
+
+
+def _one_after_another(steps: list) -> None:
+    for target, job, *args in steps:
+        _update(job, message="Identifying…")
+        target(job, *args)
+
+
+def _register(job: dict, path: Path) -> None:
+    """A PDF already named like a slug (e.g. renamed by hand) but not in the catalog yet: keep
+    its name, add its notes and catalog row."""
+    if problem := add_book.unreadable(path):
+        _finish(job, "error", f"Not added: {problem}; the file was left as it is")
+        return
+    try:
+        meta = identify(
+            path,
+            online=True,
+            paper=path.parent == add_book.PAPERS,
+            thesis=path.parent == add_book.THESES,
+        )
+        if repeat := add_book.repeat_of(path, meta):
+            return _archived_repeat(job, path, *repeat, meta=meta)
+        book = add_book.Book(meta.title, meta.author, meta.year, meta.publisher)
+        missing = [k for k in ("title", "author", "year") if not getattr(book, k)]
+        if missing:  # its name says them: "<author>-<year>-<title words>"
+            author, year, *words = path.stem.split("-")
+            book = add_book.Book(
+                book.title or " ".join(words).capitalize(),
+                book.author or author.capitalize(),
+                book.year or year,
+                book.publisher,
+            )
+        add_book.setup_book(path, book, meta)
+        library_page.build()
+        _in_background(book_search.update)
+        added = f"Added the {add_book.kind_word(meta)} “{book.title}”" + _on_shelves(path.stem)
+        _finish(job, "done", added, slug=path.stem)
+    except Exception as e:
+        _finish(job, "error", f"Couldn't add {path.name}: {e}")
+
+
+def _on_shelves(slug: str) -> str:
+    """' · on shelves: 光学 Optics, 激光 Lasers' (the ones it was put on), or ''."""
+    on = catalog.split_list(catalog.load(add_book.CATALOG).get(slug, {}).get("shelves") or "")
+    return (
+        f" · on shelves: {', '.join(library_page.shelf_labels().get(s, s) for s in on)}"
+        if on
+        else ""
+    )
+
+
+def _archived_repeat(job: dict, path: Path, slug: str, reason: str, meta=None) -> None:
+    """A copy of something already in the library: never added twice. If it offers more
+    (searchable text, more details, ...), it replaces the library's PDF, keeping your notes and
+    progress; otherwise it's moved to archive/."""
+    title = catalog.load(add_book.CATALOG).get(slug, {}).get("title") or slug
+    if meta is not None and (better := add_book.richer_than_library(path, meta, slug)):
+        old = add_book.replace_pdf(slug, path, meta)
+        library_page.build()
+        _in_background(book_search.update)
+        _finish(job, "done", f"“{title}” was already in the library ({reason}); this copy has "
+                f"{better}, so it replaces the PDF (your notes stay; the old PDF is in "
+                f"archive/{old.parent.name}/)", slug=slug)  # fmt: skip
+        return
+    added = add_book.fill_details(slug, meta) if meta is not None else []
+    kept = add_book.archive_repeat(path)
+    details = f"; added its {', '.join(added)} to the entry" if added else ""
+    _finish(job, "duplicate", f"Already in the library as “{title}” ({reason}){details}; this "
+            f"copy was moved to archive/{kept.parent.name}/{kept.name}", slug=slug)  # fmt: skip
+
+
+def check_catalog_repeats() -> list[dict]:
+    """Refresh also looks for the same work entered twice: the copy without your work goes to
+    archive/ (with its notes); if both have your work, the pair is only reported."""
+    jobs = []
+    rows = catalog.load(add_book.CATALOG)
+    for pair in add_book.catalog_repeats():
+        keep = rows[pair["keep"]]["title"]
+        if not pair["drop"]:
+            job = _new_job("repeat", file=pair["keep"])
+            _finish(job, "error", f"“{keep}” is in the library twice ({pair['reason']}: "
+                    f"{pair['keep']} and {pair['other']}), and both have your notes or progress. "
+                    f"Keep one: uv run scripts/add_book.py --remove <slug>")  # fmt: skip
+        else:
+            moved = add_book.merge_into(pair["drop"], pair["keep"])
+            add_book.remove_book(pair["drop"], dry_run=False, yes=True)
+            job = _new_job("repeat", file=pair["drop"])
+            why = f" (it has {pair['why']})" if pair["why"] != "the same" else ""
+            work = f"; your work moved over: {', '.join(moved)}" if moved else ""
+            message = (f"“{keep}” was in the library twice ({pair['reason']}); kept "
+                       f"{pair['keep']}{why}, moved {pair['drop']} to archive/{work}")  # fmt: skip
+            _finish(job, "duplicate", message)
+        jobs.append(job)
+    return jobs
+
+
+# --- the archive --------------------------------------------------------------------------------
+
+
+# What "Clear archive" deletes: the documents themselves, empty note templates and placeholder
+# files. Everything else (scripts, notebooks, notes with your writing) is kept, whatever folder
+# it's in: archive/ can hold things from older versions of this tool too.
+DOCUMENTS = {".pdf", ".djvu", ".epub"}
+
+
+def _archive_plan() -> tuple[list[Path], list[str]]:
+    """(files to delete, what's kept: "folder/item" names) for "Clear archive"."""
+    archive = add_book.ARCHIVE
+    delete, kept = [], []
+    if not archive.exists():
+        return delete, kept
+    for f in sorted(archive.rglob("*")):
+        if not f.is_file():
+            continue
+        parts = f.relative_to(archive).parts
+        empty_notes = (
+            parts[0] == "notes"
+            and len(parts) > 2
+            and not add_book.has_own_work(parts[1], notes_dir=archive / "notes" / parts[1])
+        )
+        if f.suffix.lower() in DOCUMENTS or f.name == ".gitkeep" or empty_notes:
+            delete.append(f)
+        else:
+            name = "/".join(parts[:2])
+            if name not in kept:
+                kept.append(name)
+    return delete, kept
+
+
+def archive_summary() -> dict:
+    """What "Clear archive" would delete (number of files, bytes) and what it keeps."""
+    delete, kept = _archive_plan()
+    return {"files": len(delete), "bytes": sum(f.stat().st_size for f in delete), "kept": kept}
+
+
+def clear_archive() -> dict:
+    """Delete the archived documents (removed books and papers, repeats, original scans) and
+    empty note templates; keep everything that holds your own work."""
+    summary = archive_summary()
+    delete, _ = _archive_plan()
+    for f in delete:
+        f.unlink()
+    archive = add_book.ARCHIVE
+    if archive.exists():  # folders left empty, deepest first
+        for folder in sorted((d for d in archive.rglob("*") if d.is_dir()),
+                             key=lambda d: len(d.parts), reverse=True):  # fmt: skip
+            if not any(folder.iterdir()):
+                folder.rmdir()
+    return summary
+
+
 def continue_add(job_id: str, details: dict) -> dict:
     """The page filled in what couldn't be found (title / author / year): register now."""
     with _lock:
@@ -92,27 +351,32 @@ def continue_add(job_id: str, details: dict) -> dict:
 
 
 def _add(job: dict, path: Path, details: dict) -> None:
+    if problem := add_book.unreadable(path):  # nothing registered, the file left as it is
+        _finish(job, "error", f"Not added: {problem}; the file was left as it is")
+        return
     try:
-        meta = identify(path, online=True)
+        # A file put into papers/ or theses/ by hand is a paper / thesis even if nobody knows it
+        meta = identify(
+            path,
+            online=True,
+            paper=path.parent == add_book.PAPERS,
+            thesis=path.parent == add_book.THESES,
+        )
+        # identify() never leaves title, author or year empty, so nothing is asked; this is
+        # only a safety net (from the filename and the file's date)
+        fill_gaps(meta, path, {})
         book = add_book.Book(
-            (details.get("title") or meta.title or "").strip(),
-            (details.get("author") or meta.author or "").strip(),
-            (details.get("year") or meta.year or "").strip(),
+            (details.get("title") or meta.title).strip(),
+            (details.get("author") or meta.author).strip(),
+            (details.get("year") or meta.year).strip(),
             meta.publisher,
         )
-        missing = [k for k in ("title", "author", "year") if not getattr(book, k)]
-        if missing:
-            guess = {"title": book.title, "author": book.author, "year": book.year}
-            _update(job, status="needs_details", missing=missing, guess=guess,
-                    message="Please fill in what couldn't be found")  # fmt: skip
-            return
-        folder = add_book.PAPERS if meta.kind == "paper" else add_book.BOOKS
-        target = folder / f"{book.slug}.pdf"
-        existing = [add_book.BOOKS / target.name, add_book.PAPERS / target.name]
-        if any(f.exists() and f != path for f in existing):
-            path.unlink()  # an uploaded copy of a book that's already in the library
-            _finish(job, "duplicate", f"“{book.title}” is already in the library", slug=book.slug)
-            return
+        target = add_book.folder_for(meta.kind) / f"{book.slug}.pdf"
+        taken = any(f.exists() and f != path for f in (d / target.name for d in add_book.folders()))
+        if repeat := add_book.repeat_of(path, meta, book.slug) or (
+            (book.slug, "same author, year and title") if taken else None
+        ):
+            return _archived_repeat(job, path, *repeat, meta=meta)
         add_book.add_book(path, book, dry_run=False, meta=meta)
         scan = ocr_pdf.needs_ocr(target)
         pages = len(PdfReader(target).pages)
@@ -121,7 +385,8 @@ def _add(job: dict, path: Path, details: dict) -> None:
         _finish(
             job,
             "done",
-            f"Added the {'paper' if meta.kind == 'paper' else 'book'} “{book.title}”"
+            f"Added the {add_book.kind_word(meta)} “{book.title}”"
+            + _on_shelves(book.slug)
             + (" (a scan: OCR recommended)" if scan else ""),
             slug=book.slug,
             title=book.title,

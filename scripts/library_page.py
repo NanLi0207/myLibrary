@@ -18,6 +18,8 @@ from urllib.parse import quote
 import catalog
 import citation
 import paths
+import subjects
+import thesis_meta
 from book_ocr import has_text_layer
 from pypdf import PdfReader
 
@@ -44,10 +46,13 @@ def last_read(slug: str) -> dict | None:
 
 def chapters(slug: str) -> list[dict]:
     readme = LIBRARY / "notes" / slug / "README.md"
-    if not readme.exists():
-        return []
+    return chapters_in(readme.read_text(encoding="utf-8")) if readme.exists() else []
+
+
+def chapters_in(text: str) -> list[dict]:
+    """The checklist of a notes README: [{done, title, number, note}]."""
     result = []
-    for m in PROGRESS_RE.finditer(readme.read_text(encoding="utf-8")):
+    for m in PROGRESS_RE.finditer(text):
         title = m[2] or m[4]
         number = re.match(r"(?:Ch(?:apter)?\.?\s*)(\d+)", title)
         result.append(
@@ -107,6 +112,7 @@ def books(pdf_base: str | None = None) -> list[dict]:
                 "chapter_list": chapters(row["slug"]),
                 "shelf_list": catalog.split_list(row.get("shelves") or ""),
                 "kind": row.get("type") or "book",
+                "field_label": subjects.field_label(row.get("field") or ""),
                 "citations": citation.all_formats(row),
                 "scan": scan_info(pdf)[0],
                 "ocr_minutes": max(1, round(scan_info(pdf)[1] * 1.5 / 60)),
@@ -128,7 +134,8 @@ def render(api: dict | None = None, pdf_base: str | None = None) -> str:
     data = json.dumps(books(pdf_base), ensure_ascii=False).replace("</", "<\\/")
     labels = json.dumps(shelf_labels(), ensure_ascii=False).replace("</", "<\\/")
     return (
-        TEMPLATE.replace("__DATA__", data)
+        TEMPLATE.replace("__DEGREE_LABELS__", json.dumps(thesis_meta.DEGREE_LABELS))
+        .replace("__DATA__", data)
         .replace("__API__", json.dumps(api))
         .replace("__SHELF_LABELS__", labels)
     )
@@ -162,15 +169,86 @@ body { margin: 0; background: var(--bg); color: var(--text);
 main { max-width: 1100px; margin: 0 auto; padding: 32px 16px 64px; }
 header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.01em; }
 .stats { color: var(--muted); margin: 0 0 20px; }
-.controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+/* Search, menus and Cards/List on one line; the search box gives way first, and a long menu
+   (e.g. a field name) is cut short rather than pushing the rest onto a second line */
+.controls { display: flex; gap: 8px; flex-wrap: nowrap; align-items: stretch; margin: -10px 0 10px;
+  padding: 10px 0; position: sticky; top: 0; z-index: 30; background: var(--bg); }
+/* It stays at the top while you scroll; a thin line then separates it from the cards */
+.controls.stuck { border-bottom: 1px solid var(--line); box-shadow: 0 6px 8px -8px rgba(0, 0, 0, 0.25); }
 .controls input, .controls select { font: inherit; color: var(--text); background: var(--surface);
-  border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; }
-.controls input { flex: 1 1 260px; }
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; min-width: 0; }
+.controls input { flex: 1 1 200px; }
+.controls select { flex: 0 1 auto; max-width: 240px; text-overflow: ellipsis; }
+.controls .view { flex: none; }
+@media (max-width: 760px) {  /* four lines on a phone: too tall to keep at the top */
+  .controls { flex-wrap: wrap; position: static; }
+  .controls input { flex-basis: 100%; }
+}
 .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+/* ☰ List mode: one row per book, paper or thesis; a row unfolds into its card */
+.view { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  background: var(--surface); }
+.view button { font: inherit; font-size: 13.5px; border: 0; background: none; color: var(--muted);
+  padding: 0 12px; cursor: pointer; }
+.view button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.grid.list { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  overflow: hidden; }
+.list-info { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 8px 14px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.list-info button { font: inherit; font-size: 12.5px; color: var(--accent); background: none;
+  border: 1px solid var(--line); border-radius: 7px; padding: 2px 9px; cursor: pointer; }
+.lrow, .lhead { display: grid; align-items: center; gap: 12px; padding: 9px 14px;
+  grid-template-columns: 74px minmax(0, 1fr) 168px 128px 92px 112px; }
+.lhead { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+  border-bottom: 1px solid var(--line); padding-top: 7px; padding-bottom: 7px; }
+.lhead button { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.lhead button.on { color: var(--accent); font-weight: 600; }
+.litem { border-bottom: 1px solid var(--line); }
+.litem:last-child { border-bottom: 0; }
+.lrow { cursor: pointer; }
+.lrow:hover, .litem.open .lrow { background: var(--accent-soft); }
+.lrow:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lrow .kind { font-size: 11.5px; color: var(--accent); font-weight: 600; line-height: 1.25; }
+.lrow .kind::before { content: "▸ "; color: var(--muted); font-weight: 400; }
+.litem.open .lrow .kind::before { content: "▾ "; }
+.lrow .ttl { font-weight: 600; font-size: 14.5px; line-height: 1.3; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.lrow .sub { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; margin-top: 2px; }
+.lrow .sub .tag { color: var(--done); border: 1px solid currentColor; border-radius: 6px;
+  padding: 0 6px; margin-left: 8px; font-size: 11.5px; }
+.lrow .ident { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lrow .ident a { color: var(--accent); text-decoration: none; }
+.lrow .prog { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.lrow .prog .bar { flex: none; width: 100%; }
+.lrow .last { font-size: 12px; color: var(--muted); }
+.lrow .go button.read { font: inherit; font-size: 12.5px; cursor: pointer; border-radius: 7px;
+  padding: 4px 10px; border: 1px solid var(--line); background: var(--surface); color: var(--accent);
+  white-space: nowrap; width: 100%; }
+.lrow .go button.read[data-resume] { border-color: var(--accent); background: var(--accent); color: #fff; }
+.ldetail { padding: 4px 14px 14px; background: var(--accent-soft); }
+/* The whole width of the list: as few lines as possible (keywords and tags on one line) */
+.ldetail .card { max-width: none; }
+.byline.inline { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.byline.inline .meta { display: inline-flex; }
+@media (max-width: 760px) {
+  .lrow, .lhead { grid-template-columns: 64px minmax(0, 1fr) 96px; }
+  .lrow .ident, .lrow .last, .lrow .go, .lhead .ident, .lhead .last, .lhead .go { display: none; }
+}
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
 .card h2 { margin: 0; font-size: 17px; line-height: 1.3; }
+/* The kind, in front of the title: "Paper", "PhD thesis" */
+.kind-tag { display: inline-block; font-size: 11.5px; font-weight: 600; color: var(--accent);
+  background: var(--accent-soft); border-radius: 6px; padding: 1px 7px; margin-right: 7px;
+  vertical-align: 2px; white-space: nowrap; }
+.meta a { color: var(--accent); text-decoration: none; }
+.meta a:hover { text-decoration: underline; }
 .byline { color: var(--muted); font-size: 14px; }
+.subject { color: var(--muted); font-size: 12.5px; }
+.chips .subject { align-self: center; }  /* "工程 Engineering ›" before its shelf tag */
 .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip.shelf { background: var(--done); color: #fff; }
@@ -221,6 +299,20 @@ ol.chapters li:hover button { border-color: var(--line); }
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px;
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.2); opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: 1; }
+/* ↑ Back to the top: shown once you've scrolled down */
+.to-top { position: fixed; right: 24px; bottom: 24px; z-index: 40; width: 44px; height: 44px;
+  border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--accent);
+  font-size: 20px; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12); }
+.to-top:hover { border-color: var(--accent); }
+.to-top[hidden] { display: none; }
+@media (max-width: 760px) { .to-top { right: 16px; bottom: 16px; } }
+/* Drag PDFs anywhere onto the page to add them */
+.dropzone { position: fixed; inset: 12px; z-index: 50; display: flex; align-items: center;
+  justify-content: center; text-align: center; border: 3px dashed var(--accent); border-radius: 16px;
+  background: color-mix(in srgb, var(--accent-soft) 88%, transparent); color: var(--accent);
+  font-size: 20px; font-weight: 600; pointer-events: none; padding: 16px; }
+.dropzone small { display: block; font-size: 14px; font-weight: 400; color: var(--muted); margin-top: 6px; }
+.dropzone[hidden] { display: none; }
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 footer { color: var(--muted); font-size: 12.5px; margin-top: 28px; }
 .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -232,6 +324,17 @@ footer { color: var(--muted); font-size: 12.5px; margin-top: 28px; }
 .job { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
   font-size: 13.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .job .bar { flex: 1 1 160px; }
+/* Finished jobs fold away under "History" */
+.history-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px;
+  color: var(--muted); }
+.history-bar button { font: inherit; font-size: 13px; cursor: pointer; color: var(--accent);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px 11px; }
+.history-bar button:hover { border-color: var(--accent); }
+.history-bar .problems { color: var(--warn); }
+.history-bar .latest { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 200px; }
+.history { display: flex; flex-direction: column; gap: 6px; }
+.history .job { padding: 6px 12px; font-size: 13px; }
+.history[hidden] { display: none; }
 .job.error { border-color: var(--warn); color: var(--warn); }
 .job button { font: inherit; font-size: 12.5px; cursor: pointer; color: var(--accent);
   background: none; border: 1px solid var(--line); border-radius: 7px; padding: 2px 9px; }
@@ -250,6 +353,33 @@ dialog button { font: inherit; font-size: 13.5px; cursor: pointer; border-radius
 dialog button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 dialog .hint { color: var(--muted); font-size: 12.5px; margin: 4px 0 0; }
 dialog .check { display: flex; align-items: center; gap: 8px; }
+dialog .archive-row { align-items: center; justify-content: space-between; font-size: 13.5px; }
+/* 🔎 Find online */
+dialog.find { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+.find form { display: flex; gap: 8px; }
+.find form input { flex: 1; font-size: 15px !important; padding: 8px 10px !important; }
+.find .hint { margin-top: 6px; }
+.find .engines { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; font-size: 12.5px;
+  align-items: center; color: var(--muted); }
+.find .engines a { color: var(--accent); border: 1px solid var(--line); border-radius: 7px;
+  padding: 2px 8px; text-decoration: none; }
+.find h3 { font-size: 14px; margin: 18px 0 6px; color: var(--muted); font-weight: 600; }
+.find .result { border-top: 1px solid var(--line); padding: 10px 0; }
+.find .result .t { font-weight: 600; font-size: 14.5px; color: var(--text); text-decoration: none; }
+.find .result a.t:hover { color: var(--accent); }
+.find .result .who { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.find .result .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center;
+  font-size: 12.5px; }
+.find .result .acts a, .find .result .acts button { font-size: 12.5px; padding: 2px 9px;
+  border: 1px solid var(--line); border-radius: 7px; color: var(--accent); text-decoration: none;
+  background: none; cursor: pointer; }
+.find .result .acts button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.find .chip-kind { font-size: 11.5px; border-radius: 6px; padding: 1px 7px; background: var(--accent-soft);
+  color: var(--accent); }
+.find .owned { font-size: 12px; color: var(--done); font-weight: 600; }
+.find .status { color: var(--muted); font-size: 13.5px; margin: 14px 0; }
+.empty button { font: inherit; color: var(--accent); background: none; border: 1px solid var(--line);
+  border-radius: 7px; padding: 3px 10px; cursor: pointer; margin-left: 6px; }
 .stopped { margin: 15vh auto; max-width: 520px; text-align: center; line-height: 1.6; }
 code { font-size: 12.5px; }
 </style>
@@ -261,12 +391,14 @@ code { font-size: 12.5px; }
     <p class="stats" id="stats"></p>
   </header>
   <div class="controls">
-    <input id="q" type="search" placeholder="Search title, author, journal, ISBN, DOI, subject, chapter…" autofocus>
+    <input id="q" type="search" placeholder="Search title, author, journal, university, ISBN, DOI, subject, chapter…" autofocus>
     <select id="kind" aria-label="Show">
-      <option value="">Books and papers</option>
+      <option value="">All</option>
       <option value="book">Books</option>
       <option value="paper">Papers</option>
+      <option value="thesis">Theses</option>
     </select>
+    <select id="field" aria-label="Field" title="The subject field (from OpenAlex)" hidden></select>
     <select id="sort">
       <option value="title">Sort: title</option>
       <option value="author">Sort: author</option>
@@ -275,6 +407,10 @@ code { font-size: 12.5px; }
       <option value="added">Sort: recently added</option>
       <option value="recent">Sort: recently read</option>
     </select>
+    <div class="view" role="group" aria-label="View">
+      <button type="button" data-view="cards" title="One card per book">▦ Cards</button>
+      <button type="button" data-view="list" title="One line per book; click a line to see its card">☰ List</button>
+    </div>
   </div>
   <section class="jobs" id="jobs" hidden></section>
   <nav class="shelves" id="shelves" aria-label="Shelves"></nav>
@@ -282,6 +418,22 @@ code { font-size: 12.5px; }
   <footer id="footer"></footer>
 </main>
 <div class="toast" id="toast" role="status"></div>
+<button type="button" class="to-top" id="toTop" title="Back to the top" aria-label="Back to the top" hidden>↑</button>
+<dialog id="findDialog" class="find">
+  <h2>Find online</h2>
+  <form id="findForm">
+    <input type="text" id="findQuery" placeholder="DOI, arXiv number, ISBN, title, author, topic…" autocomplete="off">
+    <button type="submit" class="primary">Search</button>
+    <button type="button" id="findClose">Close</button>
+  </form>
+  <p class="hint">Searches OpenAlex (papers, books, theses), Crossref, arXiv and Open Library.
+    <b>＋ Add to library</b> appears when a free, legal copy (open access) can be downloaded.</p>
+  <div class="engines" id="findEngines"></div>
+  <div id="findResults"></div>
+</dialog>
+<div class="dropzone" id="dropzone" hidden>
+  <div>Drop PDFs here to add them<small>Books, papers and theses are recognised automatically</small></div>
+</div>
 <dialog id="settingsDialog">
   <form method="dialog" id="settingsForm">
     <h2>Settings</h2>
@@ -302,6 +454,11 @@ code { font-size: 12.5px; }
     </div>
     <label class="check"><input type="checkbox" id="setPython"> Show the Python features
       (a script per chapter, for checking a book's worked examples)</label>
+    <label>Archive</label>
+    <div class="row archive-row"><span id="archiveInfo">…</span>
+      <button type="button" id="clearArchive">Clear archive</button></div>
+    <p class="hint">Removed books and papers, repeated copies and original scans (before OCR).
+      Clearing deletes them for good; archived notes and scripts with your own work are kept.</p>
     <div class="row end"><button value="cancel">Cancel</button>
       <button type="button" class="primary" id="saveSettings">Save</button></div>
   </form>
@@ -332,17 +489,34 @@ const pct = b => Math.max(
 const firstAuthor = b => (b.authors || "").split(";")[0].trim();
 
 try { sort.value = localStorage.getItem("library-sort") || "title"; } catch {}
+// Cards or a list (remembered; a big library starts as a list). Unfolded lines stay unfolded
+// when the list is drawn again (e.g. after ticking a chapter)
+let view = books.length > 24 ? "list" : "cards";
+try { view = localStorage.getItem("library-view") || view; } catch {}
+const expanded = new Set();
 const kindSelect = document.getElementById("kind");
 try { kindSelect.value = localStorage.getItem("library-kind") || ""; } catch {}
 const isPaper = b => b.kind === "paper";
+const isThesis = b => b.kind === "thesis";
+// "PhD thesis", "Master's thesis", ... (thesis_meta.DEGREE_LABELS)
+const DEGREE_LABELS = __DEGREE_LABELS__;
+const kindLabel = b => isThesis(b) ? DEGREE_LABELS[b.degree] || "Thesis" : isPaper(b) ? "Paper" : "Book";
 const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;  // "1 book", "2 books"
 // The first two authors, then "et al." ("A; B; C" for papers, "A, B, C" for most books)
-function authorLine(b) {
+function authorNames(b) {
   const raw = b.authors || "";
   let names = raw.split(";");
   if (names.length === 1 && raw.split(",").every(n => n.trim().includes(" "))) names = raw.split(",");
-  names = names.map(a => a.trim()).filter(Boolean);
+  return names.map(a => a.trim()).filter(Boolean);
+}
+function authorLine(b) {
+  const names = authorNames(b);
   return names.length <= 2 ? names.join(", ") : names.slice(0, 2).join(", ") + " et al.";
+}
+// The list: the first author only ("Jannick P. Rolland et al.")
+function firstAuthorLine(b) {
+  const names = authorNames(b);
+  return names.length > 1 ? `${names[0]} et al.` : names[0] || "";
 }
 async function copyText(text, label) {
   try {
@@ -383,16 +557,51 @@ document.addEventListener("keydown", e => {
 });
 
 // The shelf bar: All, then every shelf in use, with how many books are on it
+// The Field menu: the fields your items are in (from OpenAlex), "中文 English"
+const fieldSelect = document.getElementById("field");
+let field = "";
+try { field = localStorage.getItem("library-field") || ""; } catch {}
+// Both menus show how many items each choice has: the type menu within the chosen field, the
+// Field menu within the chosen type (so the numbers match what you'd see)
+const KIND_NAMES = {"": "All", book: "Books", paper: "Papers", thesis: "Theses"};
+function renderFields() {
+  const isKind = (b, kind) => !kind || (b.kind || "book") === kind;
+  for (const option of kindSelect.options) {
+    const n = books.filter(b => isKind(b, option.value) && (!field || b.field === field)).length;
+    option.textContent = `${KIND_NAMES[option.value]} (${n})`;
+  }
+  const all = new Map(), shown = new Map();
+  for (const b of books) {
+    if (!b.field) continue;
+    all.set(b.field, (all.get(b.field) || 0) + 1);
+    if (isKind(b, kindSelect.value)) shown.set(b.field, (shown.get(b.field) || 0) + 1);
+  }
+  if (field && !all.has(field)) field = "";
+  const names = [...all.keys()].sort((a, b) => all.get(b) - all.get(a) || a.localeCompare(b));
+  fieldSelect.hidden = !names.length;
+  const inKind = books.filter(b => isKind(b, kindSelect.value)).length;
+  fieldSelect.innerHTML = `<option value="">All fields (${inKind})</option>` + names.map(f => {
+    const label = books.find(b => b.field === f).field_label;
+    return `<option value="${esc(f)}">${esc(label)} (${shown.get(f) || 0})</option>`;
+  }).join("");
+  fieldSelect.value = field;
+}
+const inKindAndField = b => (!kindSelect.value || (b.kind || "book") === kindSelect.value)
+  && (!field || b.field === field);
+
+// The shelf bar: All, then every shelf in use among the items shown (kind and field), with
+// how many items each has
 function renderShelves() {
+  const pool = books.filter(inKindAndField);
   const counts = new Map();
-  for (const b of books) for (const s of b.shelf_list) counts.set(s, (counts.get(s) || 0) + 1);
+  for (const b of pool) for (const s of b.shelf_list) counts.set(s, (counts.get(s) || 0) + 1);
   if (shelf && !counts.has(shelf)) shelf = "";
   const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a) || a.localeCompare(b));
   const button = (name, label, n) =>
     `<button type="button" data-shelf="${esc(name)}" class="${name === shelf ? "on" : ""}">`
     + `${esc(label)}<span class="count">${n}</span></button>`;
   document.getElementById("shelves").innerHTML = names.length
-    ? button("", "All", books.length) + names.map(s => button(s, shelfLabel(s), counts.get(s))).join("")
+    ? button("", "All", pool.length) + names.map(s => button(s, shelfLabel(s), counts.get(s))).join("")
     : "";
 }
 
@@ -400,10 +609,11 @@ function stats() {
   const ch = books.reduce((n, b) => n + b.chapter_list.length, 0);
   const dn = books.reduce((n, b) => n + done(b), 0);
   const pages = books.reduce((n, b) => n + (+b.pages || 0), 0);
-  const papers = books.filter(isPaper);
+  const papers = books.filter(isPaper), theses = books.filter(isThesis);
   const read = papers.filter(b => done(b)).length;
   document.getElementById("stats").textContent =
-    `${count(books.length - papers.length, "book")}${papers.length ? ` · ${count(papers.length, "paper")} (${read} read)` : ""}`
+    `${count(books.length - papers.length - theses.length, "book")}${papers.length ? ` · ${count(papers.length, "paper")} (${read} read)` : ""}`
+    + (theses.length ? ` · ${theses.length} ${theses.length === 1 ? "thesis" : "theses"}` : "")
     + ` · ${pages.toLocaleString()} pages · ${dn - read} of ${ch - papers.length} chapters read`;
 }
 
@@ -434,42 +644,56 @@ function chapterItem(c) {
   return `<li class="${c.done ? "done" : ""}">${tick}<span class="name">${esc(c.title)}</span>${read}</li>`;
 }
 
-function card(b) {
+// One book, paper or thesis. inList: opened from a line of the list (more compact: the
+// publisher joins the author line, and all the buttons share one row)
+function card(b, inList = false) {
   const n = b.chapter_list.length;
   const chapters = b.chapter_list.map(chapterItem).join("");
   const next = nextChapter(b);
-  return `<article class="card" data-slug="${esc(b.slug)}">
-    <h2>${esc(b.title)}</h2>
-    <div class="byline">${esc(authorLine(b))}</div>
-    <div class="meta">
-      <span class="kind">${isPaper(b) ? "Paper" : "Book"}</span>
-      ${b.year ? `<span>${esc(b.year)}</span>` : ""}
-      ${isPaper(b) && b.journal ? `<span>${esc(b.journal)}${b.volume ? ` ${esc(b.volume)}` : ""}${b.issue ? `(${esc(b.issue)})` : ""}${b.page_range ? `, ${esc(b.page_range)}` : ""}</span>` : ""}
-      ${!isPaper(b) && b.publisher ? `<span>${esc(b.publisher)}</span>` : ""}
-      ${b.pages ? `<span>${esc(b.pages)} pages</span>` : ""}
-      ${b.isbn ? `<span>ISBN ${esc(b.isbn)}</span>` : ""}
-    </div>
-    ${isPaper(b) && b.keywords ? `<div class="chips keywords">${b.keywords.split(";").map(k => k.trim()).filter(Boolean).slice(0, 6).map(k => `<span class="chip kw">${esc(k)}</span>`).join("")}</div>` : ""}
-    ${b.shelf_list.length ? `<div class="chips">${b.shelf_list.map(s => `<span class="chip shelf">${esc(shelfLabel(s))}</span>`).join("")}</div>` : ""}
-    <div class="progress"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>
-      ${isPaper(b) ? (done(b) ? "Read ✓" : "Not read yet") : n ? `${done(b)}/${n} chapters` : "no chapters"}${pct(b) > 0 && !(isPaper(b) && done(b)) ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : ""}</div>
-    ${b.last_read ? `<div class="next">Last read: page ${b.last_read.page}${b.last_read.chapter ? ` · ${esc(b.last_read.chapter)}` : ""} · ${esc(b.last_read.date)}</div>`
-      : API && next && done(b) < n && !isPaper(b) ? `<div class="next">Next: ${esc(next.title)}</div>` : ""}
-    <div class="actions">
+  const venue = isPaper(b) && b.journal
+    ? `${b.journal}${b.volume ? ` ${b.volume}` : ""}${b.issue ? `(${b.issue})` : ""}${b.page_range ? `, ${b.page_range}` : ""}`
+    : isThesis(b) ? b.institution : b.publisher;
+  const byline = [authorLine(b), b.year, inList ? venue : ""].filter(Boolean).map(esc).join(" · ");
+  const details = [
+    !inList && venue ? `<span>${esc(venue)}</span>` : "",
+    b.isbn ? `<span>ISBN ${esc(b.isbn)}</span>` : "",
+    b.doi ? `<a href="https://doi.org/${esc(b.doi)}" target="_blank" rel="noopener" title="Its page at the publisher or university">DOI ${esc(b.doi)}</a>` : "",
+  ].filter(Boolean).join("");
+  const keywords = (isPaper(b) || isThesis(b)) && b.keywords
+    ? b.keywords.split(";").map(k => k.trim()).filter(Boolean).slice(0, 6).map(k => `<span class="chip kw">${esc(k)}</span>`).join("") : "";
+  const shelfTags = (b.field_label && b.shelf_list.includes(b.topic)
+      ? `<span class="subject" title="Subject (OpenAlex), how sure: ${esc(b.topic_score)}">${esc(b.field_label)} ›</span>` : "")
+    + b.shelf_list.map(s => `<span class="chip shelf">${esc(shelfLabel(s))}</span>`).join("");
+  const progress = (isPaper(b) ? (done(b) ? "Read ✓" : "Not read yet") : n ? `${done(b)}/${n} chapters` : "no chapters")
+    + (pct(b) > 0 && !(isPaper(b) && done(b)) ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : "")
+    + (b.pages ? ` · ${esc(b.pages)} pages` : "");
+  const main = `
       ${readButton(b)}
       ${API ? `<button type="button" class="primary" data-shelves title="Which shelves this book is on">Shelves</button>` : ""}
       ${isPaper(b) ? (API ? `<button type="button" class="primary" data-markread>${done(b) ? "✓ Read" : "Mark as read"}</button>` : "")
-        : n ? `<button type="button" class="primary" data-toggle>Chapters</button>` : ""}
-    </div>
-    <div class="actions">
+        : n ? `<button type="button" class="primary" data-toggle>Chapters</button>` : ""}`;
+  const more = `
       ${b.pdf_missing ? `<span class="missing" title="${esc(b.file)} is gone; notes and scripts are still here">PDF missing</span>`
         : `<a href="${esc(b.pdf_uri)}" target="_blank" rel="noopener">PDF</a>`}
       ${API ? `<button type="button" data-notes>Notes</button>` : `<a href="${esc(b.notes_uri)}">Notes</a>`}
       ${b.openlibrary ? `<a href="${esc(b.openlibrary)}" target="_blank" rel="noopener">Open Library</a>` : ""}
-      ${b.doi ? `<a href="https://doi.org/${esc(b.doi)}" target="_blank" rel="noopener" title="The paper's page at its publisher">DOI</a>` : ""}
       <span class="cite-wrap"><button type="button" data-cite title="Copy a citation: APA, IEEE, GB/T 7714, BibTeX or RIS">Cite ▾</button></span>
-      ${API && b.scan && !b.pdf_missing ? `<button type="button" data-ocr title="This book is a scan: OCR adds a text layer, so its words can be looked up and searched">OCR (~${b.ocr_minutes} min)</button>` : ""}
-    </div>
+      ${API && b.scan && !b.pdf_missing ? `<button type="button" data-ocr title="This book is a scan: OCR adds a text layer, so its words can be looked up and searched">OCR (~${b.ocr_minutes} min)</button>` : ""}`;
+  return `<article class="card" data-slug="${esc(b.slug)}">
+    <h2><span class="kind-tag">${esc(kindLabel(b))}</span>${esc(b.title)}</h2>
+    ${inList  // from the list: ISBN / DOI on the author line, to keep the card short
+      ? (byline || details ? `<div class="byline inline">${byline}${details ? `<span class="meta">${details}</span>` : ""}</div>` : "")
+      : `${byline ? `<div class="byline">${byline}</div>` : ""}${details ? `<div class="meta">${details}</div>` : ""}`}
+    ${isThesis(b) && b.supervisors ? `<div class="next">Supervised by ${esc(b.supervisors.split(";").map(s => s.trim()).join(", "))}</div>` : ""}
+    ${b.topic && !b.shelf_list.includes(b.topic) ? `<div class="subject" title="Subject (OpenAlex), how sure: ${esc(b.topic_score)}">${esc(b.field_label)} › ${esc(shelfLabel(b.topic))}</div>` : ""}
+    ${inList  // from the list: keywords and shelves share one row
+      ? (keywords || shelfTags ? `<div class="chips">${shelfTags}${keywords}</div>` : "")
+      : `${keywords ? `<div class="chips keywords">${keywords}</div>` : ""}${shelfTags ? `<div class="chips">${shelfTags}</div>` : ""}`}
+    <div class="progress"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>${progress}</div>
+    ${b.last_read ? `<div class="next">Last read: page ${b.last_read.page}${b.last_read.chapter ? ` · ${esc(b.last_read.chapter)}` : ""} · ${esc(b.last_read.date)}</div>`
+      : API && next && done(b) < n && !isPaper(b) ? `<div class="next">Next: ${esc(next.title)}</div>` : ""}
+    ${inList ? `<div class="actions">${main}${more}</div>`
+      : `<div class="actions">${main}</div><div class="actions">${more}</div>`}
     ${n && !isPaper(b) ? `<ol class="chapters" hidden>${chapters}</ol>` : ""}
   </article>`;
 }
@@ -493,16 +717,64 @@ function render() {
   }[sort.value];
   const shown = books
     .filter(b => !shelf || b.shelf_list.includes(shelf))
-    .filter(b => !kindSelect.value || (b.kind || "book") === kindSelect.value)
+    .filter(inKindAndField)
     .filter(b => {
       const hay = [b.title, b.authors, b.year, b.publisher, b.isbn, b.subjects, b.journal, b.doi, b.keywords,
+                   b.institution, b.supervisors, b.topic, b.field, b.field_label, isThesis(b) ? kindLabel(b) + " thesis dissertation" : "",
                    ...b.shelf_list, ...b.shelf_list.map(shelfLabel),
                    ...b.chapter_list.map(c => c.title)].join(" ").toLowerCase();
       return words.every(w => hay.includes(w));
     })
     .sort(keyed);
-  grid.innerHTML = shown.length ? shown.map(card).join("")
-    : `<p class="empty">No books match “${esc(q.value)}”.</p>`;
+  document.querySelectorAll("[data-view]").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.view === view)));
+  grid.classList.toggle("list", view === "list" && shown.length > 0);
+  if (!shown.length) {
+    grid.innerHTML = `<p class="empty">No books match “${esc(q.value)}”.${API
+      ? `<button type="button" data-findonline>🔎 Search online</button>` : ""}</p>`;
+  } else if (view === "list") {
+    const open = shown.filter(b => expanded.has(b.slug)).length;
+    const head = (key, label, cls = "") => key
+      ? `<button type="button" data-sortby="${key}" class="${sort.value === key ? "on" : ""}" title="Sort by ${label.toLowerCase()}">${label}${sort.value === key ? " ↓" : ""}</button>`
+      : label;
+    grid.innerHTML = `<div class="list-info"><span>${shown.length === books.length
+        ? count(shown.length, "item") : `${shown.length} of ${books.length} shown`}
+        · click a line to see its card</span>
+      ${open ? `<button type="button" data-foldall title="Close every open card">▴ Fold all (${open})</button>`
+        : `<button type="button" data-unfoldall title="Open the card of every line shown">▾ Unfold all</button>`}</div>
+      <div class="lhead"><span>Kind</span><span>${head("title", "Title")} · ${head("author", "Author")} · ${head("year", "Year")}</span>
+        <span class="ident">ISBN / DOI</span><span>${head("progress", "Progress")}</span>
+        <span class="last">${head("recent", "Last read")}</span><span class="go"></span></div>`
+      + shown.map(listItem).join("");
+  } else {
+    grid.innerHTML = shown.map(b => card(b)).join("");
+  }
+}
+
+// One line of the list: kind, title, ISBN or DOI, progress, last read, Continue
+function listItem(b) {
+  const n = b.chapter_list.length;
+  // First author, year, and the shelves (no publisher or journal: the card has those)
+  const sub = [firstAuthorLine(b), b.year].filter(Boolean).map(esc).join(" · ")
+    + b.shelf_list.map(s => `<span class="tag">${esc(shelfLabel(s))}</span>`).join("");
+  const ident = b.doi
+    ? `<a href="https://doi.org/${esc(b.doi)}" target="_blank" rel="noopener" title="Open the DOI">DOI ${esc(b.doi)}</a>`
+    : b.isbn ? `ISBN ${esc(b.isbn)}` : "—";
+  const progress = isPaper(b) ? (done(b) ? "Read ✓" : pct(b) > 0 ? `${Math.round(pct(b) * 100) || "<1"}% read` : "Not read yet")
+    : n ? `${done(b)}/${n} chapters${pct(b) > 0 ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : ""}` : "no chapters";
+  const last = b.last_read ? `p. ${b.last_read.page}<br>${esc(b.last_read.date)}` : "";
+  const isOpen = expanded.has(b.slug);
+  return `<div class="litem ${isOpen ? "open" : ""}" data-slug="${esc(b.slug)}">
+    <div class="lrow" data-row role="button" tabindex="0" aria-expanded="${isOpen}">
+      <span class="kind">${esc(kindLabel(b))}</span>
+      <div><div class="ttl" title="${esc(b.title)}">${esc(b.title)}</div><div class="sub">${sub}</div></div>
+      <span class="ident">${ident}</span>
+      <div class="prog"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>${progress}</div>
+      <span class="last">${last}</span>
+      <span class="go">${b.pdf_missing ? "" : readButton(b)}</span>
+    </div>
+    ${isOpen ? `<div class="ldetail">${card(b, true)}</div>` : ""}
+  </div>`;
 }
 
 let toastTimer;
@@ -525,7 +797,7 @@ async function api(path, body) {
   return data;
 }
 
-const bookOf = el => books.find(b => b.slug === el.closest(".card").dataset.slug);
+const bookOf = el => books.find(b => b.slug === el.closest("[data-slug]").dataset.slug);
 const openLists = () => new Set([...grid.querySelectorAll("ol.chapters:not([hidden])")]
   .map(ol => ol.closest(".card").dataset.slug));
 
@@ -538,7 +810,40 @@ document.getElementById("shelves").addEventListener("click", e => {
   render();
 });
 
+function toggleLine(row) {
+  const slug = row.closest("[data-slug]").dataset.slug;
+  if (expanded.has(slug)) expanded.delete(slug);
+  else expanded.add(slug);
+  const keepOpen = openLists();
+  render();
+  keepOpen.forEach(s => grid.querySelector(`.card[data-slug="${CSS.escape(s)}"] ol.chapters`)
+    ?.removeAttribute("hidden"));
+  grid.querySelector(`.litem[data-slug="${CSS.escape(slug)}"] .lrow`)?.focus({preventScroll: true});
+}
+grid.addEventListener("keydown", e => {
+  const row = e.target.closest("[data-row]");
+  if (row && e.target === row && (e.key === "Enter" || e.key === " ")) {
+    e.preventDefault();
+    toggleLine(row);
+  }
+});
 grid.addEventListener("click", async e => {
+  const row = e.target.closest("[data-row]");
+  if (row && !e.target.closest("a, button, input")) return toggleLine(row);
+  const sortBy = e.target.closest("[data-sortby]");
+  if (sortBy) {
+    sort.value = sortBy.dataset.sortby;
+    try { localStorage.setItem("library-sort", sort.value); } catch {}
+    return render();
+  }
+  if (e.target.closest("[data-foldall]")) {
+    expanded.clear();
+    return render();
+  }
+  if (e.target.closest("[data-unfoldall]")) {  // every line shown (search, type, field, shelf)
+    grid.querySelectorAll(".litem[data-slug]").forEach(item => expanded.add(item.dataset.slug));
+    return render();
+  }
   const cite = e.target.closest("[data-cite]");
   if (cite) return openCiteMenu(cite, bookOf(cite));
   const markRead = e.target.closest("[data-markread]");
@@ -647,8 +952,33 @@ grid.addEventListener("change", async e => {
   }
 });
 q.addEventListener("input", render);
+// ↑ Back to the top (search, menus and shelves are there)
+const toTop = document.getElementById("toTop");
+const controls = document.querySelector(".controls");
+window.addEventListener("scroll", () => {
+  toTop.hidden = window.scrollY < 600;
+  // "stuck": the search row has reached the top and stays there
+  controls.classList.toggle("stuck", controls.getBoundingClientRect().top <= 0 && window.scrollY > 0);
+}, {passive: true});
+toTop.addEventListener("click", () => window.scrollTo({top: 0, behavior: "smooth"}));
+document.querySelector(".view").addEventListener("click", e => {
+  const button = e.target.closest("[data-view]");
+  if (!button) return;
+  view = button.dataset.view;
+  try { localStorage.setItem("library-view", view); } catch {}
+  render();
+});
 kindSelect.addEventListener("change", () => {
   try { localStorage.setItem("library-kind", kindSelect.value); } catch {}
+  renderFields();
+  renderShelves();
+  render();
+});
+fieldSelect.addEventListener("change", () => {
+  field = fieldSelect.value;
+  try { localStorage.setItem("library-field", field); } catch {}
+  renderFields();
+  renderShelves();
   render();
 });
 sort.addEventListener("change", () => {
@@ -668,6 +998,7 @@ async function pollJobs() {
   } catch {
     return;
   }
+  lastJobs = jobs;
   renderJobs(jobs);
   let finished = false;
   for (const j of jobs) {
@@ -686,19 +1017,35 @@ async function pollJobs() {
   if (busy) pollTimer = setTimeout(pollJobs, 1500);
 }
 
+// Jobs still running are shown; finished ones fold away under "History" (open or closed, as
+// you left it last time)
+let historyOpen = false;
+try { historyOpen = localStorage.getItem("library-history-open") === "1"; } catch {}
+function jobLine(j) {
+  const icon = {working: "⏳", done: "✓", duplicate: "•", error: "✗", needs_details: "?"}[j.status] || "";
+  const bar = j.kind === "ocr" && j.total
+    ? `<div class="bar"><span style="width:${Math.round(100 * j.done / j.total)}%"></span></div>` : "";
+  const fill = j.status === "needs_details"
+    ? `<button type="button" data-details="${esc(j.id)}">Fill in title / author / year</button>` : "";
+  return `<div class="job ${j.status === "error" ? "error" : ""}">${icon} ${esc(j.file || "")}
+    <span>${esc(j.message || "")}</span>${bar}${fill}</div>`;
+}
 function renderJobs(jobs) {
   const panel = document.getElementById("jobs");
+  const active = jobs.filter(j => j.status === "working" || j.status === "needs_details");
+  const done = jobs.filter(j => !active.includes(j));
   panel.hidden = !jobs.length;
-  panel.innerHTML = jobs.map(j => {
-    const icon = {working: "⏳", done: "✓", duplicate: "•", error: "✗", needs_details: "?"}[j.status] || "";
-    const bar = j.kind === "ocr" && j.total
-      ? `<div class="bar"><span style="width:${Math.round(100 * j.done / j.total)}%"></span></div>` : "";
-    const fill = j.status === "needs_details"
-      ? `<button type="button" data-details="${esc(j.id)}">Fill in title / author / year</button>` : "";
-    return `<div class="job ${j.status === "error" ? "error" : ""}">${icon} ${esc(j.file || "")}
-      <span>${esc(j.message || "")}</span>${bar}${fill}</div>`;
-  }).join("");
+  const problems = done.filter(j => j.status === "error").length;
+  const history = done.length ? `<div class="history-bar">
+      <button type="button" data-history aria-expanded="${historyOpen}">🕘 History (${done.length}) ${historyOpen ? "▴" : "▾"}</button>
+      ${problems ? `<span class="problems">${problems} problem${problems > 1 ? "s" : ""}</span>` : ""}
+      ${historyOpen ? `<button type="button" data-clear-history title="Forget these messages">Clear</button>`
+        : `<span class="latest">Latest: ${esc(done[0].message || "")}</span>`}
+    </div>
+    <div class="history" ${historyOpen ? "" : "hidden"}>${done.map(jobLine).join("")}</div>` : "";
+  panel.innerHTML = active.map(jobLine).join("") + history;
 }
+let lastJobs = [];
 
 async function askDetails(job) {
   const details = {};
@@ -734,6 +1081,30 @@ async function openSettings() {
   document.getElementById("setPython").checked = !!settings.python_features;
   document.getElementById("customRow").hidden = settings.editor !== "custom";
   document.getElementById("settingsDialog").showModal();
+  showArchive(await api("/api/archive", {}));
+}
+
+const megabytes = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(0.1, n / 1e6).toFixed(1)} MB`;
+function showArchive(a) {
+  document.getElementById("archiveInfo").textContent = a.files
+    ? `${count(a.files, "file")}, ${megabytes(a.bytes)}${a.kept.length ? ` (+ ${a.kept.length} kept: your notes or scripts)` : ""}`
+    : a.kept.length ? `Empty, apart from ${a.kept.length} kept (your notes or scripts)` : "Empty";
+  document.getElementById("clearArchive").disabled = !a.files;
+}
+async function clearArchive() {
+  const a = await api("/api/archive", {});
+  if (!a.files) return showArchive(a);
+  const kept = a.kept.length
+    ? `\n\nKept, because they hold your own notes or scripts:\n${a.kept.join("\n")}` : "";
+  if (!confirm(`Delete ${count(a.files, "file")} (${megabytes(a.bytes)}) from the archive for good? `
+      + `This can't be undone.${kept}`)) return;
+  try {
+    const r = await api("/api/archive", {clear: true});
+    toast(`Archive cleared: ${count(r.files, "file")}, ${megabytes(r.bytes)} freed`);
+    showArchive(await api("/api/archive", {}));
+  } catch (err) {
+    toast(`Couldn't clear the archive: ${err.message}`);
+  }
 }
 
 async function saveSettings() {
@@ -762,15 +1133,17 @@ async function saveSettings() {
 
 if (API) {
   document.getElementById("tools").innerHTML = `
-    <label class="tool" title="Add PDF books or papers to the library">＋ Add
+    <label class="tool" title="Add PDF books, papers or theses to the library (or drag them onto this page)">＋ Add
       <input type="file" id="addFiles" accept=".pdf,application/pdf" multiple hidden></label>
+    <button type="button" class="tool" id="refreshLibrary" title="Add PDFs you put into books/, papers/ or theses/ yourself (like running add_book.py)">⟳ Refresh</button>
+    <button type="button" class="tool" id="findOnline" title="Search for books, papers and theses online: DOI, title, author…">🔎 Find online</button>
     ${API.backup ? `<button type="button" class="tool" id="backup" title="Save your notes, progress and vocabulary to GitHub">☁ Back up</button>` : ""}
     <button type="button" class="tool" id="openSettings">⚙ Settings</button>
     <button type="button" class="tool" id="quit" title="Stop myLibrary">Quit</button>`;
-  document.getElementById("addFiles").addEventListener("change", async e => {
-    const files = [...e.target.files];
-    e.target.value = "";
-    for (const file of files) {
+  // Add PDFs, from the ＋ Add button or dropped onto the page; other files are skipped
+  async function addFiles(files) {
+    const isPdf = f => f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf";
+    for (const file of files.filter(isPdf)) {
       toast(`Adding ${file.name}…`);
       try {
         await upload(file);
@@ -778,7 +1151,129 @@ if (API) {
         toast(`Couldn't add ${file.name}: ${err.message}`);
       }
     }
+    const skipped = files.filter(f => !isPdf(f));
+    if (skipped.length) {  // last, so the "Adding …" messages don't hide it
+      toast(`Only PDFs can be added; skipped ${skipped.map(f => f.name).join(", ")}`);
+    }
     pollJobs();
+  }
+  // 🔎 Find online: search public catalogues; add free PDFs straight to the library
+  const findDialog = document.getElementById("findDialog");
+  const findQuery = document.getElementById("findQuery");
+  const findResults = document.getElementById("findResults");
+  const KIND_NAMES = {paper: "Paper", book: "Book", thesis: "Thesis", chapter: "Book chapter"};
+  let findFound = [];  // the results shown, for their buttons
+  function openFind(text) {
+    if (text) findQuery.value = text;
+    if (!findDialog.open) findDialog.showModal();
+    findQuery.focus();
+    if (text) runFind();
+  }
+  function resultHtml(r, i) {
+    const who = [authorLine(r), r.year, r.venue].filter(Boolean).map(esc).join(" · ");
+    const title = r.url ? `<a class="t" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>`
+      : `<span class="t">${esc(r.title)}</span>`;
+    const pdf = r.pdf || (r.free && /\.pdf($|\?)/i.test(r.free) ? r.free : "");
+    return `<div class="result">${title}
+      <div class="who">${who}</div>
+      <div class="acts">
+        <span class="chip-kind">${esc(KIND_NAMES[r.kind] || "Work")}</span>
+        ${r.in_library ? `<span class="owned">✓ In your library</span>` : ""}
+        ${r.cited ? `<span>cited ${r.cited.toLocaleString()}×</span>` : ""}
+        ${r.doi ? `<a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">DOI</a>` : ""}
+        ${r.free ? `<a href="${esc(r.free)}" target="_blank" rel="noopener" title="A free, legal copy (open access)">Free to read</a>` : ""}
+        ${pdf && !r.in_library ? `<button type="button" class="primary" data-get="${i}" title="Download the free PDF and add it">＋ Add to library</button>` : ""}
+        <a href="https://scholar.google.com/scholar?q=${encodeURIComponent(r.doi || r.title)}" target="_blank" rel="noopener">Google Scholar</a>
+      </div></div>`;
+  }
+  async function runFind() {
+    const query = findQuery.value.trim();
+    if (!query) return;
+    findResults.innerHTML = `<p class="status">Searching…</p>`;
+    document.getElementById("findEngines").innerHTML = "";
+    try {
+      const r = await api("/api/find-online", {query});
+      if (findQuery.value.trim() !== query) return;  // a newer search is on its way
+      document.getElementById("findEngines").innerHTML = "Also search on:"
+        + r.engines.map(e => `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.label)}</a>`).join("");
+      findFound = r.sections.flatMap(s => s.results);
+      let n = 0;
+      findResults.innerHTML = r.sections.length
+        ? r.sections.map(s => `<h3>${esc(s.title)}</h3>` + s.results.map(x => resultHtml(x, n++)).join("")).join("")
+        : `<p class="status">Nothing found for “${esc(query)}”. Try the search engines above.</p>`;
+    } catch (err) {
+      findResults.innerHTML = `<p class="status">Couldn't search (${esc(err.message)}). Are you online?</p>`;
+    }
+  }
+  document.getElementById("findOnline").addEventListener("click", () => openFind(""));
+  // ⟳ Refresh: PDFs copied into the library's folders by hand are identified and added
+  document.getElementById("refreshLibrary").addEventListener("click", async e => {
+    const button = e.currentTarget;
+    button.disabled = true;
+    try {
+      const r = await api("/api/refresh", {});
+      toast(r.message);
+      if (r.started) pollJobs();  // the page reloads itself when they're done
+      else refreshBooks();        // nothing new: still show the latest notes and progress
+    } catch (err) {
+      toast(`Couldn't refresh: ${err.message}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.getElementById("findClose").addEventListener("click", () => findDialog.close());
+  document.getElementById("findForm").addEventListener("submit", e => { e.preventDefault(); runFind(); });
+  findResults.addEventListener("click", async e => {
+    const get = e.target.closest("[data-get]");
+    if (!get) return;
+    const r = findFound[+get.dataset.get];
+    get.disabled = true;
+    get.textContent = "Adding…";
+    try {
+      await api("/api/download", {url: r.pdf || r.free, title: r.title});
+      toast(`Downloading “${r.title}”…`);
+      pollJobs();
+    } catch (err) {
+      toast(`Couldn't add it: ${err.message}`);
+      get.disabled = false;
+      get.textContent = "＋ Add to library";
+    }
+  });
+  grid.addEventListener("click", e => {
+    if (e.target.closest("[data-findonline]")) openFind(q.value.trim());
+  });
+  document.getElementById("addFiles").addEventListener("change", e => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    addFiles(files);
+  });
+  // Drag and drop: the drop zone shows while files are dragged over the page. dragenter and
+  // dragleave fire for every element crossed, so count them to know when the drag has left.
+  const dropzone = document.getElementById("dropzone");
+  const draggingFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
+  let dragDepth = 0;
+  window.addEventListener("dragenter", e => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    dropzone.hidden = false;
+  });
+  window.addEventListener("dragover", e => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();  // allows the drop (otherwise the browser opens the PDF itself)
+    e.dataTransfer.dropEffect = "copy";
+  });
+  window.addEventListener("dragleave", e => {
+    if (!draggingFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) dropzone.hidden = true;
+  });
+  window.addEventListener("drop", e => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    dropzone.hidden = true;
+    addFiles([...e.dataTransfer.files]);
   });
   document.getElementById("backup")?.addEventListener("click", async e => {
     const button = e.currentTarget;
@@ -792,6 +1287,7 @@ if (API) {
       button.disabled = false;
     }
   });
+  document.getElementById("clearArchive").addEventListener("click", clearArchive);
   document.getElementById("openSettings").addEventListener("click", () =>
     openSettings().catch(err => toast(`Couldn't open the settings: ${err.message}`)));
   document.getElementById("saveSettings").addEventListener("click", saveSettings);
@@ -814,7 +1310,21 @@ if (API) {
     document.body.innerHTML = `<div class="stopped"><h1>myLibrary has stopped</h1>
       <p>Start it again from the <b>myLibrary</b> shortcut on your Desktop or in the Start menu.</p></div>`;
   });
-  document.getElementById("jobs").addEventListener("click", e => {
+  document.getElementById("jobs").addEventListener("click", async e => {
+    if (e.target.closest("[data-history]")) {
+      historyOpen = !historyOpen;
+      try { localStorage.setItem("library-history-open", historyOpen ? "1" : "0"); } catch {}
+      return renderJobs(lastJobs);
+    }
+    if (e.target.closest("[data-clear-history]")) {
+      try {
+        lastJobs = (await api("/api/jobs", {clear: true})).jobs;
+        renderJobs(lastJobs);
+      } catch (err) {
+        toast(`Couldn't clear: ${err.message}`);
+      }
+      return;
+    }
     const fill = e.target.closest("[data-details]");
     if (fill) api("/api/jobs", {}).then(r => {
       const job = r.jobs.find(j => j.id === fill.dataset.details);
@@ -832,6 +1342,7 @@ async function refreshBooks() {
     const keepOpen = openLists();
     books.splice(0, books.length, ...fresh);
     stats();
+    renderFields();
     renderShelves();
     render();
     keepOpen.forEach(slug => grid.querySelector(`.card[data-slug="${CSS.escape(slug)}"] ol.chapters`)
@@ -853,6 +1364,7 @@ if (API) {
 }
 
 stats();
+renderFields();
 renderShelves();
 render();
 </script>

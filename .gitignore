@@ -12,6 +12,8 @@ library/books/*
 !library/books/.gitkeep
 library/papers/*
 !library/papers/.gitkeep
+library/theses/*
+!library/theses/.gitkeep
 
 # Which library the tool opens on this computer (see scripts/paths.py)
 local.toml

@@ -1,6 +1,6 @@
 [project]
 name = "myLibrary"
-version = "0.1.0"
+version = "0.2.0"
 description = "Study from your own PDF books: reading view with English-Chinese lookup, subject glossaries, search across your books, progress tracking and chapter notes"
 readme = "README.md"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -11,6 +11,7 @@ authors = [
 requires-python = ">=3.14"
 # What the library itself needs: reading PDFs, the reading view, adding books, OCR for scans
 dependencies = [
+    "cryptography>=46",  # opens copy-protected (AES-encrypted) publisher PDFs
     "onnxruntime>=1.31.1",  # runs the OCR model
     "pypdf>=6.21.4",
     "pypdfium2>=5.14.0",

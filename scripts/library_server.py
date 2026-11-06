@@ -38,6 +38,7 @@ from urllib.parse import unquote
 import backup
 import book_search
 import catalog
+import find_online
 import library_jobs
 import library_page
 import paths
@@ -311,7 +312,7 @@ def change_settings(updates: dict) -> dict:
 
 def pdf_url(base_url: str, file: str, page: int | None = None) -> str:
     """The reading view (PDF.js + word lookup) once it's set up, else the bare PDF; `file` is
-    the catalog's path in the library, books/<slug>.pdf or papers/<slug>.pdf."""
+    the catalog's path in the library, books/, papers/ or theses/<slug>.pdf."""
     if reading_view.missing():
         url = f"{base_url}/{file}"
     else:
@@ -512,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
         if found := reading_view.static_file(path):
             return self._send(HTTPStatus.OK, *found)
-        if m := re.fullmatch(r"/((?:books|papers)/[a-z0-9-]+\.pdf)", path):
+        if m := re.fullmatch(r"/((?:books|papers|theses)/[a-z0-9-]+\.pdf)", path):
             known = {r["file"] for r in catalog.load(CATALOG).values()}
             pdf = LIBRARY / m[1]
             if m[1] in known and pdf.exists():
@@ -537,7 +538,24 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/backup":
                 return self._json(HTTPStatus.OK, backup.back_up())
             if self.path == "/api/jobs":
+                if body.get("clear") is True:  # "Clear" in the History
+                    library_jobs.clear_history()
                 return self._json(HTTPStatus.OK, {"jobs": library_jobs.list_jobs()})
+            if self.path == "/api/archive":  # Settings: the archive's size; "Clear archive"
+                if body.get("clear") is True:
+                    return self._json(HTTPStatus.OK, library_jobs.clear_archive())
+                return self._json(HTTPStatus.OK, library_jobs.archive_summary())
+            if self.path == "/api/refresh":  # "⟳ Refresh": PDFs put into the folders by hand
+                return self._json(HTTPStatus.OK, library_jobs.refresh())
+            if self.path == "/api/find-online":  # "🔎 Find online": DOI, title, author, ...
+                return self._json(HTTPStatus.OK, find_online.find(str(body.get("query", ""))))
+            if self.path == "/api/download":  # add a free PDF found online
+                try:
+                    url, title = str(body.get("url", "")), str(body.get("title", ""))[:200]
+                    job = library_jobs.start_download(url, title)
+                except ValueError as e:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+                return self._json(HTTPStatus.OK, {"job": job})
             if self.path == "/api/add-details":
                 details = {k: str(body.get(k, ""))[:200] for k in ("title", "author", "year")}
                 job = library_jobs.continue_add(str(body.get("job", "")), details)

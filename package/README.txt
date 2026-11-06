@@ -10,8 +10,11 @@ myLibrary: study from your own PDF books
 2. 第一次启动会在桌面和开始菜单创建 “myLibrary” 快捷方式；以后用它们启动。
    The first start creates "myLibrary" shortcuts on the Desktop and in the Start menu;
    use those from then on.
-3. 书库页面会在浏览器中打开。点击 “＋ Add”（添加）选择你的 PDF（书或论文）。
-   The library page opens in your browser. Click "＋ Add" and choose your PDFs (books or papers).
+3. 书库页面会在浏览器中打开。点击 “＋ Add”（添加）选择你的 PDF（书、论文或学位论文），
+   或者直接把 PDF 拖到页面上。“🔎 Find online”（在线查找）可以用 DOI、书名、作者等在网上搜索。
+   The library page opens in your browser. Click "＋ Add" and choose your PDFs (books, papers
+   or theses), or just drag the PDFs onto the page. "🔎 Find online" searches the internet by
+   DOI, title, author and more.
 
 不需要安装 Python，也不需要命令行；查词词典和 PDF 阅读器都已包含，可离线使用。
 No Python or command line needed; the dictionary and PDF viewer are included and work offline.
