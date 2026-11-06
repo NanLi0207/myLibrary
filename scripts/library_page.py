@@ -363,7 +363,7 @@ dialog .row input { flex: 1; }
 dialog .end { justify-content: flex-end; margin-top: 20px; }
 dialog button { font: inherit; font-size: 13.5px; cursor: pointer; border-radius: 7px; padding: 6px 14px;
   border: 1px solid var(--line); background: none; color: var(--accent); }
-dialog button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+dialog button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 dialog .hint { color: var(--muted); font-size: 12.5px; margin: 4px 0 0; }
 dialog .check { display: flex; align-items: center; gap: 8px; }
 dialog .archive-row { align-items: center; justify-content: space-between; font-size: 13.5px; }
@@ -393,6 +393,31 @@ dialog.find { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48
 .find .status { color: var(--muted); font-size: 13.5px; margin: 14px 0; }
 .empty button { font: inherit; color: var(--accent); background: none; border: 1px solid var(--line);
   border-radius: 7px; padding: 3px 10px; cursor: pointer; margin-left: 6px; }
+/* 📇 Review words */
+.tool .count { font-size: 11.5px; background: var(--accent); color: var(--surface); border-radius: 9px;
+  padding: 0 6px; margin-left: 5px; }
+.tool .count[hidden] { display: none; }
+dialog.review { width: min(520px, calc(100vw - 32px)); }
+.review .top { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--muted); }
+.review .top h2 { margin: 0; }
+.review .top h2 small { font-size: 13px; font-weight: normal; color: var(--muted); }
+.review .top select { width: auto; max-width: 55%; }
+.review .flash { margin: 18px 0 6px; padding: 26px 20px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--bg); text-align: center; min-height: 170px; }
+.review .word { font-size: 30px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.review .phon { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+.review .phon button { border: none; padding: 0 4px; font-size: 16px; }
+.review .zh { font-size: 17px; margin: 18px 0 6px; line-height: 1.5; }
+.review .seen { font-size: 12.5px; color: var(--muted); }
+.review .seen a { color: var(--accent); }
+.review .answers { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
+.review .answers[hidden], .review .show[hidden] { display: none; }
+.review .answers button { flex: 1; max-width: 190px; padding: 9px 14px; }
+.review .answers .no { color: var(--warn); border-color: var(--warn); }
+.review .answers small, .review .show small { display: block; font-size: 11.5px; opacity: 0.75; }
+.review .show { display: block; margin: 16px auto 0; min-width: 200px; padding: 9px 14px; }
+.review .finished { text-align: center; padding: 20px 0 6px; line-height: 1.6; }
 .stopped { margin: 15vh auto; max-width: 520px; text-align: center; line-height: 1.6; }
 code { font-size: 12.5px; }
 </style>
@@ -443,6 +468,14 @@ code { font-size: 12.5px; }
     <b>＋ Add to library</b> appears when a free, legal copy (open access) can be downloaded.</p>
   <div class="engines" id="findEngines"></div>
   <div id="findResults"></div>
+</dialog>
+<dialog id="reviewDialog" class="review">
+  <div class="top">
+    <h2>复习生词 <small>Review words</small></h2>
+    <select id="reviewBook" title="Which words: all books, or one book"></select>
+  </div>
+  <div id="reviewBody"></div>
+  <div class="row end"><button type="button" id="reviewClose">关闭 Close</button></div>
 </dialog>
 <div class="dropzone" id="dropzone" hidden>
   <div>Drop PDFs here to add them<small>Books, papers and theses are recognised automatically</small></div>
@@ -1134,6 +1167,7 @@ if (API) {
       <input type="file" id="addFiles" accept=".pdf,application/pdf" multiple hidden></label>
     <button type="button" class="tool" id="refreshLibrary" title="Add PDFs you put into books/, papers/ or theses/ yourself (like running add_book.py)">⟳ Refresh</button>
     <button type="button" class="tool" id="findOnline" title="Search for books, papers and theses online: DOI, title, author…">🔎 Find online</button>
+    <button type="button" class="tool" id="openReview" title="复习生词 (Review words): the words you saved while reading, as cards (spaced repetition)">📇 Review words<span class="count" id="reviewCount" hidden></span></button>
     ${API.backup ? `<button type="button" class="tool" id="backup" title="Save your notes, progress and vocabulary to GitHub">☁ Back up</button>` : ""}
     <button type="button" class="tool" id="openSettings">⚙ Settings</button>
     <button type="button" class="tool" id="quit" title="Stop myLibrary">Quit</button>`;
@@ -1323,6 +1357,141 @@ if (API) {
     }
   });
   pollJobs();  // jobs still running from before a reload (e.g. a long OCR)
+
+  // 📇 Review words: the cards due today, one at a time. Space shows the meaning, then
+  // 1 = didn't know, 2 (or Space) = knew it; S says the word. The server picks when each
+  // word comes back (vocab_review.py).
+  const reviewDialog = document.getElementById("reviewDialog");
+  const reviewBody = document.getElementById("reviewBody");
+  const reviewBook = document.getElementById("reviewBook");
+  let reviewCards = [], reviewQueue = [], reviewShown = false, reviewDone = 0, reviewInfo = {};
+  async function loadReview() {
+    try {
+      reviewInfo = await api("/api/review", {});
+      reviewCards = reviewInfo.due;
+      const count = document.getElementById("reviewCount");
+      count.textContent = reviewCards.length;
+      count.hidden = !reviewCards.length;
+    } catch {}
+  }
+  function reviewFilter() {
+    const counts = new Map(), titles = new Map();
+    for (const c of reviewCards) for (const x of c.seen) {
+      if (!titles.has(x.slug)) titles.set(x.slug, x.title);
+    }
+    for (const c of reviewCards) for (const slug of new Set(c.seen.map(x => x.slug)))
+      counts.set(slug, (counts.get(slug) || 0) + 1);
+    const keep = reviewBook.value;
+    const short = t => t.length > 40 ? t.slice(0, 39) + "…" : t;
+    reviewBook.innerHTML = `<option value="">所有书 All books (${reviewCards.length})</option>`
+      + [...counts].map(([slug, n]) => `<option value="${esc(slug)}">${esc(short(titles.get(slug)))} (${n})</option>`).join("");
+    reviewBook.value = counts.has(keep) ? keep : "";
+  }
+  function startReview() {
+    const slug = reviewBook.value;
+    reviewQueue = reviewCards.filter(c => !slug || c.seen.some(x => x.slug === slug));
+    reviewDone = 0;
+    showCard();
+  }
+  function seenLine(card) {
+    return card.seen.map(x => {
+      const book = books.find(b => b.slug === x.slug);
+      const where = `${esc(x.title)}${x.page ? `, p. ${x.page}` : ""}`;
+      return book && !book.pdf_missing
+        ? `<a href="${esc(book.pdf_uri + (x.page ? `#page=${x.page}` : ""))}" target="_blank" rel="noopener" title="Open the book at this page">${where}</a>`
+        : where;
+    }).join(" · ");
+  }
+  function showCard() {
+    const card = reviewQueue[0];
+    if (!card) {
+      const left = reviewCards.length;
+      reviewBody.innerHTML = `<div class="finished">
+        <p><b>${reviewDone ? "今天复习完了 (Done for today)" : "现在没有要复习的词 (Nothing to review now)"}</b></p>
+        <p class="hint">${reviewDone ? `${reviewDone} answer${reviewDone === 1 ? "" : "s"}. ` : ""}`
+        + `${reviewInfo.total || 0} saved words in all, ${reviewInfo.learned || 0} learned (right 4 times in a row).`
+        + (left ? ` ${left} still due from other books.` : "")
+        + `<br>Save words while reading with <b>加入生词本</b> (Save word).</p></div>`;
+      return;
+    }
+    reviewShown = false;
+    const label = card.box === 0 ? "新词 (New word)" : `复习 (Review), box ${card.box}`;
+    reviewBody.innerHTML = `<div class="flash">
+        <p class="word">${esc(card.word)}</p>
+        <p class="phon">${card.phonetic ? `/${esc(card.phonetic)}/` : ""}
+          <button type="button" data-say title="读出来 (Say it): S">🔊</button></p>
+        <div id="reviewBack" hidden>
+          <p class="zh">${esc(card.zh || "—")}</p>
+          <p class="seen">${seenLine(card)}</p>
+        </div>
+      </div>
+      <p class="hint" style="text-align:center">${label} · ${reviewQueue.length} to go</p>
+      <button type="button" class="primary show" data-show>显示意思 (Show meaning)<small>Space</small></button>
+      <div class="answers" hidden>
+        <button type="button" class="no" data-knew="0">✗ 不认识<small>Didn't know · 1</small></button>
+        <button type="button" class="primary" data-knew="1">✓ 认识<small>Knew it · 2</small></button>
+      </div>`;
+    reviewBody.querySelector("[data-show]").focus();
+  }
+  function flip() {
+    if (reviewShown || !reviewQueue.length) return;
+    reviewShown = true;
+    document.getElementById("reviewBack").hidden = false;
+    reviewBody.querySelector("[data-show]").hidden = true;
+    reviewBody.querySelector(".answers").hidden = false;
+    reviewBody.querySelector("[data-knew='1']").focus();
+  }
+  let replying = false;
+  async function reply(knew) {
+    if (!reviewShown || replying) return;
+    replying = true;
+    const card = reviewQueue[0];
+    try {
+      await api("/api/review", {answer: {word: card.word, knew}});
+      reviewQueue.shift();
+      reviewDone++;
+      if (knew) reviewCards = reviewCards.filter(c => c !== card);
+      else reviewQueue.push(card);  // once more before the end of this round
+    } catch (err) {
+      toast(`Couldn't save the answer: ${err.message}`);
+    }
+    replying = false;
+    showCard();
+  }
+  function say(word) {
+    if (!("speechSynthesis" in window)) return toast("This browser can't read words aloud");
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(word);
+    u.lang = "en-US";
+    speechSynthesis.speak(u);
+  }
+  document.getElementById("openReview").addEventListener("click", async () => {
+    await loadReview();
+    reviewFilter();
+    startReview();
+    reviewDialog.showModal();
+    // showModal focuses the book menu (which ignores the keys): start on the card instead
+    reviewBody.querySelector("[data-show]")?.focus();
+  });
+  reviewBook.addEventListener("change", () => {
+    startReview();
+    reviewBody.querySelector("[data-show]")?.focus();
+  });
+  document.getElementById("reviewClose").addEventListener("click", () => reviewDialog.close());
+  reviewDialog.addEventListener("close", loadReview);  // the count on the button
+  reviewBody.addEventListener("click", e => {
+    if (e.target.closest("[data-show]")) flip();
+    else if (e.target.closest("[data-say]") && reviewQueue[0]) say(reviewQueue[0].word);
+    else if (e.target.closest("[data-knew]")) reply(e.target.closest("[data-knew]").dataset.knew === "1");
+  });
+  reviewDialog.addEventListener("keydown", e => {
+    if (e.target === reviewBook || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); reviewShown ? reply(true) : flip(); }
+    else if (e.key === "1") reply(false);
+    else if (e.key === "2") reply(true);
+    else if (e.key.toLowerCase() === "s" && reviewQueue[0]) say(reviewQueue[0].word);
+  });
+  loadReview();
 }
 
 // Coming back from reading: show the latest page, progress and ticks without a manual refresh.

@@ -97,7 +97,10 @@ Example: `shannon-1997-art-science-optical-design`. The slug is used (inside the
   `scripts/reader.py` + `scripts/reader_static/`. Glossaries rank first when they match the book's shelves, subject or field by word (`reader.book_subject_words`: "Advanced optical system
   design" matches the `optics` glossary; the user's is `optics.csv`, label "光学 Optics": extend
   it with real optics terms). Full-text search of all books per page: `scripts/book_search.py` (index in the
-  library's `.cache/books.db`). Saved words: `notes/<slug>/vocabulary.md`. Topic notes
+  library's `.cache/books.db`). Saved words: `notes/<slug>/vocabulary.md`;
+  📇 Review words (library page, `scripts/vocab_review.py`, `/api/review`) turns them into
+  spaced-repetition cards (one per word across books; Leitner boxes `BOX_DAYS`; progress in
+  the library's `notes/vocabulary-review.json`; never edits the vocabulary files). Topic notes
   (📝 主题笔记 / Topic note in the popup): `notes/topics/<term>.md`, created with book + page
   references only (never book text). These are the user's own work: never delete them.
   `library.html` is the static read-only copy (built by `scripts/library_page.py`, rebuilt by

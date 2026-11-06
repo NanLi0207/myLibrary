@@ -29,6 +29,10 @@ No Python or command line needed; the dictionary and PDF viewer are included and
   "📚 在我的书中" (In my books): the pages of all your books that explain the term.
 - “加入生词本”（Save word）把单词加入这本书的生词本。
   "加入生词本" (Save word) adds the word to the book's vocabulary list.
+- 书库页上的“📇 Review words”（复习生词）把保存的生词做成卡片复习：空格键显示意思，
+  认识按 2，不认识按 1。认识的词会隔 1、3、7、14、30、60 天再出现。
+  "📇 Review words" on the library page turns your saved words into cards: Space shows the
+  meaning, 2 = knew it, 1 = didn't. Words you know come back after 1, 3, 7, 14, 30, 60 days.
 - “＋ 加入术语表”（Add to glossary）：添加你自己学科的术语和中文译名。
   "＋ 加入术语表" (Add to glossary): add your subject's terms with their Chinese names.
 - 阅读位置会自动保存；下次点击 “Continue · p. N” 回到原处。

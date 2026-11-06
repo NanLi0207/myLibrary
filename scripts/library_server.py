@@ -43,6 +43,7 @@ import library_jobs
 import library_page
 import paths
 import reader as reading_view
+import vocab_review
 from add_book import short_title
 from book_ocr import has_text_layer
 from book_toc import CHAPTER_TITLE_RE, contents_pages, scanned_chapter_pages, tidy
@@ -577,6 +578,14 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/quit":
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return self._json(HTTPStatus.OK, {"message": "myLibrary has stopped"})
+            if self.path == "/api/review":  # 📇 Review words: the cards due; an answer
+                if isinstance(body.get("answer"), dict):
+                    word = str(body["answer"].get("word", ""))[:200]
+                    knew = body["answer"].get("knew")
+                    if not isinstance(knew, bool):
+                        return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad answer"})
+                    return self._json(HTTPStatus.OK, vocab_review.answer(LIBRARY, word, knew))
+                return self._json(HTTPStatus.OK, vocab_review.summary(LIBRARY, CATALOG))
             if self.path == "/api/lookup":
                 text, context = str(body.get("text", "")), str(body.get("context", ""))[:1000]
                 book = body.get("slug") if isinstance(body.get("slug"), str) else None

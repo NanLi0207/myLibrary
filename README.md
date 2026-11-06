@@ -301,6 +301,18 @@ popup and press Enter.
 (渐晕 is Chinese for *vignetting*.) The 中文 (Chinese) column takes the glossary meaning if
 there is one. Each word is saved once per book.
 
+### 复习生词 (Review words)
+
+**📇 Review words** on the library page (the number shows how many are due) turns the saved
+words of all your books into cards. A card shows the word and its phonetic (🔊 or **S** says
+it); **Space** shows the Chinese meaning and where you met it (book and page, a link that opens
+the book there). Then **认识** (Knew it, **2** or Space) or **不认识** (Didn't know, **1**):
+a word you knew comes back after 1, 3, 7, 14, 30, then 60 days; one you didn't comes back once
+more in the same round and again tomorrow. The menu at the top picks one book's words. The
+same word saved in two books is one card. Your progress is in
+`notes/vocabulary-review.json`, so it's backed up with your notes; the vocabulary files
+themselves are never changed.
+
 ### From the terminal
 
 ```powershell
@@ -573,6 +585,7 @@ myLibrary/                   the tool (this repository)
 ├── theses/<slug>.pdf        your theses (never in git either)
 ├── notes/<slug>/            per book: notes, ticks, last-read page, vocabulary
 ├── notes/topics/            your topic notes, across books
+├── notes/vocabulary-review.json   your progress in 📇 Review words
 ├── glossaries/              your subject glossaries (*.csv) and glossaries.toml
 ├── examples/<slug>/         your chapter scripts (created with "Script")
 ├── code/                    your reusable Python code, by subject, and its tests
