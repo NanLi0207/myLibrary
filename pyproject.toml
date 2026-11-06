@@ -1,6 +1,6 @@
 [project]
 name = "myLibrary"
-version = "0.2.3"
+version = "0.2.4"
 description = "Study from your own PDF books: reading view with English-Chinese lookup, subject glossaries, search across your books, progress tracking and chapter notes"
 readme = "README.md"
 license = "PolyForm-Noncommercial-1.0.0"
