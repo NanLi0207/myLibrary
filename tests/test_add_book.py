@@ -108,6 +108,8 @@ def test_isbn_detection():
         "9780306406157",
     ]
     assert find_isbns("phone 1234567890") == []  # bad checksum
+    # a text layer with each piece on its own line (Geary's copyright page)
+    assert find_isbns("ISBN\n0\n-\n943396\n-\n75\n-\n1\n1\n.\nLenses") == ["0943396751"]
 
 
 def test_catalog_row_written_and_updated(tmp_path):

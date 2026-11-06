@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| Author | Smith W.J. |
+| Author | Warren J. Smith |
 | Year | 1992 |
-| Publisher | ? |
+| Publisher | McGraw-Hill |
 | File | `books/smith-1992-modern-lens-design.pdf` |
 
 ## Reading progress

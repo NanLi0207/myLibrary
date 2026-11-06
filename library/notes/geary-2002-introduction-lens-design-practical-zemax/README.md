@@ -9,6 +9,8 @@
 
 ## Reading progress
 
+Last read: page 1, 2026-11-06
+
 - [ ] [Ch 1: Agenda](ch01-agenda.md)
 - [ ] [Ch 2: Zemax](ch02-zemax.md)
 - [ ] [Ch 3: Conventions and Aspheres](ch03-conventions-aspheres.md)

@@ -27,8 +27,11 @@ from pypdf import PdfReader
 
 FRONT_PAGES = 12  # the title and copyright pages are near the front
 YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+# Between digit groups: a hyphen or a space; some text layers put each piece on its own line
+# ("0\n-\n943396\n-\n75\n-\n1")
+_ISBN_SEP = r"(?:\s*-\s*|\s)?"
 ISBN_RE = re.compile(
-    r"(?:ISBN(?:-1[03])?[:\s]*|isbn13\s*)?\b((?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx])\b"
+    rf"(?:ISBN(?:-1[03])?[:\s]*|isbn13\s*)?\b((?:97[89]{_ISBN_SEP})?(?:\d{_ISBN_SEP}){{9}}[\dXx])\b"
 )
 # A DOI: "10." + registrant + "/" + suffix (e.g. 10.1364/OE.27.012345)
 DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"<>]+)", re.IGNORECASE)
