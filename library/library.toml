@@ -5,9 +5,13 @@ name = "Nan's library"
 # "shelves", or the Shelves button on the library page). Each label is shown on the
 # library page: Chinese with its English translation.
 [shelves]
-Optics = "光学 Optics"
-"Lens design" = "镜头设计 Lens design"
-Lasers = "激光 Lasers"
-"Stray light" = "杂散光 Stray light"
-Optomechanics = "光机设计 Optomechanics"
-Materials = "材料 Materials"
+# Shelves are made from each item's subject (OpenAlex topics, see README); here they get
+# their Chinese names. Add a line for a new subject to name it in Chinese too.
+"Advanced optical system design" = "先进光学系统设计 Advanced optical system design"
+"Optical Systems and Laser Technology" = "光学系统与激光技术 Optical Systems and Laser Technology"
+"Laser Material Processing Techniques" = "激光材料加工技术 Laser Material Processing Techniques"
+"Weed Control and Herbicide Applications" = "杂草防治与除草剂应用 Weed Control and Herbicide Applications"
+"Agricultural Engineering and Mechanization" = "农业工程与机械化 Agricultural Engineering and Mechanization"
+"Smart Agriculture and AI" = "智慧农业与人工智能 Smart Agriculture and AI"
+"Railway Engineering and Dynamics" = "铁路工程与动力学 Railway Engineering and Dynamics"
+"Software Engineering Techniques and Practices" = "软件工程技术与实践 Software Engineering Techniques and Practices"
