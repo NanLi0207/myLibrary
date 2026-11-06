@@ -42,13 +42,17 @@ SETTINGS_DEFAULTS = {
 }
 
 
+def _saved() -> dict:
+    """What the settings file holds ({} without one)."""
+    if not SETTINGS_FILE.exists():
+        return {}
+    with open(SETTINGS_FILE, "rb") as f:
+        return tomllib.load(f)
+
+
 def load_settings() -> dict:
     """The settings file merged over the defaults."""
-    saved = {}
-    if SETTINGS_FILE.exists():
-        with open(SETTINGS_FILE, "rb") as f:
-            saved = tomllib.load(f)
-    return SETTINGS_DEFAULTS | saved
+    return SETTINGS_DEFAULTS | _saved()
 
 
 def _toml_value(value) -> str:
@@ -67,11 +71,7 @@ def save_settings(updates: dict) -> dict:
         raise ValueError(f"unknown settings: {', '.join(sorted(unknown))}")
     if "editor" in updates and updates["editor"] not in EDITORS:
         raise ValueError(f"editor must be one of {', '.join(EDITORS)}")
-    saved = {}
-    if SETTINGS_FILE.exists():
-        with open(SETTINGS_FILE, "rb") as f:
-            saved = tomllib.load(f)
-    saved |= updates
+    saved = _saved() | updates
     lines = ["# myLibrary settings (see scripts/paths.py)"]
     lines += [f"{key} = {_toml_value(value)}" for key, value in saved.items()]
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -127,11 +127,12 @@ LIBRARY_TOML = """# This library's settings.
 name = "My library"
 
 # Shelves group your books by subject; a book can be on several (catalog.csv, column
-# "shelves", e.g. "Optics; Lasers"). Give a shelf a label to show on the library page,
+# "shelves"). Each new item is put on its subject's shelf (from OpenAlex), and you can add
+# your own with the Shelves button. Give a shelf a label to show on the library page,
 # Chinese with its English translation, e.g.:
 #
 # [shelves]
-# Optics = "光学 Optics"
+# "Advanced optical system design" = "先进光学系统设计 Advanced optical system design"
 """
 
 
@@ -147,13 +148,6 @@ def ensure_library(library: Path | None = None) -> Path:
         save_settings({"library": library.as_posix()})
         print(f"New library created: {library}")
     return library
-
-
-def _saved() -> dict:
-    if not SETTINGS_FILE.exists():
-        return {}
-    with open(SETTINGS_FILE, "rb") as f:
-        return tomllib.load(f)
 
 
 # The VS Code window notes and scripts open in: the whole project when the library is inside

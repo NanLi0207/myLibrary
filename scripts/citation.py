@@ -63,6 +63,13 @@ def _pages(row: dict, dash: str = "–") -> str:
     return row.get("page_range", "").replace("-", dash)
 
 
+def _vol_issue(row: dict, before: str = "") -> str:
+    """'27(8)' (volume and issue) after `before`, or '' without a volume."""
+    if not row.get("volume"):
+        return ""
+    return f"{before}{row['volume']}" + (f"({row['issue']})" if row.get("issue") else "")
+
+
 def _lead(who: str, sep: str) -> str:
     """The authors and their separator, or nothing for a work without authors."""
     return f"{who}{sep}" if who else ""
@@ -107,18 +114,14 @@ def apa(row: dict) -> str:
     if not names:  # APA: no author, so the title comes first
         who, title = title, ""
     doi = f" https://doi.org/{row['doi']}" if row.get("doi") else ""
-    where = ""
-    if _is_paper(row):
-        where = row.get("journal", "")
-        if row.get("volume"):
-            where += f", {row['volume']}" + (f"({row['issue']})" if row.get("issue") else "")
-        if row.get("page_range"):
-            where += f", {_pages(row)}"
     if _is_thesis(row):  # Doe, J. (2011). Title [Doctoral dissertation, University]. DOI
         where = ", ".join(filter(None, (_thesis_name(row, 0), row.get("institution", ""))))
         return f"{who} ({year})." + (f" {title}" if title else "") + f" [{where}].{doi}"
     head = f"{who} ({year})." + (f" {title}." if title else "")
     if _is_paper(row):
+        where = row.get("journal", "") + _vol_issue(row, ", ")
+        if row.get("page_range"):
+            where += f", {_pages(row)}"
         return f"{head} {where}.{doi}" if where else f"{head}{doi}"
     publisher = f" {row['publisher']}." if row.get("publisher") else ""
     return f"{head}{publisher}{doi}"
@@ -172,8 +175,7 @@ def gbt(row: dict) -> str:
         publisher = f"{row['publisher']}, " if row.get("publisher") else ""
         return f"{_lead(who, '. ')}{title}[M]. {publisher}{year}."
     where = f"{row.get('journal', '')}, {year}"
-    if row.get("volume"):
-        where += f", {row['volume']}" + (f"({row['issue']})" if row.get("issue") else "")
+    where += _vol_issue(row, ", ")
     if row.get("page_range"):
         where += f": {_pages(row, '-')}"
     doi = f" DOI:{row['doi']}." if row.get("doi") else ""
@@ -209,8 +211,8 @@ def bibtex(row: dict) -> str:
         "doi": row.get("doi", ""),
     }
     kind = "article" if is_paper and fields["journal"] else ("misc" if is_paper else "book")
-    if is_thesis:
-        kind = "phdthesis" if degree == "PhD" else ("mastersthesis" if degree else "phdthesis")
+    if is_thesis:  # @mastersthesis also serves bachelor's and diploma theses
+        kind = "mastersthesis" if degree not in ("", "PhD") else "phdthesis"
     lines = [f"  {name} = {{{value}}}," for name, value in fields.items() if value]
     return f"@{kind}{{{key},\n" + "\n".join(lines) + "\n}"
 

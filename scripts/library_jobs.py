@@ -17,8 +17,7 @@ import library_page
 import ocr_pdf
 import shelves
 import subjects
-from book_meta import fill_gaps, identify
-from pypdf import PdfReader
+from book_meta import identify
 
 MAX_UPLOAD = 1_000_000_000  # 1 GB: bigger than any book, smaller than a mistake
 _jobs: dict[str, dict] = {}
@@ -42,7 +41,7 @@ HISTORY = 50  # finished jobs kept for the page's History (since the server star
 
 
 def _active(job: dict) -> bool:
-    return job["status"] in ("working", "needs_details")
+    return job["status"] == "working"
 
 
 def list_jobs() -> list[dict]:
@@ -94,7 +93,7 @@ def save_upload(name: str, data: bytes) -> Path:
 def start_add(path: Path) -> dict:
     """Identify, name and register an uploaded book (in the background)."""
     job = _new_job("add", file=path.name, path=str(path), message="Identifying the book…")
-    _in_background(_add, job, path, {})
+    _in_background(_add, job, path)
     return job
 
 
@@ -129,7 +128,7 @@ def _download(job: dict, url: str, name: str) -> None:
         _finish(job, "error", f"Couldn't download it: {e}")
         return
     _update(job, path=str(path), message="Identifying…")
-    _add(job, path, {})
+    _add(job, path)
 
 
 def refresh() -> dict:
@@ -138,14 +137,12 @@ def refresh() -> dict:
     (renamed by hand) get their notes and catalog row. One after another in the background
     (they all write catalog.csv), each with its own line in the jobs panel."""
     with _lock:  # files a job is already working on (e.g. Refresh clicked twice)
-        busy = {j.get("path") for j in _jobs.values()
-                if j["status"] in ("working", "needs_details")}  # fmt: skip
+        busy = {j.get("path") for j in _jobs.values() if _active(j)}
     new = [p for p in add_book.library_pdfs()
            if not add_book.SLUG_RE.match(p.stem) and str(p) not in busy]  # fmt: skip
     named = [p for p in add_book.unregistered_named_books() if str(p) not in busy]
     steps = [
-        (_add, _new_job("add", file=p.name, path=str(p), message="Waiting…", by_hand=True), p, {})
-        for p in new
+        (_add, _new_job("add", file=p.name, path=str(p), message="Waiting…"), p) for p in new
     ] + [
         (_register, _new_job("add", file=p.name, path=str(p), message="Waiting…"), p) for p in named
     ]
@@ -166,8 +163,7 @@ def refresh() -> dict:
         what += [f"looking up the subjects of {len(todo)} items"] if todo else []
         return {"started": len(steps), "message": "; ".join(what).capitalize() + note}
     library_page.build()  # nothing new: still bring the static copy up to date
-    return {"started": 0, "repeats": len(repeats),
-            "message": f"Nothing new: every PDF is already in the library{note}"}  # fmt: skip
+    return {"started": 0, "message": f"Nothing new: every PDF is already in the library{note}"}
 
 
 def _classify_all(job: dict, slugs: list[str]) -> None:
@@ -179,7 +175,7 @@ def _classify_all(job: dict, slugs: list[str]) -> None:
             _update(job, message=f"Looking up subjects: {n} of {len(slugs)}")
             if subjects.classify(slug, add_book.LIBRARY, add_book.CATALOG):
                 found += 1
-            topic = shelves.add_topic_shelf(slug, add_book.LIBRARY, add_book.CATALOG)
+            topic = shelves.add_topic_shelf(slug, add_book.CATALOG)
             if topic or shelves.auto_shelve(slug, add_book.LIBRARY, add_book.CATALOG):
                 shelved.append(slug)
         library_page.build()
@@ -195,6 +191,17 @@ def _one_after_another(steps: list) -> None:
         target(job, *args)
 
 
+def _identify(path: Path):
+    """identify() for a file in the library: one in papers/ or theses/ is a paper / thesis even
+    if nobody knows it."""
+    return identify(
+        path,
+        online=True,
+        paper=path.parent == add_book.PAPERS,
+        thesis=path.parent == add_book.THESES,
+    )
+
+
 def _register(job: dict, path: Path) -> None:
     """A PDF already named like a slug (e.g. renamed by hand) but not in the catalog yet: keep
     its name, add its notes and catalog row."""
@@ -202,24 +209,10 @@ def _register(job: dict, path: Path) -> None:
         _finish(job, "error", f"Not added: {problem}; the file was left as it is")
         return
     try:
-        meta = identify(
-            path,
-            online=True,
-            paper=path.parent == add_book.PAPERS,
-            thesis=path.parent == add_book.THESES,
-        )
+        meta = _identify(path)
         if repeat := add_book.repeat_of(path, meta):
-            return _archived_repeat(job, path, *repeat, meta=meta)
+            return _repeat(job, path, meta, *repeat)
         book = add_book.Book(meta.title, meta.author, meta.year, meta.publisher)
-        missing = [k for k in ("title", "author", "year") if not getattr(book, k)]
-        if missing:  # its name says them: "<author>-<year>-<title words>"
-            author, year, *words = path.stem.split("-")
-            book = add_book.Book(
-                book.title or " ".join(words).capitalize(),
-                book.author or author.capitalize(),
-                book.year or year,
-                book.publisher,
-            )
         add_book.setup_book(path, book, meta)
         library_page.build()
         _in_background(book_search.update)
@@ -239,24 +232,16 @@ def _on_shelves(slug: str) -> str:
     )
 
 
-def _archived_repeat(job: dict, path: Path, slug: str, reason: str, meta=None) -> None:
-    """A copy of something already in the library: never added twice. If it offers more
-    (searchable text, more details, ...), it replaces the library's PDF, keeping your notes and
-    progress; otherwise it's moved to archive/."""
+def _repeat(job: dict, path: Path, meta, slug: str, reason: str) -> None:
+    """A copy of something already in the library: never added twice (add_book.handle_repeat:
+    a better file replaces the library's PDF, otherwise it goes to archive/)."""
     title = catalog.load(add_book.CATALOG).get(slug, {}).get("title") or slug
-    if meta is not None and (better := add_book.richer_than_library(path, meta, slug)):
-        old = add_book.replace_pdf(slug, path, meta)
+    replaced, what = add_book.handle_repeat(path, meta, slug)
+    if replaced:
         library_page.build()
         _in_background(book_search.update)
-        _finish(job, "done", f"“{title}” was already in the library ({reason}); this copy has "
-                f"{better}, so it replaces the PDF (your notes stay; the old PDF is in "
-                f"archive/{old.parent.name}/)", slug=slug)  # fmt: skip
-        return
-    added = add_book.fill_details(slug, meta) if meta is not None else []
-    kept = add_book.archive_repeat(path)
-    details = f"; added its {', '.join(added)} to the entry" if added else ""
-    _finish(job, "duplicate", f"Already in the library as “{title}” ({reason}){details}; this "
-            f"copy was moved to archive/{kept.parent.name}/{kept.name}", slug=slug)  # fmt: skip
+    status = "done" if replaced else "duplicate"
+    _finish(job, status, f"Already in the library as “{title}” ({reason}); {what}", slug=slug)
 
 
 def check_catalog_repeats() -> list[dict]:
@@ -326,8 +311,8 @@ def archive_summary() -> dict:
 def clear_archive() -> dict:
     """Delete the archived documents (removed books and papers, repeats, original scans) and
     empty note templates; keep everything that holds your own work."""
-    summary = archive_summary()
-    delete, _ = _archive_plan()
+    delete, kept = _archive_plan()
+    summary = {"files": len(delete), "bytes": sum(f.stat().st_size for f in delete), "kept": kept}
     for f in delete:
         f.unlink()
     archive = add_book.ARCHIVE
@@ -339,47 +324,18 @@ def clear_archive() -> dict:
     return summary
 
 
-def continue_add(job_id: str, details: dict) -> dict:
-    """The page filled in what couldn't be found (title / author / year): register now."""
-    with _lock:
-        job = _jobs.get(job_id)
-    if not job or job["status"] != "needs_details":
-        raise ValueError("no book is waiting for details")
-    _update(job, status="working", message="Registering the book…")
-    _in_background(_add, job, Path(job["path"]), details)
-    return job
-
-
-def _add(job: dict, path: Path, details: dict) -> None:
+def _add(job: dict, path: Path) -> None:
     if problem := add_book.unreadable(path):  # nothing registered, the file left as it is
         _finish(job, "error", f"Not added: {problem}; the file was left as it is")
         return
     try:
-        # A file put into papers/ or theses/ by hand is a paper / thesis even if nobody knows it
-        meta = identify(
-            path,
-            online=True,
-            paper=path.parent == add_book.PAPERS,
-            thesis=path.parent == add_book.THESES,
-        )
-        # identify() never leaves title, author or year empty, so nothing is asked; this is
-        # only a safety net (from the filename and the file's date)
-        fill_gaps(meta, path, {})
-        book = add_book.Book(
-            (details.get("title") or meta.title).strip(),
-            (details.get("author") or meta.author).strip(),
-            (details.get("year") or meta.year).strip(),
-            meta.publisher,
-        )
-        target = add_book.folder_for(meta.kind) / f"{book.slug}.pdf"
-        taken = any(f.exists() and f != path for f in (d / target.name for d in add_book.folders()))
-        if repeat := add_book.repeat_of(path, meta, book.slug) or (
-            (book.slug, "same author, year and title") if taken else None
-        ):
-            return _archived_repeat(job, path, *repeat, meta=meta)
-        add_book.add_book(path, book, dry_run=False, meta=meta)
+        meta = _identify(path)  # never leaves the title, author or year empty
+        book = add_book.Book(meta.title.strip(), meta.author.strip(), meta.year.strip(),
+                             meta.publisher)  # fmt: skip
+        if repeat := add_book.find_repeat(path, meta, book):
+            return _repeat(job, path, meta, *repeat)
+        target = add_book.file_book(path, book, meta)
         scan = ocr_pdf.needs_ocr(target)
-        pages = len(PdfReader(target).pages)
         library_page.build()
         _in_background(book_search.update)  # make it searchable (在我的书中 / In my books)
         _finish(
@@ -389,11 +345,9 @@ def _add(job: dict, path: Path, details: dict) -> None:
             + _on_shelves(book.slug)
             + (" (a scan: OCR recommended)" if scan else ""),
             slug=book.slug,
-            title=book.title,
             scan=scan,
-            minutes=round(ocr_pdf.ocr_minutes(pages)) if scan else 0,
         )
-    except Exception as e:  # shown on the page; the uploaded file stays in books/
+    except Exception as e:  # shown on the page (in the History)
         _finish(job, "error", f"Couldn't add {path.name}: {e}")
 
 
@@ -424,5 +378,5 @@ def _ocr(job: dict, pdf: Path) -> None:
         book_search.update()
         library_page.build()
         _finish(job, "done", "OCR finished: the book can now be searched and looked up")
-    except Exception as e:
-        _finish(job, "error", f"OCR failed: {e}")
+    except (Exception, SystemExit) as e:  # SystemExit: the PDF is open elsewhere (ocr_pdf)
+        _finish(job, "error", f"OCR failed: {str(e).strip(' !')}")

@@ -21,6 +21,7 @@ import paths
 import subjects
 import thesis_meta
 from book_ocr import has_text_layer
+from ocr_pdf import ocr_minutes
 from pypdf import PdfReader
 
 LIBRARY = paths.LIBRARY
@@ -35,9 +36,21 @@ LAST_READ_RE = re.compile(
 )
 
 
+def readme_path(slug: str) -> Path:
+    """notes/<slug>/README.md: a book's details, progress and "Last read" line."""
+    return LIBRARY / "notes" / slug / "README.md"
+
+
+def chapter_line(number: int, boxes: str = " xX") -> re.Pattern:
+    """The checklist line of chapter `number` in a notes README ("Read the paper" is chapter 1),
+    with one of `boxes` in its checkbox; group 1 is the text after the box."""
+    paper = rf"|\[{re.escape(PAPER_ITEM)}\]" if number == 1 else ""
+    return re.compile(rf"^- \[[{boxes}]\] (\[?Ch(?:apter)?\.?\s*{number}:{paper})", re.MULTILINE)
+
+
 def last_read(slug: str) -> dict | None:
     """{page, chapter, date} from the "Last read:" line in notes/<slug>/README.md."""
-    readme = LIBRARY / "notes" / slug / "README.md"
+    readme = readme_path(slug)
     if not readme.exists():
         return None
     m = LAST_READ_RE.search(readme.read_text(encoding="utf-8"))
@@ -45,7 +58,7 @@ def last_read(slug: str) -> dict | None:
 
 
 def chapters(slug: str) -> list[dict]:
-    readme = LIBRARY / "notes" / slug / "README.md"
+    readme = readme_path(slug)
     return chapters_in(readme.read_text(encoding="utf-8")) if readme.exists() else []
 
 
@@ -106,6 +119,7 @@ def books(pdf_base: str | None = None) -> list[dict]:
     result = []
     for row in catalog.load(CATALOG).values():
         pdf = LIBRARY / row["file"]
+        scan, pages = scan_info(pdf)
         result.append(
             row
             | {
@@ -114,12 +128,12 @@ def books(pdf_base: str | None = None) -> list[dict]:
                 "kind": row.get("type") or "book",
                 "field_label": subjects.field_label(row.get("field") or ""),
                 "citations": citation.all_formats(row),
-                "scan": scan_info(pdf)[0],
-                "ocr_minutes": max(1, round(scan_info(pdf)[1] * 1.5 / 60)),
+                "scan": scan,
+                "ocr_minutes": max(1, round(ocr_minutes(pages))),
                 "last_read": last_read(row["slug"]),
                 # When the notes README last changed (reading position, ticks): orders books
                 # read on the same day for "Sort: recently read"
-                "touched": _mtime(LIBRARY / "notes" / row["slug"] / "README.md"),
+                "touched": _mtime(readme_path(row["slug"])),
                 "pdf_missing": not pdf.exists(),
                 "pdf_uri": f"{pdf_base}/{row['file']}" if pdf_base else pdf.as_uri(),
                 "notes_uri": "vscode://file/"
@@ -252,7 +266,6 @@ header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.01em; }
 .meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip.shelf { background: var(--done); color: #fff; }
-.meta .kind { color: var(--accent); font-weight: 600; }
 .chip.kw { background: none; color: var(--muted); border: 1px solid var(--line); }
 .cite-wrap { position: relative; display: inline-flex; }
 .cite-menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; width: min(440px, 80vw);
@@ -556,19 +569,18 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") closeCiteMenus();
 });
 
-// The shelf bar: All, then every shelf in use, with how many books are on it
 // The Field menu: the fields your items are in (from OpenAlex), "中文 English"
 const fieldSelect = document.getElementById("field");
 let field = "";
 try { field = localStorage.getItem("library-field") || ""; } catch {}
 // Both menus show how many items each choice has: the type menu within the chosen field, the
 // Field menu within the chosen type (so the numbers match what you'd see)
-const KIND_NAMES = {"": "All", book: "Books", paper: "Papers", thesis: "Theses"};
+const MENU_KINDS = {"": "All", book: "Books", paper: "Papers", thesis: "Theses"};
+const isKind = (b, kind) => !kind || b.kind === kind;  // books() always gives a kind
 function renderFields() {
-  const isKind = (b, kind) => !kind || (b.kind || "book") === kind;
   for (const option of kindSelect.options) {
     const n = books.filter(b => isKind(b, option.value) && (!field || b.field === field)).length;
-    option.textContent = `${KIND_NAMES[option.value]} (${n})`;
+    option.textContent = `${MENU_KINDS[option.value]} (${n})`;
   }
   const all = new Map(), shown = new Map();
   for (const b of books) {
@@ -586,8 +598,7 @@ function renderFields() {
   }).join("");
   fieldSelect.value = field;
 }
-const inKindAndField = b => (!kindSelect.value || (b.kind || "book") === kindSelect.value)
-  && (!field || b.field === field);
+const inKindAndField = b => isKind(b, kindSelect.value) && (!field || b.field === field);
 
 // The shelf bar: All, then every shelf in use among the items shown (kind and field), with
 // how many items each has
@@ -631,15 +642,23 @@ function readButton(b) {
   return `<button type="button" class="read" data-read="${next?.number ?? ""}">${label}</button>`;
 }
 
+// How far along, as text: "37%" ("<1%" just started)
+const pctText = b => `${Math.round(pct(b) * 100) || "<1"}%`;
+// The DOI as a link to its page
+const doiLink = (b, title = "Its page at the publisher or university") =>
+  `<a href="https://doi.org/${esc(b.doi)}" target="_blank" rel="noopener" title="${title}">DOI ${esc(b.doi)}</a>`;
+// "工程 Engineering ›", then the subject's name when it isn't one of the item's shelves
+const subjectSpan = (b, tag, withTopic) =>
+  `<${tag} class="subject" title="Subject (OpenAlex), how sure: ${esc(b.topic_score)}">${esc(b.field_label)} ›${
+    withTopic ? ` ${esc(shelfLabel(b.topic))}` : ""}</${tag}>`;
+
 function chapterItem(c) {
   const tick = API
     ? `<input type="checkbox" data-tick="${c.number}" ${c.done ? "checked" : ""} aria-label="Read">`
     : `<span class="tick">${c.done ? "✓" : ""}</span>`;
-  const read = API && c.number != null && !API.python
-    ? `<button type="button" data-read="${c.number}">Read</button>`
-    : API && c.number != null
-    ? `<button type="button" data-read="${c.number}">Read</button>`
-      + `<button type="button" data-script="${c.number}" title="A Python script to check this chapter's worked examples">Script</button>`
+  const read = API && c.number != null
+    ? `<button type="button" data-read="${c.number}">Read</button>` + (API.python
+      ? `<button type="button" data-script="${c.number}" title="A Python script to check this chapter's worked examples">Script</button>` : "")
     : "";
   return `<li class="${c.done ? "done" : ""}">${tick}<span class="name">${esc(c.title)}</span>${read}</li>`;
 }
@@ -657,15 +676,15 @@ function card(b, inList = false) {
   const details = [
     !inList && venue ? `<span>${esc(venue)}</span>` : "",
     b.isbn ? `<span>ISBN ${esc(b.isbn)}</span>` : "",
-    b.doi ? `<a href="https://doi.org/${esc(b.doi)}" target="_blank" rel="noopener" title="Its page at the publisher or university">DOI ${esc(b.doi)}</a>` : "",
+    b.doi ? doiLink(b) : "",
   ].filter(Boolean).join("");
   const keywords = (isPaper(b) || isThesis(b)) && b.keywords
     ? b.keywords.split(";").map(k => k.trim()).filter(Boolean).slice(0, 6).map(k => `<span class="chip kw">${esc(k)}</span>`).join("") : "";
   const shelfTags = (b.field_label && b.shelf_list.includes(b.topic)
-      ? `<span class="subject" title="Subject (OpenAlex), how sure: ${esc(b.topic_score)}">${esc(b.field_label)} ›</span>` : "")
+      ? subjectSpan(b, "span", false) : "")
     + b.shelf_list.map(s => `<span class="chip shelf">${esc(shelfLabel(s))}</span>`).join("");
   const progress = (isPaper(b) ? (done(b) ? "Read ✓" : "Not read yet") : n ? `${done(b)}/${n} chapters` : "no chapters")
-    + (pct(b) > 0 && !(isPaper(b) && done(b)) ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : "")
+    + (pct(b) > 0 && !(isPaper(b) && done(b)) ? ` · ${pctText(b)}` : "")
     + (b.pages ? ` · ${esc(b.pages)} pages` : "");
   const main = `
       ${readButton(b)}
@@ -685,7 +704,7 @@ function card(b, inList = false) {
       ? (byline || details ? `<div class="byline inline">${byline}${details ? `<span class="meta">${details}</span>` : ""}</div>` : "")
       : `${byline ? `<div class="byline">${byline}</div>` : ""}${details ? `<div class="meta">${details}</div>` : ""}`}
     ${isThesis(b) && b.supervisors ? `<div class="next">Supervised by ${esc(b.supervisors.split(";").map(s => s.trim()).join(", "))}</div>` : ""}
-    ${b.topic && !b.shelf_list.includes(b.topic) ? `<div class="subject" title="Subject (OpenAlex), how sure: ${esc(b.topic_score)}">${esc(b.field_label)} › ${esc(shelfLabel(b.topic))}</div>` : ""}
+    ${b.topic && !b.shelf_list.includes(b.topic) ? subjectSpan(b, "div", true) : ""}
     ${inList  // from the list: keywords and shelves share one row
       ? (keywords || shelfTags ? `<div class="chips">${shelfTags}${keywords}</div>` : "")
       : `${keywords ? `<div class="chips keywords">${keywords}</div>` : ""}${shelfTags ? `<div class="chips">${shelfTags}</div>` : ""}`}
@@ -758,10 +777,10 @@ function listItem(b) {
   const sub = [firstAuthorLine(b), b.year].filter(Boolean).map(esc).join(" · ")
     + b.shelf_list.map(s => `<span class="tag">${esc(shelfLabel(s))}</span>`).join("");
   const ident = b.doi
-    ? `<a href="https://doi.org/${esc(b.doi)}" target="_blank" rel="noopener" title="Open the DOI">DOI ${esc(b.doi)}</a>`
+    ? doiLink(b, "Open the DOI")
     : b.isbn ? `ISBN ${esc(b.isbn)}` : "—";
-  const progress = isPaper(b) ? (done(b) ? "Read ✓" : pct(b) > 0 ? `${Math.round(pct(b) * 100) || "<1"}% read` : "Not read yet")
-    : n ? `${done(b)}/${n} chapters${pct(b) > 0 ? ` · ${Math.round(pct(b) * 100) || "<1"}%` : ""}` : "no chapters";
+  const progress = isPaper(b) ? (done(b) ? "Read ✓" : pct(b) > 0 ? `${pctText(b)} read` : "Not read yet")
+    : n ? `${done(b)}/${n} chapters${pct(b) > 0 ? ` · ${pctText(b)}` : ""}` : "no chapters";
   const last = b.last_read ? `p. ${b.last_read.page}<br>${esc(b.last_read.date)}` : "";
   const isOpen = expanded.has(b.slug);
   return `<div class="litem ${isOpen ? "open" : ""}" data-slug="${esc(b.slug)}">
@@ -810,14 +829,22 @@ document.getElementById("shelves").addEventListener("click", e => {
   render();
 });
 
+// Draw the page again (after a change), keeping open chapter lists open; menus = the type and
+// Field menus and the shelf bar too, stats = the counts at the top
+function redraw({menus = false, counts = false} = {}) {
+  const keepOpen = openLists();
+  if (counts) stats();
+  if (menus) { renderFields(); renderShelves(); }
+  render();
+  keepOpen.forEach(s => grid.querySelector(`.card[data-slug="${CSS.escape(s)}"] ol.chapters`)
+    ?.removeAttribute("hidden"));
+}
+
 function toggleLine(row) {
   const slug = row.closest("[data-slug]").dataset.slug;
   if (expanded.has(slug)) expanded.delete(slug);
   else expanded.add(slug);
-  const keepOpen = openLists();
-  render();
-  keepOpen.forEach(s => grid.querySelector(`.card[data-slug="${CSS.escape(s)}"] ol.chapters`)
-    ?.removeAttribute("hidden"));
+  redraw();
   grid.querySelector(`.litem[data-slug="${CSS.escape(slug)}"] .lrow`)?.focus({preventScroll: true});
 }
 grid.addEventListener("keydown", e => {
@@ -884,7 +911,7 @@ grid.addEventListener("click", async e => {
   if (edit && API) {
     const b = bookOf(edit);
     const answer = prompt(
-      `Shelves for “${b.title}”, separated by ; (e.g. Optics; Lasers):`, b.shelf_list.join("; "));
+      `Shelves for “${b.title}”, separated by ;`, b.shelf_list.join("; "));
     if (answer === null) return;
     try {
       const r = await api("/api/shelves", {slug: b.slug, shelves: answer});
@@ -938,14 +965,10 @@ grid.addEventListener("change", async e => {
   const box = e.target.closest("[data-tick]");
   if (!box || !API) return;
   const b = bookOf(box);
-  const keepOpen = openLists();
   try {
     const r = await api("/api/tick", {slug: b.slug, chapter: +box.dataset.tick, done: box.checked});
     b.chapter_list = r.chapter_list;
-    stats();
-    render();
-    keepOpen.forEach(slug => grid.querySelector(`.card[data-slug="${CSS.escape(slug)}"] ol.chapters`)
-      ?.removeAttribute("hidden"));
+    redraw({counts: true});
   } catch (err) {
     box.checked = !box.checked;
     toast(`Couldn't save: ${err.message}`);
@@ -970,16 +993,12 @@ document.querySelector(".view").addEventListener("click", e => {
 });
 kindSelect.addEventListener("change", () => {
   try { localStorage.setItem("library-kind", kindSelect.value); } catch {}
-  renderFields();
-  renderShelves();
-  render();
+  redraw({menus: true});
 });
 fieldSelect.addEventListener("change", () => {
   field = fieldSelect.value;
   try { localStorage.setItem("library-field", field); } catch {}
-  renderFields();
-  renderShelves();
-  render();
+  redraw({menus: true});
 });
 sort.addEventListener("change", () => {
   try { localStorage.setItem("library-sort", sort.value); } catch {}
@@ -987,7 +1006,6 @@ sort.addEventListener("change", () => {
 });
 // --- Tools (only with the server): add books, settings, quit ---------------------------------
 const prevStatus = new Map();  // job id -> status at the last poll (to notice jobs finishing)
-const asked = new Set();       // jobs we've already asked about missing details
 let pollTimer = null;
 
 async function pollJobs() {
@@ -1004,10 +1022,6 @@ async function pollJobs() {
   for (const j of jobs) {
     if (prevStatus.get(j.id) === "working" && j.status !== "working") finished = true;
     prevStatus.set(j.id, j.status);
-    if (j.status === "needs_details" && !asked.has(j.id)) {
-      asked.add(j.id);
-      askDetails(j);
-    }
   }
   const busy = jobs.some(j => j.status === "working");
   if (finished && !busy) {
@@ -1022,17 +1036,15 @@ async function pollJobs() {
 let historyOpen = false;
 try { historyOpen = localStorage.getItem("library-history-open") === "1"; } catch {}
 function jobLine(j) {
-  const icon = {working: "⏳", done: "✓", duplicate: "•", error: "✗", needs_details: "?"}[j.status] || "";
+  const icon = {working: "⏳", done: "✓", duplicate: "•", error: "✗"}[j.status] || "";
   const bar = j.kind === "ocr" && j.total
     ? `<div class="bar"><span style="width:${Math.round(100 * j.done / j.total)}%"></span></div>` : "";
-  const fill = j.status === "needs_details"
-    ? `<button type="button" data-details="${esc(j.id)}">Fill in title / author / year</button>` : "";
   return `<div class="job ${j.status === "error" ? "error" : ""}">${icon} ${esc(j.file || "")}
-    <span>${esc(j.message || "")}</span>${bar}${fill}</div>`;
+    <span>${esc(j.message || "")}</span>${bar}</div>`;
 }
 function renderJobs(jobs) {
   const panel = document.getElementById("jobs");
-  const active = jobs.filter(j => j.status === "working" || j.status === "needs_details");
+  const active = jobs.filter(j => j.status === "working");
   const done = jobs.filter(j => !active.includes(j));
   panel.hidden = !jobs.length;
   const problems = done.filter(j => j.status === "error").length;
@@ -1046,21 +1058,6 @@ function renderJobs(jobs) {
   panel.innerHTML = active.map(jobLine).join("") + history;
 }
 let lastJobs = [];
-
-async function askDetails(job) {
-  const details = {};
-  for (const [key, label] of [["title", "Title"], ["author", "Author(s)"], ["year", "Year"]]) {
-    const value = prompt(`${job.file}\n${label}:`, job.guess?.[key] || "");
-    if (value === null) return;  // cancelled: the "Fill in" button stays in the panel
-    details[key] = value;
-  }
-  try {
-    await api("/api/add-details", {job: job.id, ...details});
-    pollJobs();
-  } catch (err) {
-    toast(`Couldn't add the book: ${err.message}`);
-  }
-}
 
 async function upload(file) {
   const response = await fetch("/api/upload", {
@@ -1161,7 +1158,7 @@ if (API) {
   const findDialog = document.getElementById("findDialog");
   const findQuery = document.getElementById("findQuery");
   const findResults = document.getElementById("findResults");
-  const KIND_NAMES = {paper: "Paper", book: "Book", thesis: "Thesis", chapter: "Book chapter"};
+  const RESULT_KINDS = {paper: "Paper", book: "Book", thesis: "Thesis", chapter: "Book chapter"};
   let findFound = [];  // the results shown, for their buttons
   function openFind(text) {
     if (text) findQuery.value = text;
@@ -1177,7 +1174,7 @@ if (API) {
     return `<div class="result">${title}
       <div class="who">${who}</div>
       <div class="acts">
-        <span class="chip-kind">${esc(KIND_NAMES[r.kind] || "Work")}</span>
+        <span class="chip-kind">${esc(RESULT_KINDS[r.kind] || "Work")}</span>
         ${r.in_library ? `<span class="owned">✓ In your library</span>` : ""}
         ${r.cited ? `<span>cited ${r.cited.toLocaleString()}×</span>` : ""}
         ${r.doi ? `<a href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">DOI</a>` : ""}
@@ -1323,13 +1320,7 @@ if (API) {
       } catch (err) {
         toast(`Couldn't clear: ${err.message}`);
       }
-      return;
     }
-    const fill = e.target.closest("[data-details]");
-    if (fill) api("/api/jobs", {}).then(r => {
-      const job = r.jobs.find(j => j.id === fill.dataset.details);
-      if (job) askDetails(job);
-    });
   });
   pollJobs();  // jobs still running from before a reload (e.g. a long OCR)
 }
@@ -1339,14 +1330,8 @@ if (API) {
 async function refreshBooks() {
   try {
     const fresh = (await api("/api/books", {})).books;
-    const keepOpen = openLists();
     books.splice(0, books.length, ...fresh);
-    stats();
-    renderFields();
-    renderShelves();
-    render();
-    keepOpen.forEach(slug => grid.querySelector(`.card[data-slug="${CSS.escape(slug)}"] ol.chapters`)
-      ?.removeAttribute("hidden"));
+    redraw({menus: true, counts: true});
   } catch {}  // the server has stopped: keep showing what we have
 }
 let lastRefresh = 0;

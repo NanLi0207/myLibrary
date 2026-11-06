@@ -279,8 +279,8 @@ def repeat_of(path: Path, meta: Meta, slug: str = "") -> tuple[str, str] | None:
     return None
 
 
-def archive_repeat(path: Path) -> Path:
-    """Move a repeated PDF to archive/<folder>/ (never deleted); returns where it went."""
+def move_to_archive(path: Path) -> Path:
+    """Move a file or folder to archive/<its folder>/ (never deleted); returns where it went."""
     target = archive_target(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     path.rename(target)
@@ -296,10 +296,10 @@ def has_own_work(slug: str, notes_dir: Path | None = None) -> bool:
         text = readme.read_text(encoding="utf-8")
         if re.search(r"^- \[[xX]\]", text, re.MULTILINE) or "Last read:" in text:
             return True
-    for note in notes_dir.glob("*.md") if notes_dir.exists() else []:
+    for note in notes_dir.glob("*.md"):
         if note.name != "README.md" and not is_untouched_template(note):
             return True
-    return any((EXAMPLES / slug).glob("*.py")) if (EXAMPLES / slug).exists() else False
+    return any((EXAMPLES / slug).glob("*.py"))
 
 
 # Which copy of a repeat to keep: the one with more information
@@ -337,9 +337,9 @@ def why_richer(better: tuple, worse: tuple) -> str:
 
 
 def catalog_repeats() -> list[dict]:
-    """Pairs already in the catalog that are the same work: [{keep, drop, reason, why, move}].
-    The copy with more information is kept; if the other one holds your work, `move` is True
-    (move it over first). drop="" when both hold your work: then nothing should be touched."""
+    """Pairs already in the catalog that are the same work: [{keep, drop, reason, why}]. The
+    copy with more information is kept (merge_into then gives it the other's work).
+    drop="" when both hold your work: then nothing should be touched."""
     rows = list(catalog.load(CATALOG).values())
     found, seen = [], set()
     for i, a in enumerate(rows):
@@ -366,8 +366,7 @@ def catalog_repeats() -> list[dict]:
                 keep, drop, why = a, b, why_richer(score_a, score_b)
             else:
                 keep, drop, why = b, a, why_richer(score_b, score_a)
-            found.append({"keep": keep["slug"], "drop": drop["slug"], "reason": reason,
-                          "why": why, "move": has_own_work(drop["slug"])})  # fmt: skip
+            found.append({"keep": keep["slug"], "drop": drop["slug"], "reason": reason, "why": why})
             seen.add(drop["slug"])
     return found
 
@@ -402,9 +401,7 @@ def merge_into(src: str, dst: str) -> list[str]:
         ticked = 0
         for chapter in library_page.chapters_in(old):
             if chapter["done"] and chapter["number"] is not None:
-                n = chapter["number"]
-                paper = rf"|\[{re.escape(library_page.PAPER_ITEM)}\]" if n == 1 else ""
-                pattern = re.compile(rf"^- \[ \] (\[?Ch(?:apter)?\.?\s*{n}:{paper})", re.MULTILINE)
+                pattern = library_page.chapter_line(chapter["number"], boxes=" ")
                 text, count = pattern.subn(lambda m: f"- [x] {m[1]}", text, count=1)
                 ticked += count
         if ticked:
@@ -418,7 +415,7 @@ def merge_into(src: str, dst: str) -> list[str]:
             moved.append("last-read page")
         readme.write_text(text, encoding="utf-8")
     # Notes you wrote: into the same chapter's template (still empty, so nothing is lost)
-    for note in sorted(src_dir.glob("*.md")) if src_dir.exists() else []:
+    for note in sorted(src_dir.glob("*.md")):
         if note.name == "README.md" or is_untouched_template(note):
             continue
         target = dst_dir / note.name
@@ -429,7 +426,7 @@ def merge_into(src: str, dst: str) -> list[str]:
         target.write_text(note.read_text(encoding="utf-8"), encoding="utf-8")
         moved.append("vocabulary" if note.name == "vocabulary.md" else f"notes {note.name}")
     # Chapter scripts
-    scripts = sorted((EXAMPLES / src).glob("*.py")) if (EXAMPLES / src).exists() else []
+    scripts = sorted((EXAMPLES / src).glob("*.py"))
     for script in scripts:
         target = EXAMPLES / dst / script.name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -473,7 +470,7 @@ def replace_pdf(slug: str, path: Path, meta: Meta) -> Path:
     with it; the old PDF goes to archive/. Returns where the old one went."""
     row = catalog.load(CATALOG)[slug]
     pdf = LIBRARY / row["file"]
-    old = archive_repeat(pdf) if pdf.exists() else pdf
+    old = move_to_archive(pdf) if pdf.exists() else pdf
     path.rename(pdf)
     fill_details(slug, meta)
     catalog.upsert(CATALOG, {"slug": slug, "pages": meta.pages or row.get("pages", "")})
@@ -510,9 +507,7 @@ def remove_book(slug: str, dry_run: bool, yes: bool) -> None:
             print("Nothing changed.")
             return
     for p in existing:
-        target = archive_target(p)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        p.rename(target)
+        move_to_archive(p)
     catalog.remove(CATALOG, slug)
     forget_chapter_pages(slug)
     print("Done. To restore it, move the files back from archive/ and run add_book.py.")
@@ -671,40 +666,57 @@ def setup_book(pdf: Path, book: Book, meta: Meta, online: bool = True) -> None:
         print(f"  -> shelves: {'; '.join(found)} (change them with Shelves on the library page)")
 
 
+def find_repeat(path: Path, meta: Meta, book: Book) -> tuple[str, str] | None:
+    """(slug, reason) if `path` repeats something already in the library (repeat_of, or its
+    name is taken by another file); else None."""
+    name = f"{book.slug}{path.suffix.lower()}"
+    if repeat := repeat_of(path, meta, book.slug):
+        return repeat
+    if any(f.exists() and f != path for f in (folder / name for folder in folders())):
+        return Path(name).stem, "same author, year and title"
+    return None
+
+
+def handle_repeat(path: Path, meta: Meta, slug: str, dry_run: bool = False) -> tuple[bool, str]:
+    """A repeat of `slug`: if this copy's file is better (searchable text, ...), it replaces the
+    library's PDF (your notes stay); else it goes to archive/. Details the entry lacks are added
+    either way. Returns (whether the PDF was replaced, what happened)."""
+    if better := richer_than_library(path, meta, slug):
+        if dry_run:
+            return True, f"this copy has {better}: would replace its PDF"
+        old = replace_pdf(slug, path, meta)
+        return True, (f"this copy has {better}, so it replaces the PDF (your notes stay; the "
+                      f"old PDF is in archive/{old.parent.name}/)")  # fmt: skip
+    if dry_run:
+        return False, "would be moved to archive/"
+    added = fill_details(slug, meta)
+    kept = move_to_archive(path)
+    details = f"added its {', '.join(added)} to the entry; " if added else ""
+    return False, f"{details}this copy was moved to archive/{kept.parent.name}/{kept.name}"
+
+
+def file_book(path: Path, book: Book, meta: Meta, online: bool = True) -> Path:
+    """Move a new PDF into books/, papers/ or theses/ under its slug and set it up; returns
+    where it is now."""
+    folder = folder_for(meta.kind)
+    target = folder / f"{book.slug}{path.suffix.lower()}"
+    folder.mkdir(parents=True, exist_ok=True)
+    path.rename(target)
+    setup_book(target, book, meta, online)
+    return target
+
+
 def add_book(
     path: Path, book: Book, dry_run: bool, meta: Meta | None = None, online: bool = True
 ) -> None:
     meta = meta or Meta()
-    folder = folder_for(meta.kind)
-    target = folder / f"{book.slug}{path.suffix.lower()}"
-    taken = any(f.exists() and f != path for f in (d / target.name for d in folders()))
-    if repeat := repeat_of(path, meta, book.slug) or (
-        (target.stem, "same author, year and title") if taken else None
-    ):
-        print(f"  ! already in the library as {repeat[0]} ({repeat[1]})", end="")
-        if better := richer_than_library(path, meta, repeat[0]):
-            if dry_run:
-                print(f"; this copy has {better}: would replace its PDF")
-                return
-            old = replace_pdf(repeat[0], path, meta)
-            print(
-                f"; this copy has {better}: it replaces the PDF (old: archive/{old.parent.name}/)"
-            )
-            return
-        if not dry_run and (added := fill_details(repeat[0], meta)):
-            print(f"; added its {', '.join(added)} to the entry", end="")
-        if dry_run:
-            print("; would be moved to archive/")
-            return
-        kept = archive_repeat(path)
-        print(f"; moved to archive/{kept.parent.name}/{kept.name}")
+    if repeat := find_repeat(path, meta, book):
+        print(f"  ! already in the library as {repeat[0]} ({repeat[1]}); "
+              + handle_repeat(path, meta, repeat[0], dry_run)[1])  # fmt: skip
         return
-    print(f"  -> {folder.name}/{target.name}")
-    if dry_run:
-        return
-    folder.mkdir(parents=True, exist_ok=True)
-    path.rename(target)
-    setup_book(target, book, meta or Meta(), online)
+    print(f"  -> {folder_for(meta.kind).name}/{book.slug}{path.suffix.lower()}")
+    if not dry_run:
+        file_book(path, book, meta, online)
 
 
 def unregistered_named_books() -> list[Path]:
@@ -713,12 +725,14 @@ def unregistered_named_books() -> list[Path]:
     return [p for p in library_pdfs() if SLUG_RE.match(p.stem) and p.stem not in known]
 
 
-def describe(meta: Meta) -> None:
+def describe(book: Book, meta: Meta) -> None:
+    """The book as it will be added (command-line overrides included) and where each detail
+    came from."""
     if meta.kind == "thesis":
         print(f"     a {kind_word(meta)}")
     for key in ("title", "author", "year", "publisher", "institution", "supervisors"):
-        if value := getattr(meta, key):
-            print(f"     {key:<11} {value}   [{meta.sources[key]}]")
+        if value := getattr(book, key, None) or getattr(meta, key):
+            print(f"     {key:<11} {value}   [{meta.sources.get(key, '')}]")
 
 
 _ocr_asked: set[tuple[int, int]] = set()  # PDFs already asked about in this run
@@ -798,35 +812,12 @@ def process(path: Path, args: argparse.Namespace, rename: bool = True) -> None:
         args.year or meta.year,
         args.publisher or meta.publisher,
     )
-    describe(
-        Meta(
-            book.title,
-            book.author,
-            book.year,
-            book.publisher,
-            kind=meta.kind,
-            degree=meta.degree,
-            institution=meta.institution,
-            supervisors=meta.supervisors,
-            sources=meta.sources,
-        )  # fmt: skip
-    )
-    missing = [k for k in ("title", "author", "year") if not getattr(book, k)]
-    if missing:
-        flags = " ".join(f"--{k} .." for k in missing)
-        print(
-            f'  ? missing {", ".join(missing)}; rerun: uv run scripts/add_book.py "{path}" {flags}'
-        )
-        return
+    describe(book, meta)
     if rename:
         add_book(path, book, args.dry_run, meta, online=not args.offline)
     elif repeat := repeat_of(path, meta):
-        print(f"  ! already in the library as {repeat[0]} ({repeat[1]})", end="")
-        if args.dry_run:
-            print("; would be moved to archive/")
-        else:
-            kept = archive_repeat(path)
-            print(f"; moved to archive/{kept.parent.name}/{kept.name}")
+        print(f"  ! already in the library as {repeat[0]} ({repeat[1]}); "
+              + handle_repeat(path, meta, repeat[0], args.dry_run)[1])  # fmt: skip
     else:
         print("  -> already named; adding folders, notes and catalog row")
         if not args.dry_run:
@@ -905,7 +896,9 @@ def main() -> None:
         pending = [p for p in library_pdfs() if not SLUG_RE.match(p.stem)]
         unregistered = unregistered_named_books()
         if not pending and not unregistered:
-            print("Nothing new: every book in books/ is named and in catalog.csv.")
+            print(
+                "Nothing new: every PDF in books/, papers/ and theses/ is named and in catalog.csv."
+            )
         for path in unregistered:
             process(path, args, rename=False)
         for path in pending:

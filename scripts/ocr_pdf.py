@@ -133,8 +133,8 @@ def replace_pdf(pdf: Path, new: Path, keep: Path) -> None:
     except PermissionError:
         raise SystemExit(
             f"  ! {pdf.name} is open in another program (browser tab, PDF viewer, VS Code), so "
-            "Windows won't let it be replaced. Close it and run the same command again "
-            "(any OCR is cached, so the second run takes seconds)."
+            "Windows won't let it be replaced. Close it and try again "
+            "(any OCR is cached, so the second try takes seconds)."
         ) from None
 
 

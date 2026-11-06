@@ -18,7 +18,7 @@ import book_meta
 import catalog
 import paths
 import thesis_meta
-from book_meta import ARXIV_RE, _words, find_dois, find_isbns
+from book_meta import _words, find_dois, find_isbns
 from book_toc import STOP_WORDS
 
 CATALOG = paths.LIBRARY / "catalog.csv"
@@ -45,12 +45,8 @@ def engines(query: str) -> list[dict]:
     return [{"label": label, "url": url.format(q=q)} for label, url in ENGINES]
 
 
-def _authors(names: list[str]) -> str:
-    return "; ".join(n for n in names if n)
-
-
 def _from_openalex(work: dict) -> dict:
-    doi = (work.get("doi") or "").removeprefix("https://doi.org/").lower()
+    doi = book_meta.openalex_doi(work)
     source = (work.get("primary_location") or {}).get("source") or {}
     best = work.get("best_oa_location") or {}
     kind = KINDS.get(work.get("type") or "", "paper")
@@ -59,9 +55,7 @@ def _from_openalex(work: dict) -> dict:
         venue = thesis_meta._source_institution(work) or venue
     return {
         "title": book_meta.clean_title(work.get("title") or work.get("display_name") or ""),
-        "authors": _authors(
-            [a.get("author", {}).get("display_name", "") for a in work.get("authorships") or []]
-        ),
+        "authors": book_meta.join_names(book_meta.openalex_names(work)),
         "year": str(work.get("publication_year") or ""),
         "kind": kind,
         "venue": venue,
@@ -147,7 +141,7 @@ def search_books(query: str) -> list[dict]:
         results.append(
             {
                 "title": doc.get("title", ""),
-                "authors": _authors(doc.get("author_name") or []),
+                "authors": book_meta.join_names(doc.get("author_name") or []),
                 "year": str(doc.get("first_publish_year") or ""),
                 "kind": "book",
                 "venue": (doc.get("publisher") or [""])[0],
@@ -167,9 +161,7 @@ def by_identifier(query: str) -> list[dict]:
     """A DOI, arXiv number or ISBN typed in: that one work ([] if the query is none of these)."""
     if dois := find_dois(query):
         doi = dois[0]
-        found = book_meta.crossref(doi)
-        if not found.title:
-            found = thesis_meta.doi_csl(doi)
+        found = thesis_meta.doi_lookup(doi)
         work = book_meta._get_json(
             "https://api.openalex.org/works/doi:" + urllib.parse.quote(doi, safe="/")
         )
@@ -180,8 +172,7 @@ def by_identifier(query: str) -> list[dict]:
                            if v and k not in ("pdf", "free", "cited", "source")}  # fmt: skip
             return [result]
         return [_from_meta(found, "Crossref / DataCite")] if found.title else []
-    if m := ARXIV_RE.search(query) or re.fullmatch(r"\s*(\d{4}\.\d{4,5})(?:v\d+)?\s*", query):
-        identifier = m[1]
+    if identifier := book_meta.find_arxiv(query, query):
         found = book_meta.arxiv(identifier)
         if not found.title:
             return []

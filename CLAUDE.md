@@ -91,9 +91,9 @@ Example: `shannon-1997-art-science-optical-design`. The slug is used (inside the
   VS Code, plus its script if one exists; "Script" creates/opens the chapter script; "Shelves"
   edits a book's shelves; ticking chapters edits notes READMEs).
   The server opens PDFs in PDF.js with a word lookup for the user (a Chinese reader):
-  `scripts/reader.py` + `scripts/reader_static/`. Glossaries rank first when they match the
-  book's shelves (the user's is `optics.csv`, label "光学 Optics": extend it with real optics
-  terms). Full-text search of all books per page: `scripts/book_search.py` (index in the
+  `scripts/reader.py` + `scripts/reader_static/`. Glossaries rank first when they match the book's shelves, subject or field by word (`reader.book_subject_words`: "Advanced optical system
+  design" matches the `optics` glossary; the user's is `optics.csv`, label "光学 Optics": extend
+  it with real optics terms). Full-text search of all books per page: `scripts/book_search.py` (index in the
   library's `.cache/books.db`). Saved words: `notes/<slug>/vocabulary.md`. Topic notes
   (📝 主题笔记 / Topic note in the popup): `notes/topics/<term>.md`, created with book + page
   references only (never book text). These are the user's own work: never delete them.

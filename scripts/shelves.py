@@ -253,7 +253,7 @@ def _sure_topic(row: dict, sure: float | None = None) -> str:
     return row.get("topic", "") if row.get("topic") and score >= needed else ""
 
 
-def add_topic_shelf(slug: str, library: Path, catalog_path: Path) -> str:
+def add_topic_shelf(slug: str, catalog_path: Path) -> str:
     """Put an item on its subject's shelf too (keeping its other shelves). Returns the shelf."""
     row = catalog.load(catalog_path).get(slug) or {}
     topic = _sure_topic(row)

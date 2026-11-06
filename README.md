@@ -85,9 +85,9 @@ word lookup.
 
 ### Use it for your own subject
 
-1. **Shelves:** say which subjects you study in your library's `library.toml` (e.g.
-   `Biology = "生物 Biology"`), and put each book on one or more shelves with the **Shelves**
-   button on the library page.
+1. **Shelves:** nothing to do. Every book, paper and thesis gets its subject's shelf when it's
+   added (see [Shelves](#3-the-library-page) below); give a shelf a Chinese name in your
+   library's `library.toml` if you like, or add your own with the **Shelves** button.
 2. **Glossaries:** create one for your subject, e.g. `glossaries/biology.csv` in your library,
    starting with the line `term,zh,note,definition` (see [Glossaries](#6-glossaries)). Or just
    start reading: the first term you add from the popup creates `glossaries/my-terms.csv`. For
@@ -98,8 +98,8 @@ word lookup.
 
 1. **Open the library** and click **Continue · p. N** on the book you're reading. This opens:
    - the book, in the reading view, at the page where you stopped;
-   - in VS Code, the **notes** file for that chapter (`notes/<book>/chNN-*.md`), and the
-     chapter's Python script if you've made one.
+   - in your editor (see Settings), the **notes** file for that chapter
+     (`notes/<book>/chNN-*.md`), and the chapter's Python script if you've made one.
 2. **Read.** Double-click any word you don't know, or drag over a phrase (see
    [section 5](#5-looking-up-words-and-terms-查词-look-up)). Save useful words with **加入生词本** (Save word).
 3. **Take notes** in your own words in the chapter notes file: key ideas, equations,
@@ -111,8 +111,9 @@ word lookup.
 
 ## 3. The library page
 
-One card per book. The **shelf bar** under the search box shows your subjects (All, 光学
-Optics, 激光 Lasers, …) with how many books each has; click one to see only those books. Use the
+One card per book. The **shelf bar** under the search box shows your subjects (All, 先进光学系统设计
+Advanced optical system design, 铁路工程与动力学 Railway Engineering and Dynamics, …) with how many
+books each has; click one to see only those books. Use the
 search box to filter (title, author, subject, shelf, chapter titles) and the sort menu to order
 the cards (title, author, newest, progress, recently added, recently read). The first menu (**All**,
 Books, Papers, Theses) shows only one kind.
@@ -184,9 +185,9 @@ saved locally). From the terminal: `uv run scripts/backup.py`.
 | **Notes** | Opens the book's notes in your editor (see Settings) |
 | **OCR (~N min)** | Only on scanned books: adds a text layer so the book can be looked up and searched |
 | **Chapters** | Shows the chapter list: **Read** opens one chapter, **Script** its Python script; the checkbox ticks it |
-| **Shelves** | Which shelves the book is on, separated by `;` (e.g. `Optics; Lasers`) |
+| **Shelves** | Which shelves the book is on, separated by `;` (set for you when it's added; add your own here) |
 | **Mark as read** | Papers only (instead of Chapters): mark the paper as read, or not |
-| **DOI** | Papers and theses: its page at the publisher or university |
+| **DOI 10.…** | The DOI number, a link to its page at the publisher or university |
 | **Cite ▾** | A menu of citation formats, each with a preview; click one to copy it: APA, IEEE, GB/T 7714 (中国国标 Chinese standard), BibTeX (LaTeX) and RIS (EndNote, Zotero, Mendeley) |
 | Green tags | The book's shelves |
 | Progress bar, "0/8 chapters · 3%" | How far you are (see below) |
@@ -207,18 +208,21 @@ They're saved in `local.toml` in the tool's folder (in the ready-to-use package:
 `- [x]` into the book's `notes/<book>/README.md`; you can also edit that checklist by hand.
 Nothing ticks a chapter automatically: skimming isn't the same as finishing.
 
-**Shelves** group books by subject, and a book can be on several: *Laser-Induced Damage of
-Optical Materials* is on Optics, Lasers and Materials. They're stored in the `shelves` column of
-`catalog.csv`. Give a shelf a label (Chinese with its English translation) in `library.toml`:
+**Shelves** group books by subject, and a book can be on several. Each item is put on its
+subject's shelf when it's added (*Laser-Induced Damage of Optical Materials*: "Laser Material
+Processing Techniques"; see below); shelves you make yourself with **Shelves** are used too.
+They're stored in the `shelves` column of `catalog.csv`. Give a shelf a label (Chinese with its
+English translation) in `library.toml`:
 
 ```toml
 [shelves]
-Optics = "光学 Optics"
-"Lens design" = "镜头设计 Lens design"
+"Advanced optical system design" = "先进光学系统设计 Advanced optical system design"
+"Railway Engineering and Dynamics" = "铁路工程与动力学 Railway Engineering and Dynamics"
 ```
 
-A shelf also decides which glossary comes first in the lookup popup: reading a book on the
-Optics shelf, the `optics` glossary's meanings are listed first.
+What a book is about also decides which glossary comes first in the lookup popup: reading a
+book on optical design (its shelf, subject or field mentions optics), the `optics` glossary's
+meanings are listed first.
 
 **Progress** is whichever is further: the share of chapters ticked, or the page you last read out
 of the book's pages. **Sort: progress** puts the furthest-along book first, then the one read

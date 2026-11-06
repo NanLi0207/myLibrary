@@ -195,7 +195,7 @@ def _main() -> None:
         else:
             found = lookup(row)
         if args.apply:
-            shelves.add_topic_shelf(slug, LIBRARY, catalog_path)
+            shelves.add_topic_shelf(slug, catalog_path)
         print(f"{row['title'][:44]:44} | {found.get('field', '-')[:22]:22} | "
               f"{found.get('topic', '-')[:44]:44} | {found.get('score', '')}")  # fmt: skip
 

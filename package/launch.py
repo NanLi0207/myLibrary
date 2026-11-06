@@ -22,6 +22,11 @@ log = open(DATA / "myLibrary.log", "a", encoding="utf-8", buffering=1)  # noqa: 
 sys.stdout = sys.stderr = log
 
 
+def _ps_quote(text: str) -> str:
+    """A PowerShell string literal; a quote in a folder name is doubled: 'Nan''s books'."""
+    return "'" + text.replace("'", "''") + "'"
+
+
 def make_shortcuts() -> None:
     """Desktop + Start menu shortcuts "myLibrary" to this launcher (made once, or again if the
     package folder was moved)."""
@@ -31,9 +36,9 @@ $shell = New-Object -ComObject WScript.Shell
 $folders = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))
 foreach ($folder in $folders) {{
   $s = $shell.CreateShortcut((Join-Path $folder 'myLibrary.lnk'))
-  $s.TargetPath = '{pythonw}'
-  $s.Arguments = '"{HERE / "launch.py"}"'
-  $s.WorkingDirectory = '{HERE}'
+  $s.TargetPath = {_ps_quote(str(pythonw))}
+  $s.Arguments = {_ps_quote(f'"{HERE / "launch.py"}"')}
+  $s.WorkingDirectory = {_ps_quote(str(HERE))}
   $s.Description = 'myLibrary: read, look up words, take notes'
   $s.IconLocation = '%SystemRoot%\\System32\\imageres.dll,112'
   $s.Save()

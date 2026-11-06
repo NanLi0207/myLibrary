@@ -83,16 +83,6 @@ def update(verbose: bool = False) -> int:
             con.close()
 
 
-def ready() -> bool:
-    if not INDEX.exists():
-        return False
-    con = _connect()
-    try:
-        return con.execute("SELECT count(*) FROM books").fetchone()[0] > 0
-    finally:
-        con.close()
-
-
 def search(term: str, current: str | None = None, limit: int = 8, per_book: int = 2) -> dict:
     """Pages that discuss `term` most, at most `per_book` per book; the book being read first."""
     words = re.findall(r"[A-Za-z0-9]+", term)

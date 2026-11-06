@@ -62,8 +62,16 @@ def test_upload_is_identified_named_and_registered(library, monkeypatch):
 
 
 def test_nothing_is_ever_asked(library, monkeypatch):
-    """Details nobody could find are filled in anyway (here: no author, no year)."""
-    monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: Meta(title="Optics"))
+    """Details nobody could find are filled in anyway (here: no author, no year), as
+    identify() does with fill_gaps."""
+    import book_meta
+
+    def identify(path, online, **kw):
+        meta = Meta(title="Optics")  # all a lookup found
+        book_meta.fill_gaps(meta, path, {})
+        return meta
+
+    monkeypatch.setattr(library_jobs, "identify", identify)
     job = wait(library_jobs.start_add(library_jobs.save_upload("scan001.pdf", text_pdf())))
     year = str(__import__("datetime").date.today().year)  # the file's own date, at worst
     assert job["status"] == "done" and job["slug"] == f"unknown-{year}-optics"
@@ -344,3 +352,17 @@ def test_clear_archive_never_deletes_scripts(library):
     assert summary["kept"] == ["notebooks/shannon-1997-art"] and summary["files"] == 2
     assert (old / "ch01_introduction.py").exists()
     assert not (library / "archive" / "books").exists()
+
+
+def test_ocr_of_a_locked_pdf_ends_with_a_message(library, monkeypatch):
+    """A PDF open in another program can't be replaced: the job must end, not spin forever."""
+    pdf = library / "books" / "doe-2015-scan.pdf"
+    pdf.parent.mkdir(exist_ok=True)
+    pdf.write_bytes(text_pdf())
+
+    def locked(path, progress=None):
+        raise SystemExit("  ! doe-2015-scan.pdf is open in another program")
+
+    monkeypatch.setattr(library_jobs.ocr_pdf, "make_searchable", locked)
+    job = wait(library_jobs.start_ocr("doe-2015-scan"))
+    assert job["status"] == "error" and "open in another program" in job["message"]

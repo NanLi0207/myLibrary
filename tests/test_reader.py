@@ -243,6 +243,10 @@ def test_glossaries_of_the_books_shelves_come_first(dictionary):
     )
     for slug, shelves in (("eye-book", "Biology; Medicine"), ("lens-book", "Optics")):
         catalog.upsert(dictionary / "catalog.csv", {"slug": slug, "shelves": shelves})
+    # Shelves named after a subject: "Advanced optical system design" is about optics
+    catalog.upsert(dictionary / "catalog.csv", {"slug": "design-book", "field": "Engineering",
+                   "shelves": "Advanced optical system design",
+                   "topic": "Advanced optical system design"})  # fmt: skip
 
     def order(slug):
         return [g["glossary"] for g in reader.lookup("pupil", "", slug)["glossary"]]
@@ -250,6 +254,7 @@ def test_glossaries_of_the_books_shelves_come_first(dictionary):
     assert order(None) == ["biology", "optics"]  # no book: alphabetical
     assert order("eye-book") == ["biology", "optics"]
     assert order("lens-book") == ["optics", "biology"]
+    assert order("design-book") == ["optics", "biology"]
     # A longer, more specific term still comes before a shelf match
     info = reader.lookup("pupil", "the entrance pupil", "eye-book")
     assert [g["term"] for g in info["glossary"]] == ["entrance pupil", "pupil", "pupil"]

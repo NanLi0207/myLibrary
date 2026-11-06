@@ -4,7 +4,7 @@
 
 "Read" / "Continue" on a book (or "Read" on one chapter) opens everything for that chapter:
   - the PDF in the browser, at the page where the chapter starts
-  - in VS Code (the project window): the chapter's notes file, and its Python script
+  - in your editor (Settings: VS Code, Notepad, ...): the chapter's notes and its Python script
     examples/<slug>/chNN_<topic>.py if you have made one
 "Script" on a chapter creates that script (from a short template) and opens it: a place to
 check the book's worked examples in Python.
@@ -131,14 +131,14 @@ def chapter_page(slug: str, number: int | None, chapters: list[dict]) -> int | N
         book_lock = _book_locks.setdefault(slug, threading.Lock())
     with book_lock:
         with _cache_lock:
-            cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
+            cache = _read_cache()
         if slug not in cache:
             pdf = LIBRARY / catalog.load(CATALOG)[slug]["file"]
             if not pdf.exists():
                 return None  # PDF deleted: notes and scripts still open, just no page
             found = find_chapter_pages(pdf, chapters)
             with _cache_lock:
-                cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
+                cache = _read_cache()
                 cache[slug] = {str(k): v for k, v in found.items()}
                 CACHE.parent.mkdir(exist_ok=True)
                 CACHE.write_text(json.dumps(cache, indent=1), encoding="utf-8")
@@ -320,11 +320,16 @@ def pdf_url(base_url: str, file: str, page: int | None = None) -> str:
     return url + (f"#page={page}" if page else "")
 
 
+def _read_cache() -> dict:
+    """{slug: {chapter: start page}} (call it holding _cache_lock)."""
+    return json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
+
+
 def chapter_at(slug: str, page: int, chapters: list[dict]) -> dict | None:
     """The chapter that page belongs to: the last one starting on or before it."""
     chapter_page(slug, 1, chapters)  # makes sure the book's chapter pages are cached
     with _cache_lock:
-        cache = json.loads(CACHE.read_text(encoding="utf-8")) if CACHE.exists() else {}
+        cache = _read_cache()
     starts = {int(n): p for n, p in cache.get(slug, {}).items() if p <= page}
     if not starts:
         return None
@@ -334,7 +339,7 @@ def chapter_at(slug: str, page: int, chapters: list[dict]) -> dict | None:
 
 def save_position(slug: str, page: int) -> dict:
     """Write "Last read: page N (Ch k: ...), date" under "## Reading progress" in the README."""
-    readme = LIBRARY / "notes" / slug / "README.md"
+    readme = library_page.readme_path(slug)
     if not readme.exists():
         return {}
     is_paper = catalog.load(CATALOG).get(slug, {}).get("type") == "paper"
@@ -402,7 +407,7 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
 
 
 def open_script(slug: str, number: int) -> str:
-    """The chapter's Python script, created from the template the first time, in VS Code."""
+    """The chapter's Python script, created from the template the first time, in your editor."""
     row = catalog.load(CATALOG)[slug]
     chapter = next((c for c in library_page.chapters(slug) if c["number"] == number), None)
     if chapter is None:
@@ -458,10 +463,9 @@ def open_topic(term: str) -> dict:
 
 
 def tick(slug: str, number: int, done: bool) -> list[dict]:
-    readme = LIBRARY / "notes" / slug / "README.md"
+    readme = library_page.readme_path(slug)
     text = readme.read_text(encoding="utf-8")
-    paper = rf"|\[{re.escape(library_page.PAPER_ITEM)}\]" if number == 1 else ""
-    pattern = re.compile(rf"^- \[[ xX]\] (\[?Ch(?:apter)?\.?\s*{number}:{paper})", re.MULTILINE)
+    pattern = library_page.chapter_line(number)
     new, count = pattern.subn(lambda m: f"- [{'x' if done else ' '}] {m[1]}", text, count=1)
     if not count:
         raise ValueError(f"chapter {number} not found in {readme.name}")
@@ -481,6 +485,11 @@ class Handler(BaseHTTPRequestHandler):
     @property
     def base_url(self) -> str:
         return f"http://127.0.0.1:{self.server.server_port}"
+
+    @property
+    def pdf_base(self) -> str:
+        """Where the page's PDF links point: the reading view, or the bare PDFs."""
+        return pdf_url(self.base_url, "").removesuffix("/")
 
     def _local_host(self) -> bool:
         # Blocks DNS-rebinding: a page on another site can't pretend to be us
@@ -503,10 +512,9 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0].split("#")[0]
         if path in ("/", "/index.html"):
             # library_page appends "/<file>.pdf" to pdf_base
-            pdf_base = pdf_url(self.base_url, "").removesuffix("/")
             api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE,
                    "backup": backup.available()}  # fmt: skip
-            html = library_page.render(api, pdf_base=pdf_base)
+            html = library_page.render(api, pdf_base=self.pdf_base)
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
         if path == "/pdfjs/web/viewer.html" and not reading_view.missing():
             html = reading_view.viewer_html(TOKEN)
@@ -533,8 +541,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, {"job": library_jobs.start_add(path)})
             body = json.loads(self.rfile.read(length) or b"{}")
             if self.path == "/api/books":  # the page refreshes itself after reading
-                pdf_base = pdf_url(self.base_url, "").removesuffix("/")
-                return self._json(HTTPStatus.OK, {"books": library_page.books(pdf_base)})
+                return self._json(HTTPStatus.OK, {"books": library_page.books(self.pdf_base)})
             if self.path == "/api/backup":
                 return self._json(HTTPStatus.OK, backup.back_up())
             if self.path == "/api/jobs":
@@ -550,16 +557,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/find-online":  # "🔎 Find online": DOI, title, author, ...
                 return self._json(HTTPStatus.OK, find_online.find(str(body.get("query", ""))))
             if self.path == "/api/download":  # add a free PDF found online
-                try:
-                    url, title = str(body.get("url", "")), str(body.get("title", ""))[:200]
-                    job = library_jobs.start_download(url, title)
-                except ValueError as e:
-                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
-                return self._json(HTTPStatus.OK, {"job": job})
-            if self.path == "/api/add-details":
-                details = {k: str(body.get(k, ""))[:200] for k in ("title", "author", "year")}
-                job = library_jobs.continue_add(str(body.get("job", "")), details)
-                return self._json(HTTPStatus.OK, {"job": job})
+                url, title = str(body.get("url", "")), str(body.get("title", ""))[:200]
+                return self._json(HTTPStatus.OK, {"job": library_jobs.start_download(url, title)})
             if self.path == "/api/settings":
                 if isinstance(body.get("save"), dict):
                     result = change_settings(body["save"])
@@ -585,21 +584,15 @@ class Handler(BaseHTTPRequestHandler):
                 found = book_search.search(str(body.get("text", ""))[:100], current)
                 return self._json(HTTPStatus.OK, found)
             if self.path == "/api/topic":
-                try:
-                    return self._json(HTTPStatus.OK, open_topic(str(body.get("text", ""))))
-                except ValueError as e:
-                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+                return self._json(HTTPStatus.OK, open_topic(str(body.get("text", ""))))
             if self.path == "/api/glossary":
                 term, zh, definition = (
                     str(body.get(k, ""))[:1000] for k in ("term", "zh", "definition")
                 )
                 name = body.get("glossary") if isinstance(body.get("glossary"), str) else None
-                try:
-                    added = reading_view.add_glossary_term(
-                        term, zh, definition, glossary_name=name or None
-                    )
-                except ValueError as e:
-                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+                added = reading_view.add_glossary_term(
+                    term, zh, definition, glossary_name=name or None
+                )
                 return self._json(HTTPStatus.OK, added)
             slug = body.get("slug")
             if slug not in catalog.load(CATALOG):
@@ -612,7 +605,7 @@ class Handler(BaseHTTPRequestHandler):
                 message = open_chapter(slug, chapter, self.base_url, resume)
                 return self._json(HTTPStatus.OK, {"message": message})
             if self.path == "/api/open-notes":
-                notes = LIBRARY / "notes" / slug / "README.md"
+                notes = library_page.readme_path(slug)
                 if (notes.parent / "notes.md").exists():  # a paper: its one notes file
                     notes = notes.parent / "notes.md"
                 if open_in_editor(notes):

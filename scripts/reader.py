@@ -403,17 +403,17 @@ def _short(translation: str, limit: int = 60) -> str:
     return first if len(first) <= limit else first[: limit - 1] + "…"
 
 
-def _norm(name: str) -> str:
-    """'Lens design' / 'lens-design' / '镜头设计 Lens design' -> 'lensdesign'."""
-    return re.sub(r"[^a-z0-9]", "", name.lower())
+def book_subject_words(slug: str | None) -> set[str]:
+    """What the book being read is about, as words (stemmed: "optical" and "optics" are both
+    "optic"): its shelves, its subject topic and its field, from catalog.csv."""
+    import shelves  # its word matching, so a glossary matches the way shelves do
 
-
-def book_shelves(slug: str | None) -> set[str]:
-    """The shelves of the book being read (normalized), from catalog.csv."""
-    if not slug:
+    row = catalog.load(LIBRARY / "catalog.csv").get(slug) if slug else None
+    if not row:
         return set()
-    row = catalog.load(LIBRARY / "catalog.csv").get(slug)
-    return {_norm(s) for s in catalog.split_list(row.get("shelves") or "")} if row else set()
+    return set(
+        shelves.tokens(" ".join(str(row.get(k) or "") for k in ("shelves", "topic", "field")))
+    )
 
 
 def lookup(text: str, context: str = "", slug: str | None = None) -> dict:
@@ -424,12 +424,16 @@ def lookup(text: str, context: str = "", slug: str | None = None) -> dict:
     """
     text = re.sub(r"\s+", " ", text).strip().strip(".,;:!?()[]{}\"'“”‘’")[:100]
     matches = glossary_matches(text, context)
-    # Reading a book: glossaries for its shelves come first ("pupil" in an optics book: the
-    # optics meaning before the biology one); longer, more specific terms still lead
-    shelves = book_shelves(slug)
+    # Reading a book: glossaries of its subject come first ("pupil" in an optics book: the
+    # optics meaning before the biology one); longer, more specific terms still lead. A
+    # glossary matches by its name or label ("optics", "光学 Optics") against the book's shelves,
+    # subject and field ("Advanced optical system design", "Engineering")
+    about = book_subject_words(slug)
 
     def rank(entry: dict) -> int:
-        return 0 if {_norm(entry["glossary"]), _norm(entry["label"])} & shelves else 1
+        import shelves
+
+        return 0 if set(shelves.tokens(f"{entry['glossary']} {entry['label']}")) & about else 1
 
     matches.sort(key=lambda e: (-len(tokens(e["term"])), rank(e)))
     result = {

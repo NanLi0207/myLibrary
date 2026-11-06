@@ -402,7 +402,7 @@ def doi_csl(doi: str) -> Meta:
     meta.fill(
         f"DataCite (DOI {doi})",
         title=clean_title(str(data.get("title", ""))),
-        author="; ".join(n for n in names if n),
+        author=book_meta.join_names(names),
         year=str(year or ""),
         institution=next((c for c in contributors if re.search(UNIVERSITY_WORDS, c)), "")
         or str(data.get("publisher") or ""),
@@ -411,6 +411,12 @@ def doi_csl(doi: str) -> Meta:
         url=f"https://doi.org/{doi}",
     )
     return meta
+
+
+def doi_lookup(doi: str) -> Meta:
+    """A DOI's details: Crossref, else DataCite (most university repositories)."""
+    found = book_meta.crossref(doi)
+    return found if found.title else doi_csl(doi)
 
 
 def _source_institution(work: dict) -> str:
@@ -428,23 +434,13 @@ def _source_institution(work: dict) -> str:
 def openalex_thesis(queries: list[str], page_text: str) -> Meta:
     """OpenAlex's theses (from university repositories), searched with the title; a result
     counts only if its whole title is on the title page."""
-    work = None
-    for query in [q for q in dict.fromkeys(queries) if len(_words(q)) >= 2][:4]:
-        url = (
-            "https://api.openalex.org/works?per-page=10&filter=type:dissertation&search="
-            + urllib.parse.quote(query)
-        )
-        works = (book_meta._get_json(url) or {}).get("results") or []
-        candidates = [
-            (w.get("title") or "", str(w.get("publication_year") or ""), w) for w in works
-        ]
-        if work := _best_match(page_text, candidates):
-            break
+    queries = [q for q in dict.fromkeys(queries) if len(_words(q)) >= 2][:4]
+    work = book_meta.openalex_match(queries, page_text, filter_="type:dissertation")
     meta = Meta(kind="thesis")
     if not work:
         return meta
-    doi = (work.get("doi") or "").removeprefix("https://doi.org/").lower()
-    names = [a.get("author", {}).get("display_name", "") for a in work.get("authorships") or []]
+    doi = book_meta.openalex_doi(work)
+    names = book_meta.openalex_names(work)
     meta.fill(
         "OpenAlex",
         title=clean_title(work.get("title") or ""),
@@ -475,16 +471,13 @@ def identify_thesis(
     if online:
         # The thesis's own DOI is on its first pages; later pages cite other works
         for doi in find_dois(stem + " " + "\n".join(texts[:3]))[:2]:
-            found = book_meta.crossref(doi)
-            if not found.title:
-                found = doi_csl(doi)
+            found = doi_lookup(doi)
             # Its own DOI only if the title it gives is the one on these pages
             if found.title and _best_match(front, [(found.title, found.year, True)]):
                 break
             found = Meta()
         if not found.title and arxiv_id:
             found = book_meta.arxiv(arxiv_id)
-            found.journal = ""  # its arXiv "journal" doesn't apply to a thesis
         if not found.title:
             queries = [local.title] + [t for t in _lines(page.text) if _is_title_line(t, "")]
             found = openalex_thesis(queries, page.text)

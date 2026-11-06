@@ -114,7 +114,7 @@ def test_an_unsure_subject_is_recorded_but_makes_no_shelf(tmp_path, monkeypatch)
         },
     )
     subjects.classify("x-2001-y", tmp_path, path)
-    assert shelves.add_topic_shelf("x-2001-y", tmp_path, path) == ""
+    assert shelves.add_topic_shelf("x-2001-y", path) == ""
     row = catalog.load(path)["x-2001-y"]
     assert row["topic"] == "Laser Material Processing Techniques" and row["shelves"] == "Lasers"
 
