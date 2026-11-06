@@ -500,6 +500,18 @@ code { font-size: 12.5px; }
     </div>
     <label class="check"><input type="checkbox" id="setPython"> Show the Python features
       (a script per chapter, for checking a book's worked examples)</label>
+    <label for="setBackup">💾 Backup folder: e.g. on OneDrive or a USB stick</label>
+    <div class="row"><input type="text" id="setBackup" placeholder="Not backed up yet: choose a folder">
+      <button type="button" id="pickBackup">Choose…</button></div>
+    <label class="check"><input type="checkbox" id="setBackupPdfs"> Also keep a copy of the PDFs
+      (copied once; later only new ones)</label>
+    <p class="hint" id="backupInfo">Your notes, progress, vocabulary and catalog go into a dated zip
+      (the last 30 are kept), by 💾 Back up and once a day by itself.</p>
+    <label for="setOpenalex">OpenAlex key (optional)</label>
+    <input type="text" id="setOpenalex" autocomplete="off" spellcheck="false" placeholder="Paste your free key here">
+    <p class="hint">Subjects and 🔎 Find online ask OpenAlex. Without a key, everyone on your network
+      shares a small daily limit; with your own free key it's yours.
+      <a href="https://openalex.org/settings/api-key" target="_blank" rel="noopener">Get a key</a></p>
     <label>Archive</label>
     <div class="row archive-row"><span id="archiveInfo">…</span>
       <button type="button" id="clearArchive">Clear archive</button></div>
@@ -1110,6 +1122,13 @@ async function openSettings() {
   document.getElementById("setCommand").value = settings.editor_command || "";
   document.getElementById("setPython").checked = !!settings.python_features;
   document.getElementById("customRow").hidden = settings.editor !== "custom";
+  document.getElementById("setBackup").value = settings.backup_folder || "";
+  document.getElementById("setBackupPdfs").checked = !!settings.backup_pdfs;
+  document.getElementById("setOpenalex").value = settings.openalex_key || "";
+  const b = settings.backup_status || {};
+  if (b.last) document.getElementById("backupInfo").textContent =
+    `Last backup: ${b.when} (${count(b.count, "backup")} in the folder). It runs once a day by itself, `
+    + "or now with 💾 Back up. Your notes, progress, vocabulary and catalog go into a dated zip.";
   document.getElementById("settingsDialog").showModal();
   showArchive(await api("/api/archive", {}));
 }
@@ -1143,6 +1162,9 @@ async function saveSettings() {
     editor: document.getElementById("setEditor").value,
     editor_command: document.getElementById("setCommand").value.trim(),
     python_features: document.getElementById("setPython").checked,
+    backup_folder: document.getElementById("setBackup").value.trim(),
+    backup_pdfs: document.getElementById("setBackupPdfs").checked,
+    openalex_key: document.getElementById("setOpenalex").value.trim(),
   };
   try {
     const r = await api("/api/settings", {save});
@@ -1169,6 +1191,7 @@ if (API) {
     <button type="button" class="tool" id="findOnline" title="Search for books, papers and theses online: DOI, title, author…">🔎 Find online</button>
     <button type="button" class="tool" id="openReview" title="复习生词 (Review words): the words you saved while reading, as cards (spaced repetition)">📇 Review words<span class="count" id="reviewCount" hidden></span></button>
     ${API.backup ? `<button type="button" class="tool" id="backup" title="Save your notes, progress and vocabulary to GitHub">☁ Back up</button>` : ""}
+    ${!API.backup || API.folder_backup ? `<button type="button" class="tool" id="folderBackup" title="Save your notes, progress and vocabulary (and the PDFs) to your backup folder">💾 Back up</button>` : ""}
     <button type="button" class="tool" id="openSettings">⚙ Settings</button>
     <button type="button" class="tool" id="quit" title="Stop myLibrary">Quit</button>`;
   // Add PDFs, from the ＋ Add button or dropped onto the page; other files are skipped
@@ -1324,6 +1347,31 @@ if (API) {
   document.getElementById("saveSettings").addEventListener("click", saveSettings);
   document.getElementById("setEditor").addEventListener("change", e => {
     document.getElementById("customRow").hidden = e.target.value !== "custom";
+  });
+  document.getElementById("pickBackup").addEventListener("click", async () => {
+    try {
+      const {folder} = await api("/api/pick-folder", {purpose: "backup"});
+      if (folder) document.getElementById("setBackup").value = folder;
+    } catch (err) {
+      toast(`Couldn't open the folder dialog: ${err.message}`);
+    }
+  });
+  document.getElementById("folderBackup")?.addEventListener("click", async e => {
+    if (!API.folder_backup) {
+      await openSettings().catch(err => toast(`Couldn't open the settings: ${err.message}`));
+      document.getElementById("setBackup").focus();
+      return toast("Choose a backup folder first, then Save");
+    }
+    const button = e.currentTarget;
+    button.disabled = true;
+    toast("Backing up…");
+    try {
+      toast((await api("/api/folder-backup", {})).message);
+    } catch (err) {
+      toast(`Not backed up: ${err.message}`);
+    } finally {
+      button.disabled = false;
+    }
   });
   document.getElementById("pickFolder").addEventListener("click", async () => {
     try {

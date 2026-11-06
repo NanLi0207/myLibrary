@@ -39,6 +39,15 @@ SETTINGS_DEFAULTS = {
     "editor_command": "",
     # Chapter scripts (checking a book's examples in Python); off in the ready-to-use package
     "python_features": not IS_PACKAGE,
+    # Your own free OpenAlex key (subjects, 🔎 Find online): without one, OpenAlex shares a
+    # small daily budget among everyone on your network. Free:
+    # https://openalex.org/settings/api-key
+    "openalex_key": "",
+    # 💾 Back up (folder_backup.py): a dated zip of your notes, progress and the rest in this
+    # folder (e.g. on OneDrive or a USB stick), and with backup_pdfs a copy of the PDFs next
+    # to it (on in the package, where nothing else keeps the books safe)
+    "backup_folder": "",
+    "backup_pdfs": IS_PACKAGE,
 }
 
 

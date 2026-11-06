@@ -23,6 +23,7 @@ import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import paths
 from pypdf import PdfReader
 
 FRONT_PAGES = 12  # the title and copyright pages are near the front
@@ -452,6 +453,15 @@ def parse_filename(stem: str) -> Meta:
     return meta
 
 
+def openalex_key() -> str:
+    """The OpenAlex key from ⚙ Settings ("" if none); read each time, so a new one counts
+    at once."""
+    try:
+        return str(paths.load_settings().get("openalex_key") or "").strip()
+    except OSError, ValueError:
+        return ""
+
+
 class Unavailable(OSError):
     """The service couldn't answer (offline, daily limit used up, server error)."""
 
@@ -467,6 +477,8 @@ def _get_json(
     strict: None only when the service says it has no such record (404); raises Unavailable
     when it couldn't answer, so the caller can try again later."""
     headers = {"User-Agent": "myLibrary book organizer"} | (headers or {})
+    if urllib.parse.urlsplit(url).hostname == "api.openalex.org" and (key := openalex_key()):
+        headers["Authorization"] = f"Bearer {key}"  # your own budget, not the shared one
     request = urllib.request.Request(url, headers=headers)
     reason = ""
     for attempt in range(attempts):

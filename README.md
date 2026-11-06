@@ -301,6 +301,27 @@ popup and press Enter.
 (渐晕 is Chinese for *vignetting*.) The 中文 (Chinese) column takes the glossary meaning if
 there is one. Each word is saved once per book.
 
+### 💾 Back up to a folder
+
+For a library that isn't in git (e.g. the ready-to-use package), **💾 Back up** saves your work
+to a folder you choose in **⚙ Settings** (OneDrive, a USB stick, another disk): a dated zip
+(`<library name> 2026-11-06 1530.zip`) with your notes, reading progress, vocabulary and review
+progress, topic notes, glossaries, catalog, shelves, scripts and code; the last 30 are kept.
+With **Also keep a copy of the PDFs** (on in the package) the PDFs are copied into `PDFs/` next
+to the zips, once, and later only new ones; a PDF you remove stays there. It also runs by
+itself once a day when myLibrary starts (and only if something changed). The zip has a
+`RESTORE.txt`: unzip it into the library folder, copy the PDFs back, click ⟳ Refresh. From the
+terminal: `uv run scripts/folder_backup.py [--to FOLDER] [--pdfs]`.
+
+### OpenAlex key
+
+Subjects and 🔎 Find online ask [OpenAlex](https://openalex.org). Without a key, everyone on
+your network shares a small daily budget (adding many items at once can use it up: subjects
+are then looked up on a later ⟳ Refresh). A free key of your own
+([openalex.org/settings/api-key](https://openalex.org/settings/api-key)) goes into
+**⚙ Settings → OpenAlex key**; it's checked when you save and stays in your settings file,
+never in the library.
+
 ### 复习生词 (Review words)
 
 **📇 Review words** on the library page (the number shows how many are due) turns the saved

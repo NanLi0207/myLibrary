@@ -39,7 +39,13 @@ documents (.pdf/.djvu/.epub), empty note templates and .gitkeep, and keeps every
 `cryptography` is a core dependency because publisher PDFs are often AES-encrypted),
 OCR button for scans (background, progress), ☁ Back up (`scripts/backup.py`: commits only the
 library folder with `--only`, refuses when unpushed commits touch code, never prompts for a
-password; shown only when the library is in a repo with an upstream), Settings, Quit. Keep it that way: every feature the
+password; shown only when the library is in a repo with an upstream), 💾 Back up
+(`scripts/folder_backup.py`: dated zip of everything but PDFs/archive/caches in the Settings
+`backup_folder`, `KEEP` 30; with `backup_pdfs`, on in the package, PDFs copied once into
+`PDFs/`, never deleted there; `auto_backup` once a day at start, only if something changed;
+shown without git or with a folder set), Settings (incl. `openalex_key`: sent as a Bearer
+header to api.openalex.org only, checked on save; never ask OpenAlex for a key on the user's
+behalf), Quit. Keep it that way: every feature the
 package needs must work from the page.
 
 **The ready-to-use package** (paid, 9.9 RMB): `uv run scripts/build_package.py` builds

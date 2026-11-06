@@ -57,6 +57,18 @@ No Python or command line needed; the dictionary and PDF viewer are included and
 
 你的数据 / Your data
 --------------------------------------------------------------------
+备份 (Back up)：在“⚙ Settings”（设置）里选一个备份文件夹（如 OneDrive 或 U 盘），点“💾 Back up”。
+笔记、进度和生词本存成带日期的 zip，PDF 另外复制一份；以后每天启动时自动备份一次。
+Back up: choose a backup folder in "⚙ Settings" (e.g. OneDrive or a USB stick) and click
+"💾 Back up". Your notes, progress and vocabulary go into a dated zip, and the PDFs are copied
+next to it; after that it backs up by itself once a day when myLibrary starts.
+
+OpenAlex 密钥 (OpenAlex key)：查学科和“🔎 Find online”要用 OpenAlex。一次加很多书时，免费的
+共享额度可能用完；在 https://openalex.org/settings/api-key 免费申请一个，粘贴到“⚙ Settings”。
+OpenAlex key: subjects and "🔎 Find online" use OpenAlex. Adding many books at once can use up
+the free shared budget; get your own free key at https://openalex.org/settings/api-key and
+paste it into "⚙ Settings".
+
 你的书、笔记、生词本和进度都保存在书库文件夹里，都是普通文件（PDF、Markdown、CSV）。
 请定期备份这个文件夹。更新 myLibrary 时，下载新版本即可，书库不受影响。
 Your books, notes, vocabulary and progress are all ordinary files (PDF, Markdown, CSV) in your

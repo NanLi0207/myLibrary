@@ -27,6 +27,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import webbrowser
 from datetime import date
@@ -39,6 +40,7 @@ import backup
 import book_search
 import catalog
 import find_online
+import folder_backup
 import library_jobs
 import library_page
 import paths
@@ -265,15 +267,19 @@ def python_features() -> bool:
     return bool(paths.load_settings().get("python_features"))
 
 
-def pick_folder() -> str | None:
+def pick_folder(purpose: str = "library") -> str | None:
     """Ask for a folder with Windows' own folder dialog (the server runs on this computer)."""
+    description = {
+        "library": "Choose the folder for your library (books and notes)",
+        "backup": "Choose the folder for your backups (e.g. on OneDrive or a USB stick)",
+    }[purpose]
     if sys.platform != "win32":
         return None
     script = (
         "Add-Type -AssemblyName System.Windows.Forms;"
         "$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true};"
         "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
-        "$d.Description = 'Choose the folder for your library (books and notes)';"
+        f"$d.Description = '{description}';"
         "$d.ShowNewFolderButton = $true;"
         "if ($d.ShowDialog($owner) -eq 'OK') { $d.SelectedPath }"
     )
@@ -286,6 +292,28 @@ def pick_folder() -> str | None:
     return done.stdout.strip() or None
 
 
+def auto_backup() -> None:
+    """💾 Back up once a day when a backup folder is set (folder_backup.auto_backup)."""
+    if message := folder_backup.auto_backup():
+        print(message)
+
+
+def check_openalex_key(key: str) -> None:
+    """Ask OpenAlex once with the key; a key it turns down is not saved (ValueError)."""
+    request = urllib.request.Request(
+        "https://api.openalex.org/works?per-page=1&select=id",
+        headers={"User-Agent": "myLibrary book organizer", "Authorization": f"Bearer {key}"},
+    )
+    try:
+        urllib.request.urlopen(request, timeout=15).close()
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise ValueError("OpenAlex didn't accept that key: check it, or open the link "
+                             "in its email first") from None  # fmt: skip
+    except OSError:
+        pass  # offline: keep it; it's used as soon as OpenAlex can be reached
+
+
 def change_settings(updates: dict) -> dict:
     """Save settings from the page; a new library folder is created if it doesn't exist."""
     clean = {}
@@ -295,6 +323,20 @@ def change_settings(updates: dict) -> dict:
         clean["editor_command"] = str(updates["editor_command"])[:500]
     if "python_features" in updates:
         clean["python_features"] = bool(updates["python_features"])
+    if "openalex_key" in updates:
+        key = str(updates["openalex_key"] or "").strip()
+        if key and not re.fullmatch(r"[A-Za-z0-9_\-.]{8,200}", key):
+            raise ValueError("that doesn't look like an OpenAlex key (letters and digits)")
+        if key and key != paths.load_settings().get("openalex_key"):
+            check_openalex_key(key)
+        clean["openalex_key"] = key
+    if "backup_folder" in updates:
+        folder = str(updates["backup_folder"] or "").strip()
+        if folder and not Path(folder).expanduser().is_absolute():
+            raise ValueError("choose a full folder path for backups, e.g. D:\\Backups")
+        clean["backup_folder"] = Path(folder).expanduser().as_posix() if folder else ""
+    if "backup_pdfs" in updates:
+        clean["backup_pdfs"] = bool(updates["backup_pdfs"])
     restart = False
     if updates.get("library"):
         folder = Path(str(updates["library"])).expanduser()
@@ -516,7 +558,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             # library_page appends "/<file>.pdf" to pdf_base
             api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE,
-                   "backup": backup.available()}  # fmt: skip
+                   "backup": backup.available(),
+                   "folder_backup": bool(paths.load_settings().get("backup_folder"))}  # fmt: skip
             html = library_page.render(api, pdf_base=self.pdf_base)
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
         if path == "/pdfjs/web/viewer.html" and not reading_view.missing():
@@ -569,12 +612,16 @@ class Handler(BaseHTTPRequestHandler):
                         restart_later(self.server)
                     return self._json(HTTPStatus.OK, result)
                 settings = paths.load_settings() | {"library": str(LIBRARY)}
+                settings["backup_status"] = folder_backup.status(settings["backup_folder"])
                 return self._json(
                     HTTPStatus.OK,
                     {"settings": settings, "editors": paths.EDITORS, "package": paths.IS_PACKAGE},
                 )
             if self.path == "/api/pick-folder":
-                return self._json(HTTPStatus.OK, {"folder": pick_folder()})
+                purpose = "backup" if body.get("purpose") == "backup" else "library"
+                return self._json(HTTPStatus.OK, {"folder": pick_folder(purpose)})
+            if self.path == "/api/folder-backup":  # 💾 Back up: a zip (+ PDFs) in a folder
+                return self._json(HTTPStatus.OK, folder_backup.back_up())
             if self.path == "/api/quit":
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return self._json(HTTPStatus.OK, {"message": "myLibrary has stopped"})
@@ -737,6 +784,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{server.server_port}"
     print(f"myLibrary at {url}  (Ctrl+C to stop)")
     threading.Thread(target=warm_cache, daemon=True).start()
+    threading.Thread(target=auto_backup, daemon=True).start()
     if parts := reading_view.missing():
         print(f"Setting up the reading view ({' + '.join(parts)}, one-time download ~72 MB);")
         print("  until it's ready, books open as plain PDFs.")
