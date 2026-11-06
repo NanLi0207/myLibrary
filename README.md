@@ -311,6 +311,16 @@ elsewhere be replaced.
 (渐晕 is Chinese for *vignetting*.) The 中文 (Chinese) column takes the glossary meaning if
 there is one. Each word is saved once per book.
 
+### 📈 Reading log (阅读记录)
+
+While a book is open in the reading view, the time you actively read is counted (the tab is
+visible and you scrolled, turned a page or moved in the last two minutes) along with the
+pages you looked at. The line under the library's title shows your streak and this week
+(**🔥 3-day streak · 2 h 10 min this week ›**); click it for the log: streak (days with 5+
+minutes), today, this week, in all, a calendar of the last 26 weeks (hover a day for its
+minutes and pages), and the books you read in the last 30 days. Kept in
+`notes/reading-log.json`, so it's backed up with your notes.
+
 ### 💾 Back up to a folder
 
 For a library that isn't in git (e.g. the ready-to-use package), **💾 Back up** saves your work
@@ -617,6 +627,7 @@ myLibrary/                   the tool (this repository)
 ├── notes/<slug>/            per book: notes, ticks, last-read page, vocabulary
 ├── notes/topics/            your topic notes, across books
 ├── notes/vocabulary-review.json   your progress in 📇 Review words
+├── notes/reading-log.json   📈 time and pages read per day and book
 ├── glossaries/              your subject glossaries (*.csv) and glossaries.toml
 ├── examples/<slug>/         your chapter scripts (created with "Script")
 ├── code/                    your reusable Python code, by subject, and its tests

@@ -45,6 +45,7 @@ import library_jobs
 import library_page
 import paths
 import reader as reading_view
+import reading_log
 import vocab_review
 from add_book import short_title
 from book_ocr import has_text_layer
@@ -641,6 +642,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad answer"})
                     return self._json(HTTPStatus.OK, vocab_review.answer(LIBRARY, word, knew))
                 return self._json(HTTPStatus.OK, vocab_review.summary(LIBRARY, CATALOG))
+            if self.path == "/api/reading-log":  # 📈 the library page's reading log
+                return self._json(HTTPStatus.OK, reading_log.summary(LIBRARY, CATALOG))
             if self.path == "/api/lookup":
                 text, context = str(body.get("text", "")), str(body.get("context", ""))[:1000]
                 book = body.get("slug") if isinstance(body.get("slug"), str) else None
@@ -697,6 +700,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(page, int) or page < 1:
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad page"})
                 return self._json(HTTPStatus.OK, {"last_read": save_position(slug, page)})
+            if self.path == "/api/reading":  # the reading view: a minute of reading
+                seconds, pages = body.get("seconds"), body.get("pages")
+                if not isinstance(seconds, int) or not isinstance(pages, list):
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad report"})
+                return self._json(
+                    HTTPStatus.OK, reading_log.record(LIBRARY, slug, seconds, pages[:500])
+                )
             if self.path == "/api/save-word":
                 page = body.get("page")
                 saved = reading_view.save_word(

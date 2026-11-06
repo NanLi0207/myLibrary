@@ -107,7 +107,10 @@ Example: `shannon-1997-art-science-optical-design`. The slug is used (inside the
   editor tools are saved into the library's PDF (`lookup.js` `keepMarks`: `saveDocument()` a
   few seconds after the annotation hash stops changing → `/api/save-marks` →
   `reader.save_marks`: whole PDF, same page count, original kept once in
-  `archive/before-marks/`). Saved words: `notes/<slug>/vocabulary.md`;
+  `archive/before-marks/`). 📈 Reading log: `lookup.js`
+  `trackReading` (active time: visible + activity within 2 min; pages seen) → `/api/reading` →
+  `scripts/reading_log.py` → the library's `notes/reading-log.json`; the stats line links to
+  the log (`/api/reading-log`). Saved words: `notes/<slug>/vocabulary.md`;
   📇 Review words (library page, `scripts/vocab_review.py`, `/api/review`) turns them into
   spaced-repetition cards (one per word across books; Leitner boxes `BOX_DAYS`; progress in
   the library's `notes/vocabulary-review.json`; never edits the vocabulary files). Topic notes

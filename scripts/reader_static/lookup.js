@@ -435,6 +435,46 @@
   }
   trackPosition();
 
+  // 📈 Reading log: the time you actively read (tab visible, and you moved, scrolled or turned
+  // a page in the last two minutes) and the pages you looked at, sent every minute and when
+  // you leave (reading_log.py adds them up per day).
+  async function trackReading() {
+    const app = window.PDFViewerApplication;
+    if (!slug || !token || !app) return;
+    await app.initializedPromise;
+    const IDLE = 120000, TICK = 15000;
+    let lastActive = Date.now();
+    let seconds = 0;
+    const pages = new Set();
+    const active = () => { lastActive = Date.now(); };
+    for (const type of ["mousemove", "keydown", "wheel", "pointerdown", "touchstart"]) {
+      addEventListener(type, active, { passive: true, capture: true });
+    }
+    addEventListener("scroll", active, { passive: true, capture: true });
+    app.eventBus.on("pagechanging", (event) => { active(); pages.add(event.pageNumber); });
+    const send = (keepalive = false) => {
+      if (!seconds && !pages.size) return;
+      const body = JSON.stringify({ slug, seconds: Math.round(seconds), pages: [...pages] });
+      seconds = 0;
+      pages.clear();
+      fetch("/api/reading", {
+        method: "POST",
+        keepalive,
+        headers: { "Content-Type": "application/json", "X-Library-Token": token },
+        body,
+      }).catch(() => {});
+    };
+    setInterval(() => {
+      if (document.visibilityState !== "visible" || Date.now() - lastActive > IDLE) return;
+      seconds += TICK / 1000;
+      if (app.page) pages.add(app.page);
+    }, TICK);
+    setInterval(send, 60000);
+    addEventListener("pagehide", () => send(true));
+    document.addEventListener("visibilitychange", () => { if (document.hidden) send(true); });
+  }
+  trackReading();
+
   // Keep your marks: highlights, drawings, text and stamps made with PDF.js's tools are
   // written into the library's PDF (reader.save_marks) a few seconds after you stop marking.
   // Until then PDF.js warns before the tab closes; once saved, it doesn't.

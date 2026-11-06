@@ -418,6 +418,43 @@ dialog.review { width: min(520px, calc(100vw - 32px)); }
 .review .answers small, .review .show small { display: block; font-size: 11.5px; opacity: 0.75; }
 .review .show { display: block; margin: 16px auto 0; min-width: 200px; padding: 9px 14px; }
 .review .finished { text-align: center; padding: 20px 0 6px; line-height: 1.6; }
+/* 📈 Reading log */
+.log-link { font: inherit; color: var(--accent); background: none; border: none; padding: 0;
+  margin-left: 6px; cursor: pointer; }
+.log-link:hover { text-decoration: underline; }
+.log-link[hidden] { display: none; }
+dialog.log { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+.log h3 { font-size: 14px; margin: 22px 0 8px; color: var(--muted); font-weight: 600; }
+.log .heroes { display: flex; flex-wrap: wrap; gap: 10px; }
+.log .hero { flex: 1 1 130px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.log .hero b { display: block; font-size: 24px; font-weight: 600; line-height: 1.2; color: var(--text); }
+.log .hero span { font-size: 12.5px; color: var(--muted); }
+.log .cal-wrap { overflow-x: auto; padding-bottom: 4px; }
+.log .cal { display: grid; grid-template-rows: repeat(7, 12px); grid-auto-flow: column;
+  grid-auto-columns: 12px; gap: 3px; width: max-content; }
+.log .cal i { border-radius: 3px; background: var(--bar); }
+.log .cal i.future { background: none; }
+.log .cal i.today { outline: 1.5px solid var(--text); outline-offset: 1px; }
+.log .cal i[data-l="1"] { background: color-mix(in srgb, var(--done) 30%, var(--bar)); }
+.log .cal i[data-l="2"] { background: color-mix(in srgb, var(--done) 55%, var(--bar)); }
+.log .cal i[data-l="3"] { background: color-mix(in srgb, var(--done) 78%, var(--bar)); }
+.log .cal i[data-l="4"] { background: var(--done); }
+.log .cal-key { display: flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted);
+  margin-top: 6px; justify-content: flex-end; }
+.log .cal-key i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.log .months { display: grid; grid-auto-flow: column; grid-auto-columns: 15px; font-size: 11px;
+  color: var(--muted); height: 15px; width: max-content; }
+.log table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.log td { padding: 5px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
+.log td.num { text-align: right; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+.log td.len { width: 28%; }
+.log td.len span { display: block; height: 6px; border-radius: 0 3px 3px 0; background: var(--done); min-width: 2px; }
+@media (max-width: 560px) { .log td.len, .log td.days { display: none; } }
+.log .empty-log { color: var(--muted); font-size: 13.5px; }
+.log-tip { position: fixed; z-index: 50; pointer-events: none; background: var(--surface); color: var(--text);
+  border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px; font-size: 12.5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); white-space: nowrap; }
+.log-tip[hidden] { display: none; }
 .stopped { margin: 15vh auto; max-width: 520px; text-align: center; line-height: 1.6; }
 code { font-size: 12.5px; }
 </style>
@@ -426,7 +463,7 @@ code { font-size: 12.5px; }
 <main>
   <header>
     <div class="topbar"><h1>myLibrary</h1><div class="tools" id="tools"></div></div>
-    <p class="stats" id="stats"></p>
+    <p class="stats"><span id="stats"></span><button type="button" class="log-link" id="openLog" hidden></button></p>
   </header>
   <div class="controls">
     <input id="q" type="search" placeholder="Search title, author, journal, university, ISBN, DOI, subject, chapter…" autofocus>
@@ -469,6 +506,12 @@ code { font-size: 12.5px; }
   <div class="engines" id="findEngines"></div>
   <div id="findResults"></div>
 </dialog>
+<dialog id="logDialog" class="log">
+  <h2>阅读记录 <small style="font-size:13px;font-weight:normal;color:var(--muted)">Reading log</small></h2>
+  <div id="logBody"></div>
+  <div class="row end"><button type="button" id="logClose">关闭 Close</button></div>
+</dialog>
+<div class="log-tip" id="logTip" hidden></div>
 <dialog id="reviewDialog" class="review">
   <div class="top">
     <h2>复习生词 <small>Review words</small></h2>
@@ -1541,6 +1584,84 @@ if (API) {
     else if (e.key.toLowerCase() === "s" && reviewQueue[0]) say(reviewQueue[0].word);
   });
   loadReview();
+
+  // 📈 Reading log: a line under the title (streak, this week), and the log itself
+  const minutes = s => {
+    const m = Math.round(s / 60);
+    return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+  };
+  const longDate = iso => new Date(iso + "T12:00:00").toLocaleDateString(undefined,
+    {weekday: "short", year: "numeric", month: "short", day: "numeric"});
+  let logData = null;
+  async function loadLog() {
+    try {
+      logData = await api("/api/reading-log", {});
+    } catch { return; }
+    const link = document.getElementById("openLog");
+    const parts = [];
+    if (logData.streak) parts.push(`🔥 ${logData.streak}-day streak`);
+    if (logData.week_seconds) parts.push(`${minutes(logData.week_seconds)} this week`);
+    link.textContent = `· 📈 ${parts.length ? parts.join(" · ") : "Reading log"} ›`;
+    link.hidden = false;
+  }
+  function logHtml(d) {
+    const level = s => s <= 0 ? 0 : s < 15 * 60 ? 1 : s < 30 * 60 ? 2 : s < 60 * 60 ? 3 : 4;
+    const hero = (value, label) => `<div class="hero"><b>${value}</b><span>${label}</span></div>`;
+    let months = "", lastMonth = "";
+    d.days.forEach((day, i) => {
+      if (i % 7) return;
+      const m = new Date(day.date + "T12:00:00").toLocaleDateString(undefined, {month: "short"});
+      months += `<span>${m !== lastMonth ? esc(m) : ""}</span>`;
+      lastMonth = m;
+    });
+    const cells = d.days.map(day => `<i data-l="${level(day.seconds)}" data-date="${day.date}"`
+      + ` data-s="${day.seconds}" data-p="${day.pages}"${day.date === d.today ? ' class="today"' : ""}></i>`).join("");
+    const top = Math.max(1, ...d.books.map(b => b.seconds));
+    const rows = d.books.map(b => `<tr><td>${esc(b.title)}</td>
+      <td class="num">${minutes(b.seconds)}</td><td class="num">${count(b.pages, "page")}</td>
+      <td class="num days">${count(b.days, "day")}</td>
+      <td class="len"><span style="width:${(100 * b.seconds / top).toFixed(1)}%"></span></td></tr>`).join("");
+    const key = [0, 1, 2, 3, 4].map(l => `<i data-l="${l}"></i>`).join("");
+    return `<div class="heroes">
+        ${hero(d.streak ? `🔥 ${d.streak}` : "0", `day streak (${d.reading_day / 60}+ min a day)`)}
+        ${hero(minutes(d.today_seconds), "today")}
+        ${hero(minutes(d.week_seconds), `this week · ${count(d.week_pages, "page")}`)}
+        ${hero(minutes(d.total_seconds), `in all · ${count(d.reading_days, "reading day")}`)}
+      </div>
+      <h3>Last ${Math.round(d.days.length / 7)} weeks</h3>
+      <div class="cal-wrap"><div class="months">${months}</div><div class="cal" id="logCal">${cells}</div></div>
+      <div class="cal-key">less <span class="cal" style="display:flex;gap:3px">${key}</span> more
+        <span style="margin-left:8px">(none · under 15 min · 30 · 60 · 60+)</span></div>
+      <h3>Books, last 30 days</h3>
+      ${rows ? `<table>${rows}</table>`
+        : `<p class="empty-log">Nothing yet. Open a book with Start reading or Continue: the time you read is counted from now on.</p>`}
+      <p class="hint">Counted while the reading view is open and you're moving through it (two minutes without
+        scrolling or turning a page pause the clock). Kept in <code>notes/reading-log.json</code>.</p>`;
+  }
+  document.getElementById("openLog").addEventListener("click", async () => {
+    await loadLog();
+    if (!logData) return toast("Couldn't load the reading log");
+    document.getElementById("logBody").innerHTML = logHtml(logData);
+    document.getElementById("logDialog").showModal();
+    const wrap = document.querySelector("#logBody .cal-wrap");
+    wrap.scrollLeft = wrap.scrollWidth;  // this week in view on a narrow screen
+  });
+  document.getElementById("logClose").addEventListener("click", () => document.getElementById("logDialog").close());
+  const tip = document.getElementById("logTip");
+  document.getElementById("logBody").addEventListener("pointerover", e => {
+    const cell = e.target.closest("#logCal i");
+    if (!cell) return void (tip.hidden = true);
+    const s = +cell.dataset.s, pages = +cell.dataset.p;
+    tip.textContent = `${longDate(cell.dataset.date)}: ${s ? `${minutes(s)}, ${count(pages, "page")}` : "no reading"}`;
+    tip.hidden = false;
+    const r = cell.getBoundingClientRect();
+    tip.style.left = `${Math.min(r.left, innerWidth - tip.offsetWidth - 8)}px`;
+    tip.style.top = `${r.top - tip.offsetHeight - 6}px`;
+  });
+  document.getElementById("logBody").addEventListener("pointerleave", () => { tip.hidden = true; });
+  document.getElementById("logDialog").addEventListener("close", () => { tip.hidden = true; });
+  window.refreshLog = loadLog;
+  loadLog();
 }
 
 // Coming back from reading: show the latest page, progress and ticks without a manual refresh.
@@ -1550,6 +1671,7 @@ async function refreshBooks() {
     const fresh = (await api("/api/books", {})).books;
     books.splice(0, books.length, ...fresh);
     redraw({menus: true, counts: true});
+    window.refreshLog?.();  // the minutes just read
   } catch {}  // the server has stopped: keep showing what we have
 }
 let lastRefresh = 0;

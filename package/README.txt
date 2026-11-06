@@ -60,6 +60,10 @@ No Python or command line needed; the dictionary and PDF viewer are included and
 
 你的数据 / Your data
 --------------------------------------------------------------------
+阅读记录 (Reading log)：书库标题下面那一行显示连续阅读天数和本周阅读时间，点它看日历和每本书的阅读时间。
+Reading log: the line under the library's title shows your streak and this week's reading;
+click it for a calendar and the time per book.
+
 备份 (Back up)：在“⚙ Settings”（设置）里选一个备份文件夹（如 OneDrive 或 U 盘），点“💾 Back up”。
 笔记、进度和生词本存成带日期的 zip，PDF 另外复制一份；以后每天启动时自动备份一次。
 Back up: choose a backup folder in "⚙ Settings" (e.g. OneDrive or a USB stick) and click
