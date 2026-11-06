@@ -199,7 +199,7 @@ def test_an_entry_without_a_file_never_moves_the_library(library, monkeypatch):
     assert add_book.richer_than_library(upload, meta, "doe-2015-practical-lens-design") == ""
     with pytest.raises(ValueError, match="no PDF file"):
         add_book.replace_pdf("doe-2015-practical-lens-design", upload, meta)
-    with pytest.raises(ValueError, match="isn't a library item"):
+    with pytest.raises(ValueError, match="isn't an item in the library's folders"):
         add_book.move_to_archive(library)
     assert (library / "catalog.csv").exists() and upload.exists()
     assert add_book.fill_details("doe-2015-unknown", meta) == []  # creates no entry

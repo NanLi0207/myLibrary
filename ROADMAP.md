@@ -15,9 +15,11 @@ JavaScript, all tests, and the example library. 139 tests pass and ruff is clean
 marked **C** were confirmed (code path traced, or reproduced in a scratch copy, never in
 `library/`). Findings marked **S** are suspected.
 
-**Status (2026-11-06):** v0.3 task 1 (safe file writing and background jobs) is done but not
-yet released; `pyproject.toml` still says 0.2.5. 158 tests pass. **Next: task 2** (Chinese
-name collisions and accidental PDF replacement).
+**Status (2026-11-06):** v0.3 tasks 1 (safe file writing and background jobs) and 2 (name
+collisions and accidental PDF replacement) are done but not released or committed;
+`pyproject.toml` still says 0.2.5. The task 1 checkpoint is a patch in
+`../myLibrary-checkpoints/task1-safe-writes/`. 185 tests pass. **Next: task 3** (permanent
+document IDs), which needs the user's agreement on how existing entries get their IDs.
 
 ---
 
@@ -130,7 +132,11 @@ partial, not integrated, or missing. **Size** is the implementation effort: S, M
 
 ### 2.5 Duplicates (P0)
 
-- **Status:** complete but unsafe.
+- **Status:** made safe in v0.3 task 2. Repeats now need proof (DOI, ISBN or an identical
+  file), and a name collision gets a free name. Replacement is limited and reversible. Still
+  automatic: no Keep / Replace / Merge choice and no Undo yet (task 6). The original
+  assessment follows.
+- **Status before task 2:** complete but unsafe.
 - **What exists:** `add_book.repeat_of` (same DOI, ISBN, hash or slug), `catalog_repeats`,
   `merge_into` and `replace_pdf`.
 - **Limitations:**
@@ -302,8 +308,8 @@ These are referenced by ID from the tasks.
 ### Data safety
 
 Fixed in v0.3 task 1, with regression tests in `tests/test_data_safety.py`: D1, D2, D3, D4,
-D9, D10, D11. They are kept below for the record. Still open: D5 (task 5), and D6, D7, D8
-(task 2).
+D9, D10, D11. Fixed in task 2, with tests in `tests/test_names_and_repeats.py`: D6, D7, D8,
+D12. They are kept below for the record. Still open: D5 (task 5).
 
 - **D1 (C, fixed) `catalog.csv` loses rows under concurrent writes.**
   - It is rewritten in place with no lock (`catalog._write`, `upsert`, `set_field`).
@@ -329,19 +335,24 @@ D9, D10, D11. They are kept below for the record. Still open: D5 (task 5), and D
 - **D5 (C) Marks from two tabs overwrite each other.**
   - `save_marks` accepts any whole PDF with the same page count; there is no version check.
   - After 3 failed saves, `keepMarks` stops trying for the session.
-- **D6 (C) Different documents can get the same slug.**
+- **D6 (C, fixed in task 2) Different documents can get the same slug.**
   - Slugs keep ASCII only (`book_meta.surname`, `add_book.short_title`), so two Chinese-titled
     items from the same year both become `unknown-<year>-untitled`.
   - "Part A" and "Part B" of a report collide too.
   - Same slug counts as the same work, so the second is archived, or its PDF replaces the
     first one's under the first one's notes.
-- **D7 (C) Archive names can collide.**
+- **D7 (C, fixed in task 2) Archive names can collide.**
   - `archive_target` adds `-removed-<date>` without checking the name is free, so a third
     archive of the same name on one day raises `FileExistsError`.
   - `remove_book` can then stop halfway: the PDF moved, the notes not, the row still in the
     catalog.
-- **D8 (C) `refresh_chapters` deletes notes.** It deletes (`unlink`) notes that contain only
-  headings, `-` lines and the back link, including headings the user typed.
+- **D8 (C, fixed in task 2) `refresh_chapters` deletes notes.** It deletes (`unlink`) notes
+  that contain only headings, `-` lines and the back link, including headings the user typed.
+  They now go to `archive/notes/<slug>/`.
+- **D12 (C, fixed in task 2) A shared ISBN or DOI alone could swap in a different book.** An
+  ISBN read from the wrong page (B16) made a "richer" unrelated file replace the library's PDF.
+  Replacement now also needs the titles to agree (`titles_agree`), and never happens when the
+  library's PDF has marks.
 - **D9 (C, fixed) A column added to `catalog.csv` by hand breaks every later write.**
   `DictWriter` uses the fixed `COLUMNS`.
 - **D10 (C, fixed) A bad setting stops every script.** `paths._toml_value` writes control
@@ -547,33 +558,95 @@ leaves everything else working. A task is done only when its tests pass.
   - Not tested on the packaged build yet; run the package clean-environment test before the
     next release.
 
-### Task 2. Chinese name collisions and accidental PDF replacement *(D6, D7, D8)*: next
+### Task 2. Name collisions and accidental PDF replacement *(D6, D7, D8, D12)*: done, unreleased
 
-- [ ] **Slugs that don't collide:**
-  - Transliterate non-ASCII names and titles where possible (pinyin for Chinese).
-  - Otherwise add a short hash of the original title, so two different documents never get
-    `unknown-<year>-untitled`.
-  - Keep "Part A/B", volume and report numbers.
-  - The same rules for the CLI and the page.
-- [ ] **Same name is never "same work" on its own.** A repeat is the same DOI, the same ISBN
-  (non-papers), an identical file, or the same normalized original title plus year. A name
-  collision alone gets a different name, never archiving or `replace_pdf`.
-- [ ] **`replace_pdf` only on a proven repeat.** Only for a DOI, ISBN or hash match, and never
-  when the other item has the user's work unless the user confirms (task 6 adds the choice).
-- [ ] **Unique archive names:** `archive_target` loops until the name is free, so
-  `remove_book` can't stop halfway.
-- [ ] **`refresh_chapters` archives instead of deleting** notes it considers untouched
-  templates.
-- [ ] **Tests:**
-  - two Chinese-titled items from one year keep both, each with its own PDF and notes;
-  - Part A and Part B;
-  - a third same-day archive;
-  - `refresh_chapters` keeps headings-only notes in the archive;
-  - a name collision never replaces a PDF.
-- **Compatibility:** existing slugs and files stay as they are; only new items get the new
-  names. No migration.
+- [x] **Unique names, same convention.**
+  - `Book.base_slug` is unchanged (`<surname>-<year>-<short-title>`).
+  - If a *different* document already has that name, `add_book.free_slug` gives `-2`, `-3`,
+    and so on. "Has that name" means a catalog entry, a PDF in books/, papers/ or theses/, or
+    a notes or examples folder (even an orphaned one).
+  - The name is chosen in `place_book` under `FILING`, together with taking it and
+    `reserve_row`, so concurrent imports can't collide.
+  - `place_book` refuses to move a file over an existing one.
+  - Existing files and entries are never renamed.
+  - The job message (and the command line) says when a different name was given.
+- [x] **Repeats need proof.**
+  - `repeat_of` and `find_repeat` accept only the same DOI, the same ISBN (not for papers),
+    or an identical file (SHA-256). The old "same author, year and title" rule is gone.
+  - Same title, author and year with a different file (`possible_repeat`) is kept as its own
+    document and reported ("possibly the same work as …; if they are the same, remove one").
+    It is never merged, archived or replaced.
+- [x] **Replacement is safe** (`handle_repeat(reason=…)`, `replace_pdf`):
+  - It needs a proven reason, and never happens for an identical file.
+  - It never happens when the library's PDF has marks (`has_marks`: PDF annotations, or an
+    original in `archive/before-marks/`; if the file can't be read, it counts as marked).
+  - It never happens when the titles don't agree (`titles_agree`).
+  - Both paths are checked (`library_pdf`, `_library_item`): `file` must be
+    `books|papers|theses/<name>.pdf`, the target can't be a folder, and the source must be a
+    PDF file in the library's folders.
+  - If putting the new copy in place fails, the old PDF is moved back.
+  - Refresh's `catalog_repeats` counts marks as the user's work, and always keeps the copy
+    with marks.
+- [x] **Unique, recoverable archiving.**
+  - `archive_target` loops: `<name>-removed-<date>`, then `-2`, `-3`, ...
+  - `move_to_archive` chooses and moves in one locked step, and refuses the library itself,
+    its top folders, the archive, and anything outside.
+  - `remove_book` is all or nothing: on failure it moves back what it already moved, and the
+    catalog entry stays.
+  - `merge_into` never overwrites an earlier `-from-…` note or script copy (`free_path`).
+  - `ocr_pdf.replace_pdf` puts the original back if the swap fails.
+- [x] **Chapter notes.**
+  - `refresh_chapters` moves replaced templates to `archive/notes/<slug>/` instead of deleting
+    them.
+  - Templates whose name matches a chapter being written stay in place.
+  - Notes with the user's writing are never touched, as before.
+- [x] **Tests** (`tests/test_names_and_repeats.py`, 27 test cases, temporary libraries only):
+  - two Chinese-titled documents of one year, and 12 concurrent imports with one candidate
+    name, each with its own whole PDF and notes;
+  - numbered names, and orphaned notes not reused;
+  - the exact same PDF uploaded again, both one after another and at once (added once; five
+    archived copies, none overwritten);
+  - different PDFs with the same upload name;
+  - a same-titled different file never replacing the library's PDF;
+  - a PDF with marks and notes never replaced;
+  - marks saved from the reading view, and Refresh keeping the copy with marks;
+  - a shared ISBN with a different title;
+  - archive collisions (sequential, concurrent, repeated removal);
+  - interrupted replacement, removal and OCR swap;
+  - entries without a proper PDF, a folder named like a PDF, and the library and its folders
+    never moved;
+  - no placing over an existing file;
+  - chapter refresh;
+  - the command-line paths.
+- **Changed existing tests** (intended behaviour change):
+  - `test_upload_is_identified_named_and_registered` and
+    `test_refresh_adds_pdfs_put_into_the_folders_by_hand` used a *different* file with the
+    same title to mean "the same book". They now use the identical file for the repeat case.
+    The first also checks that a same-titled different file is kept as `-2` with a note.
+  - `test_a_better_copy_replaces_the_pdf_and_keeps_your_notes` gives its entry a real title
+    instead of its slug.
+- **Checked by hand** (throwaway library, command line): two Chinese-titled books of 2020
+  became `unknown-2020-untitled` and `unknown-2020-untitled-2`, and an identical copy went to
+  the archive. This found and fixed a command-line caller that hadn't been given the repeat
+  reason.
+- **Remaining risks:**
+  - Two copies of one work that aren't byte-identical and have no shared DOI or ISBN (e.g. the
+    same book from two sources) are now both kept, as `-2`, with a "possibly the same work"
+    note. Nothing is lost, but the user must remove one by hand until task 6 adds a choice.
+  - Archived chapter templates count as empty templates, so the user's explicit Settings →
+    Clear archive deletes them. "Untouched" still includes headings the user may have typed.
+    Task 6's chapter editor should mark generated templates.
+  - `FILING` is per process. The command line and the page server adding at the same moment
+    could pick the same free name. `place_book` then refuses rather than overwrite, so the job
+    fails and the file stays for Refresh.
+  - Refresh's merge of proven repeats (`catalog_repeats` + `merge_into`) is still automatic
+    when only one copy has the user's work (task 6).
+  - If a rollback itself fails (the old file locked too), it is printed and the file is in
+    `archive/`. Nothing is deleted, but it isn't back in place.
+  - `has_marks` reads every page's annotations: slow for very large PDFs, and only done when
+    a replacement is considered.
 
-### Task 3. Permanent document IDs *(prerequisite for tasks 4–6)*
+### Task 3. Permanent document IDs *(prerequisite for tasks 4–6)*: next
 
 - [ ] **Add an `id` column** to `catalog.csv`: a short random ID (e.g. 8 base32 characters).
   New items get one when added (`reserve_row`).

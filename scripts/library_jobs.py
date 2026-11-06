@@ -324,7 +324,7 @@ def _repeat(job: dict, path: Path, meta, slug: str, reason: str) -> None:
     a better file replaces the library's PDF, otherwise it goes to archive/)."""
     title = catalog.load(add_book.CATALOG).get(slug, {}).get("title") or slug
     with add_book.FILING, safe_io.critical():  # moves PDFs: never two at once, never cut off
-        replaced, what = add_book.handle_repeat(path, meta, slug)
+        replaced, what = add_book.handle_repeat(path, meta, slug, reason=reason)
     if replaced:
         library_page.build()
         _in_background(book_search.update)
@@ -433,8 +433,10 @@ def _add(job: dict, path: Path) -> None:
             if repeat:
                 return _repeat(job, path, meta, *repeat)
             with safe_io.critical():
+                # A different document with the same usual name gets the next free name (-2)
                 target = add_book.place_book(path, book, meta)
                 add_book.reserve_row(target, book, meta)
+            note = add_book.name_note(book)
         # Notes and the catalog row (other books are filed meanwhile); quitting waits for it
         with safe_io.critical():
             add_book.setup_book(target, book, meta)
@@ -446,7 +448,8 @@ def _add(job: dict, path: Path) -> None:
             "done",
             f"Added the {add_book.kind_word(meta)} “{book.title}”"
             + _on_shelves(book.slug)
-            + (" (a scan: OCR recommended)" if scan else ""),
+            + (" (a scan: OCR recommended)" if scan else "")
+            + (f" · {note}" if note else ""),
             slug=book.slug,
             scan=scan,
         )

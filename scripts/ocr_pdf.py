@@ -129,9 +129,16 @@ def replace_pdf(pdf: Path, new: Path, keep: Path) -> None:
     keep.parent.mkdir(parents=True, exist_ok=True)
     try:
         with safe_io.critical():  # two steps that belong together: quitting waits for both
+            kept = False
             if not keep.exists():
                 pdf.rename(keep)
-            new.replace(pdf)
+                kept = True
+            try:
+                new.replace(pdf)
+            except Exception:
+                if kept and not pdf.exists():
+                    keep.rename(pdf)  # never leave the book without its PDF
+                raise
     except PermissionError:
         raise SystemExit(
             f"  ! {pdf.name} is open in another program (browser tab, PDF viewer, VS Code), so "

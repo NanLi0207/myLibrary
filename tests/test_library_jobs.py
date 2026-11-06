@@ -56,9 +56,18 @@ def test_upload_is_identified_named_and_registered(library, monkeypatch):
     assert "doe-2015-practical-lens-design" in catalog.load(library / "catalog.csv")
     assert (library / "notes" / "doe-2015-practical-lens-design" / "README.md").exists()
 
-    # The same book again: recognised, and the second copy is removed
-    again = wait(library_jobs.start_add(library_jobs.save_upload("copy.pdf", text_pdf())))
+    # The very same file again: recognised, and the second copy is moved to the archive
+    first = library / "books" / "doe-2015-practical-lens-design.pdf"
+    again = wait(library_jobs.start_add(library_jobs.save_upload("copy.pdf", first.read_bytes())))
     assert again["status"] == "duplicate" and not (library / "books" / "copy.pdf").exists()
+    assert (library / "archive" / "books" / "copy.pdf").exists()
+
+    # A different file with the same title, author and year: no proof it's the same work (no
+    # shared DOI or ISBN), so it's kept under a name of its own and reported, never thrown away
+    other = wait(library_jobs.start_add(library_jobs.save_upload("other.pdf", text_pdf())))
+    assert other["status"] == "done" and other["slug"] == "doe-2015-practical-lens-design-2"
+    assert "possibly the same work as doe-2015-practical-lens-design" in other["message"]
+    assert len(catalog.load(library / "catalog.csv")) == 2
 
 
 def test_nothing_is_ever_asked(library, monkeypatch):
@@ -140,9 +149,9 @@ def test_refresh_adds_pdfs_put_into_the_folders_by_hand(library, monkeypatch):
     assert "lee-2015-practical-optics-handmade" in rows
     assert (library / "notes" / "lee-2015-practical-optics-handmade" / "README.md").exists()
 
-    # The same book copied in again: reported, and the file is left alone
+    # The same book copied in again (the very same file): reported, and moved to the archive
     copy = library / "books" / "practical optics copy.pdf"
-    copy.write_bytes(text_pdf())
+    copy.write_bytes((library / "books" / "lee-2015-practical-optics.pdf").read_bytes())
     library_jobs.refresh()
     [job] = [j for j in library_jobs.list_jobs() if j["file"] == copy.name]
     job = wait(job)
@@ -304,7 +313,7 @@ def test_both_with_your_work_are_only_reported(library):
 
 def test_a_better_copy_replaces_the_pdf_and_keeps_your_notes(library, monkeypatch):
     pdf = _registered(library, "doe-2019-freeform", folder="books", data=scan_pdf(),
-                      isbn="9780070591783")  # fmt: skip
+                      isbn="9780070591783", title="Freeform")  # fmt: skip
     readme = library / "notes" / "doe-2019-freeform" / "README.md"
     readme.write_text("# x\n\nLast read: page 3, 2026-01-02\n", encoding="utf-8")
     found = Meta(title="Freeform", author="Jane Doe", year="2019", isbn="9780070591783",
