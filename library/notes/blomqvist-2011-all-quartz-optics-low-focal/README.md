@@ -10,7 +10,7 @@
 
 ## Reading progress
 
-Last read: page 4, 2026-11-06
+Last read: page 1, 2026-11-06
 
 - [ ] [Read the paper](notes.md)
 

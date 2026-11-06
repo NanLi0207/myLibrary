@@ -1,0 +1,31 @@
+{
+ "2026-11-06": {
+  "blomqvist-2011-all-quartz-optics-low-focal": {
+   "p": [
+    1,
+    2,
+    3,
+    4
+   ],
+   "s": 0
+  },
+  "shannon-1997-art-science-optical-design": {
+   "p": [
+    27,
+    38,
+    39,
+    40,
+    41,
+    42
+   ],
+   "s": 15
+  },
+  "zhu-2012-field-test-study-leaf-contamination": {
+   "p": [
+    1,
+    2
+   ],
+   "s": 0
+  }
+ }
+}

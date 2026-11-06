@@ -9,7 +9,7 @@
 
 ## Reading progress
 
-Last read: page 38 (Ch 2: Basic Optics for Design), 2026-11-06
+Last read: page 41 (Ch 2: Basic Optics for Design), 2026-11-06
 
 - [x] [Ch 1: Introduction: the Art and Science of Design](ch01-introduction.md)
 - [ ] [Ch 2: Basic Optics for Design](ch02-basic-optics-design.md)
