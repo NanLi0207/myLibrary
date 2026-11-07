@@ -20,7 +20,10 @@ jobs:
       - name: Format
         run: uv run ruff format --check .
       - name: Tests
-        # -rs lists every skipped test with its reason (e.g. a symlink test this runner can't do)
+        # -rs lists every skipped test with its reason. The link-security tests (symlinks, hard
+        # links) must run here: if this runner can't create the links, they fail, not skip
+        env:
+          MYLIBRARY_REQUIRE_LINK_TESTS: "1"
         run: uv run pytest -q -rs
 
   # The reader in Microsoft Edge (tests/browser/, Playwright): each test on its own temporary

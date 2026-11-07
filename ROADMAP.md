@@ -30,8 +30,8 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
       rightly links to the bare PDF.
     - The tests now say the reading view is set up. All 213 tests pass in a clean clone.
 - **Next:** task 4, plan approved 2026-11-07 (task 4 and section 5). M1 (notes store and
-  API) is done (`9acaf52`). M2 (browser tests in CI) is pushed (`6b19d78`); a fix for the
-  note list's link checks follows, and M2 is complete once CI is green.
+  API) is done (`9acaf52`). M2 (browser tests in CI) is done (`6b19d78`, with follow-ups
+  `3730d23` and `7ff8325`; CI green); its link-security tests are now required in CI.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
@@ -1217,9 +1217,11 @@ Every milestone also reruns the regression set (section 5, *Regression set*).
   but the note list (`entries`) still listed them and read them. Now one check,
   `notes_store._inside`, covers opening, saving and listing.
 
-**M2. Browser tests in CI (closes L11 for the reader)**: pushed 2026-11-07 as `6b19d78`. In
-its first CI run the browser job passed and the Python tests failed: see *After the push* at
-the end of M2. M2 is complete once CI is green.
+**M2. Browser tests in CI (closes L11 for the reader)**: done 2026-11-07. Pushed as
+`6b19d78`; its first CI run failed in the Python tests (see *After the push* at the end of M2).
+The follow-ups `3730d23` (note-list link checks) and `7ff8325` (test isolation, browser-safe
+ports) are green in CI (run 42418424532). Open item: whether the three symlink tests ran there
+(see *After the push*).
 - **Goal:** the reader's existing behaviour is checked in a real browser on every push, before
   M3 changes the layout. The task 3 scratchpad checks (Edge through the DevTools protocol)
   become maintained pytest tests.
@@ -1488,7 +1490,21 @@ the end of M2. M2 is complete once CI is green.
     code that reads notes paths or README files from catalog rows (the library page,
     ticking chapters, add_book, merging repeats, backups) needs its own containment
     audit, as a separate task.
-  - **Not yet verified:** the symlink tests, until the next CI run shows them passing.
+  - **Not yet verified:** the three symlink tests.
+    - CI run 42418424532 is green, but a skipped test also leaves the job green. Only the
+      job's log (`-rs`) says whether they ran, and it needs a signed-in account.
+    - The junction and hard-link tests skip only if Windows refuses the link, so they almost
+      certainly ran; that's unconfirmed for the same reason.
+    - **Follow-up (approved 2026-11-07):** CI's Python tests step sets
+      `MYLIBRARY_REQUIRE_LINK_TESTS=1`.
+      - With it set, a link-security test that can't create its symlink or hard link
+        *fails* (`test_notes_store.link_or_skip`) instead of skipping. The message names the
+        missing right and says it isn't a failed check.
+      - The security assertions after the link's creation are unchanged.
+      - Without the variable (a developer's PC) they still skip with their reason.
+      - Locally with the variable: the 3 symlink tests fail with that message (this PC can't
+        create symlinks), and the hard-link test passes.
+      - A green CI run therefore means all four ran and passed.
   - **A test isolation bug, found while checking the real library after the fix:**
     - In 2 of 5 full `pytest` runs, the real `library/library.html` was rebuilt. That's the
       static page, gitignored and rebuilt by the tool. The catalog, notes and PDFs were

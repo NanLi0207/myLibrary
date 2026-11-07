@@ -310,11 +310,29 @@ def test_the_api_needs_a_known_document(server):
 SECRET = b"Practical Lens Design: SECRET text kept outside the notes\n"
 
 
-def symlink_or_skip(target, link):
+# CI sets this: a link-security test that can't create its link fails instead of skipping, so
+# missing coverage can't pass unnoticed. Without it (a developer's PC) such a test skips.
+REQUIRE_LINKS = os.environ.get("MYLIBRARY_REQUIRE_LINK_TESTS") == "1"
+
+
+def link_or_skip(make_link, what: str) -> None:
+    """Create the test's link, or skip (fail in CI) when this system doesn't allow it. Only
+    the link's creation is caught here: the security checks after it fail as usual."""
     try:
-        os.symlink(target, link)
-    except OSError as e:  # Windows: needs Developer Mode or administrator rights
-        pytest.skip(f"this system doesn't allow creating a symlink here ({e.strerror})")
+        make_link()
+    except OSError as e:  # Windows: symlinks need Developer Mode or administrator rights
+        reason = f"this system doesn't allow creating a {what} here ({e.strerror})"
+        if REQUIRE_LINKS:
+            pytest.fail(
+                f"MYLIBRARY_REQUIRE_LINK_TESTS=1, but {reason}: the link-security test "
+                "couldn't run (a missing right on this machine, not a failed check)",
+                pytrace=False,
+            )
+        pytest.skip(reason)
+
+
+def symlink_or_skip(target, link):
+    link_or_skip(lambda: os.symlink(target, link), "symlink")
 
 
 @pytest.fixture
@@ -484,10 +502,7 @@ def test_a_hard_link_is_never_written_through(lib, tmp_path_factory):
     outside = tmp_path_factory.mktemp("elsewhere") / "shared.md"
     outside.write_bytes(b"shared text\n")
     link = library / "notes" / NAME / "linked.md"
-    try:
-        os.link(outside, link)
-    except OSError as e:
-        pytest.skip(f"this file system doesn't allow hard links here ({e.strerror})")
+    link_or_skip(lambda: os.link(outside, link), "hard link")
     note = notes_store.read(library, row, "file:linked.md")
     notes_store.save(library, row, "file:linked.md", "changed\n", note["version"])
     assert outside.read_bytes() == b"shared text\n" and link.read_bytes() == b"changed\n"
