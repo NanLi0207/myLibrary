@@ -49,12 +49,29 @@ class Conflict(Exception):
 
 
 def notes_dir(library: Path, row: dict) -> Path:
-    """The document's notes folder: its catalog `notes` column (notes/<name>/)."""
-    return library / row["notes"] if row.get("notes") else library / "notes" / row["slug"]
+    """The document's notes folder: its catalog `notes` column (notes/<name>/). A value that
+    names a place outside notes/ (an absolute path, "..") is refused."""
+    name = Path(row.get("notes") or f"notes/{row['slug']}")
+    parts = name.parts
+    if name.is_absolute() or name.drive or len(parts) < 2 or parts[0] != "notes" \
+            or ".." in parts:  # fmt: skip
+        raise NoteError(f"the catalog's notes folder isn't under notes/: {str(name)[:80]!r}")
+    return library / name
 
 
 def topics_dir(library: Path) -> Path:
     return library / "notes" / "topics"
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    """`path` is still in `folder` once links are followed. A symlink or junction *in* a notes
+    folder that points out of it isn't: such a file is never listed, read or written. A link on
+    the folder itself (a notes folder kept on OneDrive through a junction) is the user's own
+    arrangement, and its files count as the folder's."""
+    try:
+        return path.resolve().is_relative_to(folder.resolve())
+    except OSError, RuntimeError:  # a link loop, or a link that can't be followed
+        return False
 
 
 def version_of(data: bytes | None) -> str | None:
@@ -64,7 +81,7 @@ def version_of(data: bytes | None) -> str | None:
 def _linked(folder: Path) -> list[dict]:
     """The README's checklist (chapters, or a paper's one item), with each item's note file."""
     readme = folder / "README.md"
-    if not readme.is_file():
+    if not readme.is_file() or not _inside(readme, folder):  # a README linked from elsewhere
         return []
     return library_page.chapters_in(safe_io.read_text(readme))
 
@@ -82,7 +99,7 @@ def path_of(library: Path, row: dict, key: str, *, creating: bool = False) -> Pa
     else:
         raise NoteError(f"not a note: {key[:80]!r}")
     path = folder / name
-    if not path.resolve().is_relative_to(folder.resolve()):  # a link or junction pointing out
+    if not _inside(path, folder):  # a link or junction pointing out
         raise NoteError(f"not a note: {key[:80]!r}")
     if path.exists():
         if not path.is_file():
@@ -104,8 +121,10 @@ def entries(library: Path, row: dict) -> list[dict]:
     def add(name: str, kind: str, title: str, chapter: int | None = None) -> None:
         if name in seen or not NAME_RE.fullmatch(name):
             return
-        seen.add(name)
         path = folder / name
+        if not _inside(path, folder):  # a link pointing out of the folder: not a note
+            return
+        seen.add(name)
         found.append(
             {
                 "key": f"file:{name}",
@@ -130,8 +149,8 @@ def entries(library: Path, row: dict) -> list[dict]:
     if topics.is_dir():
         title = (row.get("title") or "").strip().lower()
         for path in sorted(topics.glob("*.md")):
-            if not TOPIC_RE.fullmatch(path.stem):
-                continue
+            if not TOPIC_RE.fullmatch(path.stem) or not _inside(path, topics):
+                continue  # (a link pointing out is never read)
             try:
                 text = safe_io.read_text(path).lower()
             except OSError, UnicodeDecodeError:

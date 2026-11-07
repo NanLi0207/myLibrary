@@ -307,21 +307,156 @@ def test_the_api_needs_a_known_document(server):
 # --- links and other editors -----------------------------------------------------------------
 
 
-def test_a_symlink_pointing_outside_the_notes_is_refused(lib, tmp_path_factory):
-    library, row = lib
-    outside = tmp_path_factory.mktemp("elsewhere") / "secret.md"
-    outside.write_bytes(b"not a note\n")
-    link = library / "notes" / NAME / "evil.md"
+SECRET = b"Practical Lens Design: SECRET text kept outside the notes\n"
+
+
+def symlink_or_skip(target, link):
     try:
-        os.symlink(outside, link)
+        os.symlink(target, link)
     except OSError as e:  # Windows: needs Developer Mode or administrator rights
         pytest.skip(f"this system doesn't allow creating a symlink here ({e.strerror})")
+
+
+@pytest.fixture
+def reads(monkeypatch):
+    """Every file the notes store reads as text (to show an outside file is never read)."""
+    seen = []
+    real = notes_store.safe_io.read_text
+
+    def spy(path, *args, **kwargs):
+        seen.append(os.path.realpath(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(notes_store.safe_io, "read_text", spy)
+    return seen
+
+
+def listed_keys(library, row):
+    return [e["key"] for e in notes_store.entries(library, row)]
+
+
+def assert_normal_notes_work(library, row):
+    """The document's own notes are still listed, read and saved."""
+    keys = listed_keys(library, row)
+    assert "file:ch01-basics.md" in keys, keys
+    note = notes_store.read(library, row, "file:ch01-basics.md")
+    notes_store.save(library, row, "file:ch01-basics.md", note["text"] + "- ok\n", note["version"])
+    assert raw(library, "ch01-basics.md").endswith(b"- ok\n")
+
+
+def test_a_symlink_pointing_outside_the_notes_is_refused(lib, tmp_path_factory, reads):
+    library, row = lib
+    outside = tmp_path_factory.mktemp("elsewhere") / "secret.md"
+    outside.write_bytes(SECRET)
+    symlink_or_skip(outside, library / "notes" / NAME / "evil.md")
     with pytest.raises(NoteError):
         notes_store.read(library, row, "file:evil.md")
     with pytest.raises(NoteError):
-        notes_store.save(library, row, "file:evil.md", "x", notes_store.version_of(b"not a note\n"))
-    assert outside.read_bytes() == b"not a note\n"
-    assert "file:evil.md" not in {e["key"] for e in notes_store.entries(library, row)}
+        notes_store.save(library, row, "file:evil.md", "x", notes_store.version_of(SECRET))
+    listed = notes_store.entries(library, row)
+    assert "file:evil.md" not in {e["key"] for e in listed}
+    assert "SECRET" not in json.dumps(listed)
+    assert_normal_notes_work(library, row)
+    assert outside.read_bytes() == SECRET
+    assert os.path.realpath(outside) not in reads
+
+
+def test_a_topic_note_symlink_pointing_outside_is_neither_listed_nor_read(
+    lib, tmp_path_factory, reads
+):
+    library, row = lib
+    topics = library / "notes" / "topics"
+    topics.mkdir()
+    (topics / "coma.md").write_text("- Practical Lens Design: PDF page 4\n", encoding="utf-8")
+    outside = tmp_path_factory.mktemp("elsewhere") / "secret.md"
+    outside.write_bytes(SECRET)  # it mentions the book, so it would be listed if it were read
+    symlink_or_skip(outside, topics / "vignetting.md")
+    listed = notes_store.entries(library, row)
+    keys = [e["key"] for e in listed]
+    assert "topic:coma" in keys and "topic:vignetting" not in keys, keys
+    assert "SECRET" not in json.dumps(listed)
+    assert os.path.realpath(outside) not in reads  # not even read to decide
+    with pytest.raises(NoteError):
+        notes_store.read(library, row, "topic:vignetting")
+    with pytest.raises(NoteError):
+        notes_store.save(library, row, "topic:vignetting", "x", notes_store.version_of(SECRET))
+    assert notes_store.read(library, row, "topic:coma")["exists"]
+    assert_normal_notes_work(library, row)
+    assert outside.read_bytes() == SECRET
+
+
+def test_a_readme_symlink_pointing_outside_is_neither_listed_nor_read(lib, tmp_path_factory, reads):
+    """Its checklist isn't used either: no chapters from it, and no "not written yet" note it
+    names can be created."""
+    library, row = lib
+    outside = tmp_path_factory.mktemp("elsewhere") / "README.md"
+    secret_readme = b"# SECRET\n\n- [ ] [SECRET chapter](secret.md)\n"
+    outside.write_bytes(secret_readme)
+    readme = library / "notes" / NAME / "README.md"
+    readme.unlink()
+    symlink_or_skip(outside, readme)
+    listed = notes_store.entries(library, row)
+    keys = [e["key"] for e in listed]
+    assert "file:README.md" not in keys and "file:secret.md" not in keys, keys
+    assert "SECRET" not in json.dumps(listed)
+    assert os.path.realpath(outside) not in reads
+    with pytest.raises(NoteError):
+        notes_store.read(library, row, "file:README.md")
+    with pytest.raises(NoteError):
+        notes_store.save(library, row, "file:README.md", "x", notes_store.version_of(secret_readme))
+    with pytest.raises(NoteError):  # named only by the outside README: not a note to create
+        notes_store.save(library, row, "file:secret.md", "x", None)
+    assert not (library / "notes" / NAME / "secret.md").exists()
+    assert_normal_notes_work(library, row)
+    assert outside.read_bytes() == secret_readme
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="directory junctions are a Windows feature")
+def test_junctions_named_like_notes_are_neither_listed_nor_opened(lib, tmp_path_factory, reads):
+    """Junctions need no special rights, so this runs everywhere on Windows: a junction in the
+    notes or topics folder, named like a note, pointing outside."""
+    import _winapi
+
+    library, row = lib
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    (elsewhere / "README.md").write_bytes(SECRET)
+    topics = library / "notes" / "topics"
+    topics.mkdir()
+    _winapi.CreateJunction(str(elsewhere), str(library / "notes" / NAME / "trap.md"))
+    _winapi.CreateJunction(str(elsewhere), str(topics / "trap.md"))
+    keys = listed_keys(library, row)
+    assert "file:trap.md" not in keys and "topic:trap" not in keys, keys
+    for key in ("file:trap.md", "topic:trap"):
+        with pytest.raises(NoteError):
+            notes_store.read(library, row, key)
+        with pytest.raises(NoteError):
+            notes_store.save(library, row, key, "x", None)
+    assert_normal_notes_work(library, row)
+    assert sorted(p.name for p in elsewhere.iterdir()) == ["README.md"]
+    assert (elsewhere / "README.md").read_bytes() == SECRET
+    assert not any(path.startswith(os.path.realpath(elsewhere)) for path in reads)
+
+
+@pytest.mark.parametrize(
+    "notes",
+    ["../elsewhere/", "notes/../../elsewhere/", "elsewhere/", "notes/", "ABSOLUTE"],
+)
+def test_a_catalog_notes_folder_outside_notes_is_refused(lib, tmp_path_factory, notes):
+    """The folder named by the catalog row must be under notes/, with no link involved."""
+    library, row = lib
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    (elsewhere / "README.md").write_bytes(SECRET)
+    if notes == "ABSOLUTE":
+        notes = elsewhere.as_posix() + "/"
+    bad = {**row, "notes": notes}
+    with pytest.raises(NoteError):
+        notes_store.entries(library, bad)
+    with pytest.raises(NoteError):
+        notes_store.read(library, bad, "file:README.md")
+    with pytest.raises(NoteError):
+        notes_store.save(library, bad, "file:README.md", "x", notes_store.version_of(SECRET))
+    assert (elsewhere / "README.md").read_bytes() == SECRET
+    assert_normal_notes_work(library, row)  # the real row still works
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="directory junctions are a Windows feature")

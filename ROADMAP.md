@@ -30,7 +30,8 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
       rightly links to the bare PDF.
     - The tests now say the reading view is set up. All 213 tests pass in a clean clone.
 - **Next:** task 4, plan approved 2026-11-07 (task 4 and section 5). M1 (notes store and
-  API) is done (`9acaf52`). M2 (browser tests in CI) is implemented and awaits review.
+  API) is done (`9acaf52`). M2 (browser tests in CI) is pushed (`6b19d78`); a fix for the
+  note list's link checks follows, and M2 is complete once CI is green.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
@@ -1211,13 +1212,14 @@ Every milestone also reruns the regression set (section 5, *Regression set*).
 - **Limit:** an editor writing the file *outside* myLibrary's lock in the same millisecond
   as a save can't be detected (the check and the write are milliseconds apart). The next
   save sees the new version as a conflict.
-- **Untested edge case:** a symlink or junction inside a notes folder pointing outside it is
-  refused by `notes_store.path_of`, which resolves the path and checks it stays in the folder.
-  No test covers this yet, because creating links on Windows needs administrator rights or
-  Developer Mode. Add a regression test where links can be created (CI, M2).
+- **Links pointing out of a notes folder** (tested since M2; fixed after M2, see *After the
+  push* at the end of M2): opening and saving through them was always refused (`path_of`),
+  but the note list (`entries`) still listed them and read them. Now one check,
+  `notes_store._inside`, covers opening, saving and listing.
 
-**M2. Browser tests in CI (closes L11 for the reader)**: implemented 2026-11-07, awaiting
-review (see *Results* at the end of M2). Not committed.
+**M2. Browser tests in CI (closes L11 for the reader)**: pushed 2026-11-07 as `6b19d78`. In
+its first CI run the browser job passed and the Python tests failed: see *After the push* at
+the end of M2. M2 is complete once CI is green.
 - **Goal:** the reader's existing behaviour is checked in a real browser on every push, before
   M3 changes the layout. The task 3 scratchpad checks (Edge through the DevTools protocol)
   become maintained pytest tests.
@@ -1449,6 +1451,44 @@ review (see *Results* at the end of M2). Not committed.
     branch the user approves.
   - **Plain `pytest`:** 256 passed, 1 skipped (the symlink test, which needs a right this PC
     doesn't have).
+- **After the push (2026-11-07):**
+  - **The first CI run** (`6b19d78`, run 42412919294):
+    - lint, format and the whole browser job passed;
+    - the Python tests step failed.
+  - **The cause is unconfirmed:** the job's log needs a signed-in account.
+    - The likeliest candidate is the symlink test. GitHub's Windows runners can create
+      symlinks, so it runs there, while it's skipped on the development PC.
+    - Its last check (a link isn't listed) fails against the M2 code.
+  - **Found by reviewing `notes_store.py` against that test:** the list of notes didn't check
+    where a file really is.
+    - `entries()` listed a note file linked from outside the folder.
+    - A topic note linked from outside was read to decide whether to list it.
+    - A README linked from outside was read for its checklist, which gave the panel chapter
+      titles from that file and allowed creating the notes it named.
+    - Opening and saving were always refused (`path_of`).
+    - Separately, `notes_dir` trusted the catalog's `notes` value, so `../x/` or an absolute
+      path named a folder outside the library with no link involved.
+  - **The fix (`notes_store.py`):**
+    - one helper, `_inside`, used by `path_of`, `_linked`, `entries` and the topic list, so
+      nothing pointing out is listed or read;
+    - `notes_dir` refuses a catalog value outside `notes/`; all real catalog rows have the
+      form `notes/<name>/`;
+    - a link on the notes folder itself (a junction to OneDrive) is still honoured, by
+      design, and its test still passes.
+  - **Tests (`test_notes_store.py`):**
+    - real symlinks for a chapter note, a topic note and the README. Each checks that it's
+      not listed or opened, that its text never reaches the list and is never read, that the
+      outside file is unchanged, and that normal notes are still listed, read and saved.
+      These run only where links can be made, such as CI; they're skipped on the development
+      PC;
+    - junctions named like a note or topic note, which run everywhere on Windows;
+    - five catalog folder values outside `notes/`.
+    - Against the M2 code, the junction test and all 5 catalog cases fail.
+  - **Scope:** only `notes_store` (the reader's notes panel) was checked and fixed. Other
+    code that reads notes paths or README files from catalog rows (the library page,
+    ticking chapters, add_book, merging repeats, backups) needs its own containment
+    audit, as a separate task.
+  - **Not yet verified:** the symlink tests, until the next CI run shows them passing.
 
 **M3. Split-screen layout.**
 - **Scope:** `reader_static/notes.js` and `notes.css`, injected by `reader.viewer_html` next to
