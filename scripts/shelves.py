@@ -253,26 +253,26 @@ def _sure_topic(row: dict, sure: float | None = None) -> str:
     return row.get("topic", "") if row.get("topic") and score >= needed else ""
 
 
-def add_topic_shelf(slug: str, catalog_path: Path) -> str:
+def add_topic_shelf(doc_id: str, catalog_path: Path) -> str:
     """Put an item on its subject's shelf too (keeping its other shelves). Returns the shelf."""
-    row = catalog.load(catalog_path).get(slug) or {}
+    row = catalog.load(catalog_path).get(doc_id) or {}
     topic = _sure_topic(row)
     on = catalog.split_list(row.get("shelves") or "")
     if not topic or topic in on:
         return ""
-    catalog.set_field(catalog_path, slug, "shelves", "; ".join(on + [topic]))
+    catalog.set_field(catalog_path, doc_id, "shelves", "; ".join(on + [topic]))
     return topic
 
 
-def auto_shelve(slug: str, library: Path, catalog_path: Path) -> list[str]:
+def auto_shelve(doc_id: str, library: Path, catalog_path: Path) -> list[str]:
     """Put a newly added item on shelves, if it's on none yet: its subject's shelf (when
     OpenAlex is sure of it, a new shelf if need be), and your own shelves that fit it. Without
     a known subject, the shelves whose items it's most like (subject shelves included)."""
     rows = catalog.load(catalog_path)
-    row = rows.get(slug)
+    row = rows.get(doc_id)
     if not row or catalog.split_list(row.get("shelves") or ""):
         return []
-    others = [r for s, r in rows.items() if s != slug]
+    others = [r for s, r in rows.items() if s != doc_id]
     topic = _sure_topic(row)
     found = suggest(row, others, library, catalog_path)
     if topic:  # its own subject, and of the rest only your own shelves (not other subjects)
@@ -283,7 +283,7 @@ def auto_shelve(slug: str, library: Path, catalog_path: Path) -> list[str]:
     if not found and (closest := closest_shelf(row, others, shelf_names(library, catalog_path))):
         found = [closest]  # last resort: the shelf it's clearly most like
     if found:
-        catalog.set_field(catalog_path, slug, "shelves", "; ".join(found))
+        catalog.set_field(catalog_path, doc_id, "shelves", "; ".join(found))
     return found
 
 
@@ -302,8 +302,8 @@ def _main() -> None:
     catalog_path = LIBRARY / "catalog.csv"
     rows = catalog.load(catalog_path)
     print(f"{'YOUR SHELVES':30} | {'SUGGESTED':30} | TITLE")
-    for slug, row in rows.items():
-        others = [r for s, r in rows.items() if s != slug]
+    for doc_id, row in rows.items():
+        others = [r for s, r in rows.items() if s != doc_id]
         found = "; ".join(suggest(row, others)) or "-"
         print(f"{row.get('shelves') or '-':30.30} | {found:30.30} | {row['title'][:60]}")
     if args.apply:

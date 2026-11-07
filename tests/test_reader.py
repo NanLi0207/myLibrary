@@ -4,11 +4,11 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-import catalog
 import library_page
 import library_server
 import pytest
 import reader
+from testlib import id_of, put
 
 ECDICT_SAMPLE = """\
 word,phonetic,definition,translation,pos,collins,oxford,tag,bnc,frq,exchange,detail,audio
@@ -71,8 +71,9 @@ def test_unknown_word(dictionary):
 
 
 def test_save_word_once(dictionary):
-    first = reader.save_word("a-book", "A Book", "pupils", "the entrance pupil", 12)
-    again = reader.save_word("a-book", "A Book", "pupil", "", 40)
+    doc = put(dictionary / "catalog.csv", {"slug": "a-book", "title": "A Book"})
+    first = reader.save_word(doc, "A Book", "pupils", "the entrance pupil", 12)
+    again = reader.save_word(doc, "A Book", "pupil", "", 40)
     assert first["saved"] is True and again["saved"] is False
     vocab = (dictionary / "notes" / "a-book" / "vocabulary.md").read_text(encoding="utf-8")
     assert vocab.startswith("# Vocabulary: A Book")
@@ -82,7 +83,8 @@ def test_save_word_once(dictionary):
 
 
 def test_save_phrase_uses_glossary_term(dictionary):
-    reader.save_word("a-book", "A Book", "Entrance  Pupil", "", None)
+    doc = put(dictionary / "catalog.csv", {"slug": "a-book", "title": "A Book"})
+    reader.save_word(doc, "A Book", "Entrance  Pupil", "", None)
     vocab = (dictionary / "notes" / "a-book" / "vocabulary.md").read_text(encoding="utf-8")
     assert "| entrance pupil |  | 入瞳 |  |" in vocab
 
@@ -114,7 +116,7 @@ def test_http_lookup_and_save(dictionary, monkeypatch):
     for module in (library_server, library_page):
         monkeypatch.setattr(module, "LIBRARY", dictionary)
         monkeypatch.setattr(module, "CATALOG", dictionary / "catalog.csv")
-    catalog.upsert(
+    doc = put(
         dictionary / "catalog.csv",
         {"slug": "doe-2015-optics", "title": "Optics", "file": "books/doe-2015-optics.pdf"},
     )
@@ -136,15 +138,18 @@ def test_http_lookup_and_save(dictionary, monkeypatch):
             post("/api/lookup", {"text": "pupil"}, token="wrong")
         assert denied.value.code == 403
         assert post("/api/lookup", {"text": "pupil"})["glossary"][0]["zh"] == "光瞳"
-        saved = post("/api/save-word", {"slug": "doe-2015-optics", "text": "stop", "page": 3})
+        saved = post("/api/save-word", {"id": doc, "text": "stop", "page": 3})
         assert saved == {
             "word": "stop",
             "saved": True,
             "file": "notes/doe-2015-optics/vocabulary.md",
         }
         with pytest.raises(urllib.error.HTTPError) as unknown:
-            post("/api/save-word", {"slug": "../x", "text": "stop"})
+            post("/api/save-word", {"id": "../x", "text": "stop"})
         assert unknown.value.code == 404
+        with pytest.raises(urllib.error.HTTPError) as by_name:  # a name is no identity any more
+            post("/api/save-word", {"id": "doe-2015-optics", "text": "stop"})
+        assert by_name.value.code == 404
     finally:
         server.shutdown()
 
@@ -242,19 +247,22 @@ def test_glossaries_of_the_books_shelves_come_first(dictionary):
         "term,zh,note,definition\npupil,瞳孔,,\n", encoding="utf-8"
     )
     for slug, shelves in (("eye-book", "Biology; Medicine"), ("lens-book", "Optics")):
-        catalog.upsert(dictionary / "catalog.csv", {"slug": slug, "shelves": shelves})
+        put(dictionary / "catalog.csv", {"slug": slug, "shelves": shelves})
     # Shelves named after a subject: "Advanced optical system design" is about optics
-    catalog.upsert(dictionary / "catalog.csv", {"slug": "design-book", "field": "Engineering",
+    put(dictionary / "catalog.csv", {"slug": "design-book", "field": "Engineering",
                    "shelves": "Advanced optical system design",
                    "topic": "Advanced optical system design"})  # fmt: skip
 
-    def order(slug):
-        return [g["glossary"] for g in reader.lookup("pupil", "", slug)["glossary"]]
+    def order(name):
+        doc = id_of(dictionary / "catalog.csv", name) if name else None
+        return [g["glossary"] for g in reader.lookup("pupil", "", doc)["glossary"]]
 
     assert order(None) == ["biology", "optics"]  # no book: alphabetical
     assert order("eye-book") == ["biology", "optics"]
     assert order("lens-book") == ["optics", "biology"]
     assert order("design-book") == ["optics", "biology"]
     # A longer, more specific term still comes before a shelf match
-    info = reader.lookup("pupil", "the entrance pupil", "eye-book")
+    info = reader.lookup(
+        "pupil", "the entrance pupil", id_of(dictionary / "catalog.csv", "eye-book")
+    )
     assert [g["term"] for g in info["glossary"]] == ["entrance pupil", "pupil", "pupil"]

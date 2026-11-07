@@ -5,8 +5,11 @@
 (() => {
   "use strict";
   const token = window.MYLIBRARY_TOKEN;
-  const file = new URLSearchParams(location.search).get("file") || "";
-  const slug = (file.match(/\/(?:books|papers|theses)\/([a-z0-9-]+)\.pdf$/) || [])[1];
+  // The document being read: its id (catalog.py), given by the server in the address
+  const docId = new URLSearchParams(location.search).get("id") || "";
+  // Opened from a search result to look something up (&preview=1): not reading, so nothing is
+  // recorded (no "Last read", no reading time) until "Start reading" is clicked
+  let preview = new URLSearchParams(location.search).get("preview") === "1";
   let popup = null;
   let bubble = null;
 
@@ -68,6 +71,7 @@
   async function post(path, body) {
     const response = await fetch(path, {
       method: "POST",
+      keepalive: true,  // a click's write still arrives if the tab is closed at once
       headers: { "Content-Type": "application/json", "X-Library-Token": token },
       body: JSON.stringify(body),
     });
@@ -99,21 +103,97 @@
     return a;
   }
 
-  // "fischer-2008-optical-system-design" -> "Fischer 2008"
-  function bookLabel(bookSlug) {
-    const [author, year] = bookSlug.split("-");
-    return `${author[0].toUpperCase()}${author.slice(1)} ${year}`;
+  // "books/fischer-2008-optical-system-design.pdf" -> "Fischer 2008" (its file's name)
+  function bookLabel(file) {
+    const [author, year] = (file.split("/").pop() || "").split("-");
+    return author ? `${author[0].toUpperCase()}${author.slice(1)} ${year || ""}`.trim() : file;
   }
 
-  function openPage(bookSlug, page, bookFile) {
-    if (bookSlug === slug && window.PDFViewerApplication) {
-      PDFViewerApplication.page = page;
-      closeAll();
-    } else {
-      const target = bookFile || `books/${bookSlug}.pdf`;  // books/ or papers/
-      window.open(`/pdfjs/web/viewer.html?file=/${target}#page=${page}`, "_blank");
-    }
+  // A search result: the document (by its id) at that page, with the searched text highlighted,
+  // in a preview tab (a look-up, not reading: it leaves "Last read" and the reading log alone;
+  // also for this book, so the place you're reading at here stays where it is)
+  function openPage(id, page, term) {
+    closeAll();
+    const find = term ? `&find=${encodeURIComponent(term)}` : "";
+    window.open(`/read/${encodeURIComponent(id)}?page=${page}${find}&preview=1`, "_blank");
   }
+
+  // Highlight a searched term on a page with PDF.js's own find (yellow, the current match
+  // stronger; the find bar shows "n of N" with ▲▼ for the other matches; closing it or Esc
+  // clears them). Nothing is written into the PDF: these are not annotations. The term may not
+  // be found exactly as the index matched it (it also matches other word forms, e.g.
+  // "vignetted" for "vignetting"): then the page stays where the result is, and a note says so
+  // rather than jumping to some other page.
+  let findNotice = null;
+  function notice(zh, en) {
+    if (!findNotice) {
+      findNotice = el("div", "ml-saved ml-find");
+      document.body.append(findNotice);
+    }
+    findNotice.replaceChildren(bi(zh, en));
+    findNotice.hidden = false;
+    clearTimeout(findNotice.timer);
+    findNotice.timer = setTimeout(() => { findNotice.hidden = true; }, 6000);
+  }
+
+  function showFound(term, page) {
+    const app = window.PDFViewerApplication;
+    if (!app || !term) {
+      if (app && page) app.page = page;
+      return;
+    }
+    app.page = page;  // PDF.js's find starts from the current page
+    const bar = app.findBar;
+    if (bar) {
+      bar.open();
+      bar.findField.value = term;
+      bar.highlightAll.checked = true;
+      bar.caseSensitive.checked = false;
+      bar.entireWord.checked = false;
+    }
+    const onState = ({ state }) => {
+      if (state === 3) return;  // PENDING: still reading pages
+      app.eventBus.off("updatefindcontrolstate", onState);
+      const at = app.findController?.selected?.pageIdx;
+      if (state === 1 || at == null) {  // NOT_FOUND (e.g. a scan without a text layer)
+        app.page = page;
+        notice(`在此文档中没有找到 “${term}”（本页由搜索得出）`,
+          `“${term}” wasn't found as typed; this is the page the search found`);
+      } else if (at + 1 !== page) {  // only elsewhere: don't jump away from the result's page
+        // PDF.js would scroll to its match once that page is drawn. It asks for that right
+        // after this event, so the request is withdrawn just after (the arrows still work)
+        setTimeout(() => {
+          if (app.findController) app.findController._scrollMatches = false;
+          app.page = page;
+        }, 0);
+        notice(`本页没有完全一致的 “${term}”，可用查找栏的箭头看其他位置`,
+          `No exact “${term}” on this page; the find bar's arrows go to other matches`);
+      } else {
+        // PDF.js puts the match near the top; bring it to the middle once it's drawn
+        setTimeout(() => document.querySelector(".textLayer .highlight.selected")
+          ?.scrollIntoView({ block: "center" }), 300);
+      }
+    };
+    app.eventBus.on("updatefindcontrolstate", onState);
+    app.eventBus.dispatch("find", {
+      source: bar || app, type: "", query: term, caseSensitive: false, entireWord: false,
+      highlightAll: true, findPrevious: false, matchDiacritics: true,
+    });
+  }
+
+  // Opened from a search result (/read/<id>?page=N&find=term): highlight it once the pages are
+  // ready
+  async function findFromAddress() {
+    const app = window.PDFViewerApplication;
+    const term = new URLSearchParams(location.search).get("find");
+    if (!app || !term) return;
+    await app.initializedPromise;
+    const page = Number((location.hash.match(/page=(\d+)/) || [])[1]) || 1;
+    const go = () => setTimeout(() => showFound(term, page), 100);
+    if (app.pdfViewer?.pagesCount) go();
+    else app.eventBus.on("pagesinit", go, { once: true });
+  }
+  findFromAddress();
 
   function snippetNode(snippet) {
     const p = el("div", "ml-snippet");
@@ -135,7 +215,7 @@
       results.replaceChildren(biEl("div", "ml-muted", "搜索中…", "Searching…"));
       let found;
       try {
-        found = await post("/api/search", { text: term, slug });
+        found = await post("/api/search", { text: term, id: docId });
       } catch (e) {
         results.replaceChildren(biEl("div", "ml-error", "搜索失败", "Search failed: " + e.message));
         books.disabled = false;
@@ -157,10 +237,10 @@
         const item = el("button", "ml-result");
         item.title = `${r.title}，PDF 第 ${r.page} 页 / PDF page ${r.page}`;
         const where = el("div", "ml-where");
-        where.append(el("b", null, bookLabel(r.slug)), ` · p. ${r.page}`);
-        if (r.slug === slug) where.append(biEl("span", "ml-here", "本书", "this book"));
+        where.append(el("b", null, bookLabel(r.file)), ` · p. ${r.page}`);
+        if (r.id === docId) where.append(biEl("span", "ml-here", "本书", "this book"));
         item.append(where, snippetNode(r.snippet));
-        item.onclick = () => openPage(r.slug, r.page, r.file);
+        item.onclick = () => openPage(r.id, r.page, found.term);
         results.append(item);
       }
     };
@@ -253,7 +333,7 @@
     place(popup, rect);
     let data;
     try {
-      data = await post("/api/lookup", { text, context, slug });
+      data = await post("/api/lookup", { text, context, id: docId });
     } catch (e) {
       popup.replaceChildren(biEl("div", "ml-error", "查询失败", "Lookup failed: " + e.message));
       return;
@@ -323,12 +403,12 @@
     }
 
     const actions = el("div", "ml-actions");
-    if (slug) {
+    if (docId) {
       const save = biEl("button", "ml-button", "加入生词本", "Save word");
       save.onclick = async () => {
         save.disabled = true;
         try {
-          const r = await post("/api/save-word", { slug, text, context, page });
+          const r = await post("/api/save-word", { id: docId, text, context, page });
           save.replaceChildren(r.saved ? bi("已加入 ✓", "Saved") : bi("已在生词本中", "Already saved"));
           save.title = r.file;
         } catch (e) {
@@ -401,15 +481,16 @@
     }, 0);
   });
 
-  // Remember where you are: the page is written to notes/<slug>/README.md ("Last read: page N")
+  // Remember where you are: the page is written to the notes README ("Last read: page N")
   // so the library's Continue button can bring you back. Only once you've moved away from the
   // page the book opened at: just opening a chapter to look doesn't overwrite your place.
-  async function trackPosition() {
+  // `fromHere` (Start reading in a preview): this page counts at once.
+  async function trackPosition(fromHere = false) {
     const app = window.PDFViewerApplication;
-    if (!slug || !token || !app) return;
+    if (!docId || !token || !app) return;
     await app.initializedPromise;
     const openedAt = Number((location.hash.match(/page=(\d+)/) || [])[1]) || null;
-    let moved = false;
+    let moved = fromHere;
     let saved = null;
     let timer = null;
     const save = (keepalive = false) => {
@@ -421,7 +502,7 @@
         method: "POST",
         keepalive,
         headers: { "Content-Type": "application/json", "X-Library-Token": token },
-        body: JSON.stringify({ slug, page }),
+        body: JSON.stringify({ id: docId, page }),
       }).catch(() => { saved = null; });
     };
     app.eventBus.on("pagechanging", (event) => {
@@ -432,15 +513,16 @@
     });
     addEventListener("pagehide", () => save(true));
     document.addEventListener("visibilitychange", () => { if (document.hidden) save(true); });
+    if (fromHere) save();
   }
-  trackPosition();
+  if (!preview) trackPosition();
 
   // 📈 Reading log: the time you actively read (tab visible, and you moved, scrolled or turned
   // a page in the last two minutes) and the pages you looked at, sent every minute and when
   // you leave (reading_log.py adds them up per day).
   async function trackReading() {
     const app = window.PDFViewerApplication;
-    if (!slug || !token || !app) return;
+    if (!docId || !token || !app) return;
     await app.initializedPromise;
     const IDLE = 120000, TICK = 15000;
     let lastActive = Date.now();
@@ -454,7 +536,7 @@
     app.eventBus.on("pagechanging", (event) => { active(); pages.add(event.pageNumber); });
     const send = (keepalive = false) => {
       if (!seconds && !pages.size) return;
-      const body = JSON.stringify({ slug, seconds: Math.round(seconds), pages: [...pages] });
+      const body = JSON.stringify({ id: docId, seconds: Math.round(seconds), pages: [...pages] });
       seconds = 0;
       pages.clear();
       fetch("/api/reading", {
@@ -473,65 +555,253 @@
     addEventListener("pagehide", () => send(true));
     document.addEventListener("visibilitychange", () => { if (document.hidden) send(true); });
   }
-  trackReading();
+  if (!preview) trackReading();
+
+  // Preview (a search result): a small bar says so; "Start reading" turns this tab into a
+  // normal reading tab from the current page on (position saved, reading time counted)
+  function previewBar() {
+    if (!preview) return;
+    const bar = el("div", "ml-preview");
+    const start = biEl("button", "ml-small", "开始阅读", "Start reading");
+    bar.append(biEl("span", null, "预览：不计入阅读进度", "Preview: not counted as reading"), start);
+    start.onclick = () => {
+      preview = false;
+      bar.remove();
+      const params = new URLSearchParams(location.search);
+      params.delete("preview");  // a reload now reads normally too
+      history.replaceState(null, "", `${location.pathname}?${params}${location.hash}`);
+      trackPosition(true);
+      trackReading();
+    };
+    document.body.append(bar);
+  }
+  previewBar();
+
+  // ✎ Correcting marks. PDF.js already selects a highlight, deletes it (🗑 on its toolbar, or
+  // Delete/Backspace), undoes (Ctrl+Z, and the "Undo" bar after a deletion), also for highlights
+  // saved in the PDF earlier, but only while an editing tool is on, which isn't obvious. So:
+  // a click on a highlight while reading selects it (turning the highlight tool on); Esc with
+  // nothing selected leaves the tool; a hint says how, the first time a tool is turned on.
+  // Deleting is PDF.js's own, and keepMarks saves it like any other change of marks.
+  async function easyMarkEditing() {
+    const app = window.PDFViewerApplication;
+    if (!app) return;
+    await app.initializedPromise;
+    const NONE = 0, HIGHLIGHT = 9;  // pdfjs AnnotationEditorType
+    const mode = () => app.pdfViewer?.annotationEditorMode ?? NONE;
+    const inside = (node, x, y) => {
+      const r = node.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    };
+    let hinted = false;
+    app.eventBus.on("annotationeditormodechanged", ({ mode: m }) => {
+      if (m > 0 && !hinted) {
+        hinted = true;
+        notice("点击标注可选中；按 Delete 或 🗑 删除；↶ 撤销 (Ctrl+Z)，↷ 重做 (Ctrl+Y)；Esc 退出工具",
+          "Click a mark to select it; Delete or 🗑 removes it; ↶ Undo (Ctrl+Z), ↷ Redo (Ctrl+Y); Esc leaves the tool");
+      }
+    });
+    // A single click on a highlight while reading (not a double-click: that looks a word up)
+    let pending = null;
+    document.addEventListener("click", (event) => {
+      if (mode() !== NONE || event.detail !== 1) return;
+      if (String(window.getSelection() || "").trim()) return;
+      const page = event.target.closest?.(".page");
+      const { clientX: x, clientY: y } = event;
+      if (!page || ![...page.querySelectorAll(".annotationLayer .highlightAnnotation")]
+        .some((a) => inside(a, x, y))) return;
+      clearTimeout(pending);
+      pending = setTimeout(() => selectMarkAt(x, y), 350);
+    }, true);
+    document.addEventListener("dblclick", () => clearTimeout(pending), true);
+    async function selectMarkAt(x, y) {
+      app.eventBus.dispatch("switchannotationeditormode", { source: window, mode: HIGHLIGHT });
+      for (let i = 0; i < 30; i++) {  // the page's saved highlights become editable shortly
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const mark = [...document.querySelectorAll(".annotationEditorLayer .highlightEditor")]
+          .find((e) => inside(e, x, y));
+        if (mark) {
+          mark.focus();  // PDF.js selects a mark that gets the focus: its toolbar shows 🗑
+          return;
+        }
+      }
+    }
+    // Esc: PDF.js unselects the selected mark; with none selected, leave the tool
+    addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || mode() === NONE) return;
+      if (document.querySelector(".annotationEditorLayer .selectedEditor")) return;
+      if (event.target.closest?.("input, textarea, [contenteditable='true']")) return;
+      app.eventBus.dispatch("switchannotationeditormode", { source: window, mode: NONE });
+    }, true);
+  }
+  easyMarkEditing();
+
+  // ↶ Undo / ↷ Redo for marks, on the toolbar and with Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z, also
+  // while reading (no tool on). The history is PDF.js's own (one per open document, kept when
+  // a tool is turned off; up to 128 steps); these only ask it to undo or redo ("editingaction",
+  // the event PDF.js's own menus use) and show whether it can ("annotationeditorstateschanged").
+  // Search highlights aren't marks, so they never enter it. In a text field (the find bar,
+  // the dictionary, a form), the shortcuts are the field's own and PDF.js doesn't see them.
+  async function undoRedo() {
+    const app = window.PDFViewerApplication;
+    if (!app) return;
+    await app.initializedPromise;
+    const anchor = document.getElementById("editorModeButtons");
+    if (!anchor) return;
+    const button = (id, zh, en, keys) => {
+      const b = el("button", "toolbarButton");
+      b.id = id;
+      b.type = "button";
+      b.disabled = true;
+      b.title = `${zh} ${en} (${keys})`;
+      b.setAttribute("aria-label", `${zh} ${en}`);
+      b.append(el("span", null, `${zh} ${en}`));
+      return b;
+    };
+    const undo = button("mlUndo", "撤销", "Undo", "Ctrl+Z");
+    const redo = button("mlRedo", "重做", "Redo", "Ctrl+Y / Ctrl+Shift+Z");
+    anchor.before(undo, redo);
+    const act = (name) => app.eventBus.dispatch("editingaction", { source: window, name });
+    undo.onclick = () => act("undo");
+    redo.onclick = () => act("redo");
+    app.eventBus.on("annotationeditorstateschanged", ({ details }) => {
+      if ("hasSomethingToUndo" in details) undo.disabled = !details.hasSomethingToUndo;
+      if ("hasSomethingToRedo" in details) redo.disabled = !details.hasSomethingToRedo;
+    });
+    app.eventBus.on("documentloaded", () => { undo.disabled = redo.disabled = true; });
+    // Shortcuts: after the page's own listeners (document, bubbling) and before PDF.js's
+    // (window), so PDF.js never acts twice, nor inside a text field.
+    document.addEventListener("keydown", (event) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      const name = key === "z" ? (event.shiftKey ? "redo" : "undo")
+        : key === "y" && !event.shiftKey ? "redo" : null;
+      if (!name) return;
+      event.stopPropagation();
+      const t = event.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement
+        || t instanceof HTMLSelectElement || t?.isContentEditable) return;  // the field's own
+      event.preventDefault();
+      act(name);
+    });
+  }
+  undoRedo();
 
   // Keep your marks: highlights, drawings, text and stamps made with PDF.js's tools are
-  // written into the library's PDF (reader.save_marks) a few seconds after you stop marking.
-  // Until then PDF.js warns before the tab closes; once saved, it doesn't.
+  // written into the library's PDF (reader.save_marks) a second after you stop marking.
+  // What counts is whether the marks on screen differ from the last ones the server said it
+  // wrote: PDF.js's hash of its annotation storage, where "" means no changes (the PDF as
+  // opened). PDF.js's own "modified" flag isn't enough: it isn't set when a mark leaves the
+  // storage (a deletion, an undo), so it can't tell whether everything is saved.
+  // - The status (bottom right) says 标注未保存 (Marks not saved yet) with 立即保存 (Save now),
+  //   正在保存 (Saving), 标注已保存 (Marks saved) only once the server has written the file,
+  //   or 标注没保存 (Marks not saved) with 重试 (Retry), which stays until a save succeeds.
+  // - While marks are unsaved or a save is on its way, the browser asks before the tab is
+  //   closed, reloaded or left; nothing is sent while closing (a whole PDF can't be).
+  // - A save sends the marks as they are when it starts; changes made meanwhile are saved
+  //   next, so the last state is the one that stays.
   async function keepMarks() {
     const app = window.PDFViewerApplication;
-    if (!slug || !token || !app) return;
+    if (!docId || !token || !app) return;
     await app.initializedPromise;
-    const status = el("div", "ml-saved");
+    const QUIET = 1000;  // ms without changes before saving
+    const status = el("div", "ml-saved ml-marks");
     status.hidden = true;
     document.body.append(status);
     let hideTimer = null;
-    const show = (zh, en, problem = false) => {
-      status.replaceChildren(bi(zh, en));
-      status.classList.toggle("ml-problem", problem);
-      status.hidden = false;
+    let state = "";
+    const show = (next, zh, en, action = null) => {
       clearTimeout(hideTimer);
-      if (!problem) hideTimer = setTimeout(() => { status.hidden = true; }, 2500);
+      status.hidden = false;
+      if (next === state && next !== "failed") return;  // keep its button usable
+      state = next;
+      status.dataset.state = next;
+      status.replaceChildren(bi(zh, en));
+      if (action) status.append(" ", action);
+      status.classList.toggle("ml-problem", next === "failed");
+      if (next === "saved") hideTimer = setTimeout(() => { status.hidden = true; state = ""; }, 2500);
     };
-    let savedHash = null;  // the marks as last saved (null: as the PDF was opened)
-    let lastHash = null;
-    let quietSince = 0;
+    const button = (zh, en, onclick) => {
+      const b = biEl("button", "ml-small", zh, en);
+      b.onclick = onclick;
+      return b;
+    };
+    let savedHash = "";   // the marks the server last wrote ("": the PDF as opened)
+    let lastHash = null;  // the marks at the last check
+    let changedAt = 0;    // when they last changed
     let saving = false;
     let failures = 0;
-    app.eventBus.on("documentloaded", () => { savedHash = lastHash = null; });
-    setInterval(async () => {
+    let failedAt = 0;
+    app.eventBus.on("documentloaded", () => {
+      savedHash = "";
+      lastHash = null;
+      failures = 0;
+      status.hidden = true;
+      state = "";
+    });
+    const current = () => app.pdfDocument?.annotationStorage.serializable.hash ?? savedHash;
+    const unsaved = () => current() !== savedHash;
+
+    async function save() {
       const doc = app.pdfDocument;
-      if (!doc || saving || !app._annotationStorageModified) return;
-      const { hash } = doc.annotationStorage.serializable;
-      if (hash === savedHash) return doc.annotationStorage.resetModified();
-      if (hash !== lastHash) {  // still marking: wait until it's quiet for a moment
-        lastHash = hash;
-        quietSince = Date.now();
-        return;
-      }
-      if (Date.now() - quietSince < 2500 || failures > 2) return;
+      if (!doc || saving) return;
+      const hash = current();
+      if (hash === savedHash) return;
       saving = true;
-      show("正在保存标注…", "Saving your marks…");
+      show("saving", "正在保存标注…", "Saving your marks…");
       try {
-        const data = await doc.saveDocument();
+        const data = await doc.saveDocument();  // the PDF with the marks as they are now: `hash`
         const response = await fetch("/api/save-marks", {
           method: "POST",
-          headers: { "Content-Type": "application/pdf", "X-Library-Token": token, "X-Slug": slug },
+          headers: { "Content-Type": "application/pdf", "X-Library-Token": token, "X-Document-Id": docId },
           body: data,
         });
-        const answer = await response.json();
-        if (!response.ok) throw new Error(answer.error || response.statusText);
+        const answer = await response.json().catch(() => ({}));
+        if (!response.ok || !answer.saved) throw new Error(answer.error || response.statusText);
+        if (doc !== app.pdfDocument) return;  // another PDF was opened meanwhile
         savedHash = hash;
         failures = 0;
-        if (doc.annotationStorage.serializable.hash === hash) doc.annotationStorage.resetModified();
-        show("标注已保存", "Marks saved");
+        if (current() === hash) {
+          doc.annotationStorage.resetModified();  // PDF.js's own warning off too
+          show("saved", "标注已保存", "Marks saved");
+        }
       } catch (error) {
         failures++;
-        show("标注没保存", `Marks not saved: ${error.message}`, true);
+        failedAt = Date.now();
+        show("failed", "标注没保存", `Marks not saved: ${error.message}`,
+          button("重试", "Retry", () => { failures = 0; save(); }));
       } finally {
         saving = false;
       }
-    }, 1000);
+    }
+
+    setInterval(() => {
+      if (!app.pdfDocument || saving) return;
+      const hash = current();
+      if (hash === savedHash) {  // all saved (also after undoing back to it)
+        lastHash = null;
+        if (app._annotationStorageModified) app.pdfDocument.annotationStorage.resetModified();
+        if (state === "unsaved" || state === "failed") { status.hidden = true; state = ""; }
+        return;
+      }
+      if (hash !== lastHash) {  // still marking: wait until it's quiet for a moment
+        lastHash = hash;
+        changedAt = Date.now();
+        failures = Math.min(failures, 1);  // a new change tries again
+      }
+      if (failures) {  // stays visible; tries again after 3 s, at most 3 times, then Retry
+        if (failures < 3 && Date.now() - failedAt > 3000) save();
+        return;
+      }
+      show("unsaved", "标注未保存", "Marks not saved yet", button("立即保存", "Save now", save));
+      if (Date.now() - changedAt >= QUIET) save();
+    }, 250);
+
+    addEventListener("beforeunload", (event) => {
+      if (!saving && !unsaved()) return;  // all saved: leave freely
+      event.preventDefault();
+      event.returnValue = "";  // the browser's own "Leave site? Changes may not be saved"
+    });
   }
   keepMarks();
 

@@ -146,11 +146,11 @@ def _tried(library: Path) -> Path:
     return library / ".cache" / "subjects_tried.json"
 
 
-def classify(slug: str, library: Path, catalog_path: Path) -> dict:
+def classify(doc_id: str, library: Path, catalog_path: Path) -> dict:
     """Look up an item's subject and record it (catalog columns field, topic). Returns it.
     Raises book_meta.Unavailable when OpenAlex couldn't answer: the item isn't marked as
     tried then, so the next Refresh asks again."""
-    row = catalog.load(catalog_path).get(slug)
+    row = catalog.load(catalog_path).get(doc_id)
     if not row:
         return {}
     found = lookup(row)
@@ -160,11 +160,11 @@ def classify(slug: str, library: Path, catalog_path: Path) -> dict:
             "topic": found["topic"],
             "topic_score": str(found["score"]),
         }
-        catalog.upsert(catalog_path, {"slug": slug, **subject})
+        catalog.update(catalog_path, doc_id, subject)
     else:
 
         def add(known: list) -> None:
-            known[:] = sorted(set(known) | {slug})
+            known[:] = sorted(set(known) | {doc_id})
 
         # A cache: if it's ever damaged it starts again (those items are just asked again)
         safe_io.update_json(_tried(library), add, [], cache=True)
@@ -193,15 +193,15 @@ def _main() -> None:
     parser.add_argument("--apply", action="store_true", help="record subjects and shelve the items")
     args = parser.parse_args()
     catalog_path = LIBRARY / "catalog.csv"
-    for slug, row in catalog.load(catalog_path).items():
+    for doc_id, row in catalog.load(catalog_path).items():
         if row.get("topic"):  # already known
             found = {"field": row["field"], "topic": row["topic"], "score": row["topic_score"]}
         elif args.apply:
-            found = classify(slug, LIBRARY, catalog_path)
+            found = classify(doc_id, LIBRARY, catalog_path)
         else:
             found = lookup(row)
         if args.apply:
-            shelves.add_topic_shelf(slug, catalog_path)
+            shelves.add_topic_shelf(doc_id, catalog_path)
         print(f"{row['title'][:44]:44} | {found.get('field', '-')[:22]:22} | "
               f"{found.get('topic', '-')[:44]:44} | {found.get('score', '')}")  # fmt: skip
 

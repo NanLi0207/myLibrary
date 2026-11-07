@@ -2,7 +2,6 @@
 
 import add_book
 import book_meta
-import catalog
 import citation
 import library_page
 import library_server
@@ -10,6 +9,7 @@ import pytest
 import thesis_meta
 from pypdf import PdfWriter
 from reportlab.pdfgen import canvas
+from testlib import entry, id_of, put  # noqa: F401
 
 
 @pytest.fixture
@@ -243,7 +243,7 @@ def test_thesis_is_filed_with_chapters_and_details(library):
     assert "| Supervisors | Prof. John Smith |" in readme
     assert "[Ch 2: Mirror Design](ch02-mirror-design.md)" in readme  # chapters, like a book
     assert (notes / "ch01-introduction.md").exists() and not (notes / "notes.md").exists()
-    row = catalog.load(library / "catalog.csv")[slug]
+    row = entry(library / "catalog.csv", slug)
     assert (row["type"], row["degree"], row["institution"], row["file"]) == (
         "thesis",
         "PhD",

@@ -5,13 +5,16 @@
 "Read" / "Continue" on a book (or "Read" on one chapter) opens everything for that chapter:
   - the PDF in the browser, at the page where the chapter starts
   - in your editor (Settings: VS Code, Notepad, ...): the chapter's notes and its Python script
-    examples/<slug>/chNN_<topic>.py if you have made one
+    examples/<name>/chNN_<topic>.py if you have made one
 "Script" on a chapter creates that script (from a short template) and opens it: a place to
 check the book's worked examples in Python.
-Ticking a chapter on the page writes "- [x]" into notes/<slug>/README.md.
+Ticking a chapter on the page writes "- [x]" into the document's notes/<name>/README.md.
 
 PDFs open in the reading view (PDF.js + word lookup, see reader.py): double-click a word
-for its glossary / dictionary meaning in Chinese, and save it to notes/<slug>/vocabulary.md.
+for its glossary / dictionary meaning in Chinese, and save it to notes/<name>/vocabulary.md.
+
+Documents are known by their id (catalog.py) in every request; /read/<id> opens one in the
+reading view whatever its file is called now.
 
 Only listens on 127.0.0.1, and every action needs the token embedded in the page,
 so other websites can't trigger it. Stop with Ctrl+C.
@@ -34,8 +37,9 @@ from datetime import date
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote, unquote
+from urllib.parse import parse_qs, quote, unquote
 
+import add_book
 import backup
 import book_search
 import catalog
@@ -127,31 +131,31 @@ def find_chapter_pages(pdf: Path, chapters: list[dict]) -> dict[int, int]:
     return pages
 
 
-def chapter_page(slug: str, number: int | None, chapters: list[dict]) -> int | None:
+def chapter_page(doc_id: str, number: int | None, chapters: list[dict]) -> int | None:
     if number is None:
         return None
     # One lookup per book at a time: the background warm-up and a Read click shouldn't both
     # run the (slow) search for the same book
     with _cache_lock:
-        book_lock = _book_locks.setdefault(slug, threading.Lock())
+        book_lock = _book_locks.setdefault(doc_id, threading.Lock())
     with book_lock:
         with _cache_lock:
             cache = _read_cache()
-        if slug not in cache:
-            pdf = LIBRARY / catalog.load(CATALOG)[slug]["file"]
+        if doc_id not in cache:
+            pdf = LIBRARY / catalog.load(CATALOG)[doc_id]["file"]
             if not pdf.exists():
                 return None  # PDF deleted: notes and scripts still open, just no page
             found = find_chapter_pages(pdf, chapters)
             pages = {str(k): v for k, v in found.items()}
 
             def add(cached: dict) -> dict:
-                cached[slug] = pages
+                cached[doc_id] = pages
                 return cached
 
             with _cache_lock:
                 cache = safe_io.update_json(CACHE, add, {}, cache=True, indent=1)
     # Not found (e.g. OCR-garbled title): start of the nearest earlier chapter is close enough
-    known = {int(k): v for k, v in cache[slug].items() if int(k) <= number}
+    known = {int(k): v for k, v in cache[doc_id].items() if int(k) <= number}
     return known[max(known)] if known else None
 
 
@@ -159,15 +163,16 @@ def warm_cache() -> None:
     """Find chapter pages for every book in the background, so the first Read is quick;
     also bring the full-text index (在我的书中 / In my books) up to date."""
     try:
-        if n := book_search.update():
-            print(f"  full-text index updated ({n} book{'s' if n > 1 else ''})")
-    except Exception as e:
-        print(f"  ! couldn't update the full-text index: {e}")
-    for slug in catalog.load(CATALOG):
+        report = book_search.update()
+        if report["indexed"] or not report["complete"]:  # says so when anything is missing
+            print(f"  {book_search.describe(report)}")
+    except Exception as e:  # e.g. the index file itself can't be opened: nothing was indexed
+        print(f"  ! couldn't update the full-text index at all: {e!r}")
+    for doc_id, row in catalog.load(CATALOG).items():
         try:
-            chapter_page(slug, 1, library_page.chapters(slug))
+            chapter_page(doc_id, 1, library_page.chapters(doc_id, library_page.readme_of(row)))
         except Exception as e:  # one damaged PDF shouldn't stop the others
-            print(f"  ! couldn't find chapter pages for {slug}: {e}")
+            print(f"  ! couldn't find chapter pages for {row['slug']}: {e}")
 
 
 # --- chapter scripts ----------------------------------------------------------------------
@@ -180,7 +185,7 @@ book's answer. Run it with VS Code's Run button, or in a terminal:
 
     uv run {path}
 
-Notes for this chapter: notes/{slug}/{note}
+Notes for this chapter: {notes}{note}
 """
 
 import sys
@@ -207,10 +212,10 @@ if __name__ == "__main__":
 '''
 
 
-def script_for(slug: str, chapter: dict, book_title: str, create: bool = False) -> Path | None:
-    """examples/<slug>/chNN_<topic>.py: the existing one, or with create, a new one from the
-    template. None if there's none and create is False."""
-    folder = LIBRARY / "examples" / slug
+def script_for(row: dict, chapter: dict, create: bool = False) -> Path | None:
+    """The document's examples/<name>/chNN_<topic>.py: the existing one, or with create, a new
+    one from the template. None if there's none and create is False."""
+    folder = LIBRARY / "examples" / row["slug"]
     existing = sorted(folder.glob(f"ch{chapter['number']:02d}_*.py"))
     if existing:
         return existing[0]
@@ -226,10 +231,10 @@ def script_for(slug: str, chapter: dict, book_title: str, create: bool = False) 
 
     path.write_text(
         SCRIPT_TEMPLATE.format(
-            book=safe(book_title),
+            book=safe(row["title"]),
             chapter=safe(chapter["title"]),
             path=paths.display(path),
-            slug=slug,
+            notes=row["notes"],
             note=chapter["note"],
         ),
         encoding="utf-8",
@@ -358,41 +363,91 @@ def change_settings(updates: dict) -> dict:
 # --- actions ------------------------------------------------------------------------------
 
 
-def pdf_url(base_url: str, file: str, page: int | None = None) -> str:
+def startup_problem() -> str:
+    """Why the library can't be opened as it is ("" if it can): a migration that didn't
+    finish, a catalog still in the old format, or broken ids. Never repaired behind your back."""
+    import migrate_ids
+
+    if unfinished := migrate_ids.unfinished(LIBRARY):
+        return (f"A migration of this library didn't finish ({unfinished}). Finish it with\n"
+                f"  uv run scripts/migrate_ids.py --library \"{LIBRARY}\" --resume\n"
+                "or undo it with --rollback.")  # fmt: skip
+    try:
+        catalog.load(CATALOG)
+    except catalog.CatalogError as e:
+        return str(e)
+    return ""
+
+
+def live_id(doc_id) -> str:
+    """The id of the document in the library that `doc_id` refers to: itself, or for a merged
+    document the one that kept its work (its tombstone); "" for a removed or unknown id."""
+    if not isinstance(doc_id, str) or not catalog.is_id(doc_id):
+        return ""
+    found = catalog.resolve(CATALOG, doc_id)
+    return found["row"]["id"] if found["status"] == "live" else ""
+
+
+def unknown_document(doc_id) -> str:
+    """Why an id doesn't name a document in the library, in words for the page."""
+    if not isinstance(doc_id, str) or not catalog.is_id(doc_id):
+        return "no document id given"
+    found = catalog.resolve(CATALOG, doc_id)
+    if found["status"] == "removed":
+        stone = found["tombstone"]
+        return (f"“{stone['title'] or stone['slug']}” was removed from the library on "
+                f"{stone['date']} (its files are in archive/)")  # fmt: skip
+    return "unknown document"
+
+
+def pdf_url(
+    base_url: str,
+    file: str,
+    page: int | None = None,
+    doc_id: str = "",
+    find: str = "",
+    preview: bool = False,
+) -> str:
     """The reading view (PDF.js + word lookup) once it's set up, else the bare PDF; `file` is
-    the catalog's path in the library, books/, papers/ or theses/<slug>.pdf."""
+    the catalog's path in the library, books/, papers/ or theses/<name>.pdf; `doc_id` tells
+    the reading view which document it shows; `find`: text to highlight on arrival (a search
+    result; only on screen, see lookup.js showFound); `preview`: a look-up, not reading (the
+    reading view records no position or reading time until "Start reading")."""
     if reading_view.missing():
         url = f"{base_url}/{file}"
     else:
-        url = f"{base_url}/pdfjs/web/viewer.html?file=/{file}"
+        url = f"{base_url}/pdfjs/web/viewer.html?file=/{file}" + (f"&id={doc_id}" if doc_id else "")
+        url += f"&find={quote(find, safe='')}" if find else ""
+        url += "&preview=1" if preview else ""
     return url + (f"#page={page}" if page else "")
 
 
 def _read_cache() -> dict:
-    """{slug: {chapter: start page}} (call it holding _cache_lock). A damaged cache is rebuilt
+    """{id: {chapter: start page}} (call it holding _cache_lock). A damaged cache is rebuilt
     (chapter pages are found again), instead of breaking every Read."""
     return safe_io.load_json(CACHE, {}, cache=True)
 
 
-def chapter_at(slug: str, page: int, chapters: list[dict]) -> dict | None:
+def chapter_at(doc_id: str, page: int, chapters: list[dict]) -> dict | None:
     """The chapter that page belongs to: the last one starting on or before it."""
-    chapter_page(slug, 1, chapters)  # makes sure the book's chapter pages are cached
+    chapter_page(doc_id, 1, chapters)  # makes sure the book's chapter pages are cached
     with _cache_lock:
         cache = _read_cache()
-    starts = {int(n): p for n, p in cache.get(slug, {}).items() if p <= page}
+    starts = {int(n): p for n, p in cache.get(doc_id, {}).items() if p <= page}
     if not starts:
         return None
     number = max(starts, key=lambda n: (starts[n], n))
     return next((c for c in chapters if c["number"] == number), None)
 
 
-def save_position(slug: str, page: int) -> dict:
+def save_position(doc_id: str, page: int) -> dict:
     """Write "Last read: page N (Ch k: ...), date" under "## Reading progress" in the README."""
-    readme = library_page.readme_path(slug)
+    row = catalog.load(CATALOG)[doc_id]
+    readme = library_page.readme_of(row)
     if not readme.exists():
         return {}
-    is_paper = catalog.load(CATALOG).get(slug, {}).get("type") == "paper"
-    chapter = None if is_paper else chapter_at(slug, page, library_page.chapters(slug))
+    is_paper = row.get("type") == "paper"
+    chapter = None if is_paper else chapter_at(doc_id, page, library_page.chapters(doc_id, readme))
     line = f"Last read: page {page}" + (f" ({chapter['title']})" if chapter else "")
     line += f", {date.today().isoformat()}"
 
@@ -409,23 +464,24 @@ def save_position(slug: str, page: int) -> dict:
 
     # One writer at a time: a chapter tick at the same moment isn't lost
     safe_io.update_text(readme, with_position)
-    return library_page.last_read(slug) or {}
+    return library_page.last_read(doc_id, readme) or {}
 
 
-def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = False) -> str:
+def open_chapter(doc_id: str, number: int | None, base_url: str, resume: bool = False) -> str:
     """Open a chapter (PDF at its first page, notes, and its script if there is one); with
     resume, open the page you last read and the chapter it belongs to."""
-    row = catalog.load(CATALOG)[slug]
-    chapters = library_page.chapters(slug)
-    last = library_page.last_read(slug) if resume else None
+    row = catalog.load(CATALOG)[doc_id]
+    readme = library_page.readme_of(row)
+    chapters = library_page.chapters(doc_id, readme)
+    last = library_page.last_read(doc_id, readme) if resume else None
     is_paper = row.get("type") == "paper"
     if last and not is_paper:
-        chapter = chapter_at(slug, last["page"], chapters)
+        chapter = chapter_at(doc_id, last["page"], chapters)
     else:
         chapter = next((c for c in chapters if c["number"] == number), None)
     if is_paper:  # its one item, "Read the paper", whose notes are notes.md
         chapter = next((c for c in chapters if c["number"] == 1), None)
-    notes_dir = LIBRARY / "notes" / slug
+    notes_dir = readme.parent
     opened = []
 
     if (LIBRARY / row["file"]).exists():
@@ -434,8 +490,8 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
         elif is_paper:
             page = 1
         else:
-            page = chapter_page(slug, chapter["number"], chapters) if chapter else None
-        webbrowser.open(pdf_url(base_url, row["file"], page))
+            page = chapter_page(doc_id, chapter["number"], chapters) if chapter else None
+        webbrowser.open(pdf_url(base_url, row["file"], page, doc_id))
         opened.append(f"PDF (p. {page})" if page else "PDF")
     else:
         opened.append(f"no PDF ({row['file']} is missing)")
@@ -444,7 +500,7 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
     if not note.exists():
         note = notes_dir / "README.md"
     files = [note]
-    script = script_for(slug, chapter, row["title"]) if chapter and python_features() else None
+    script = script_for(row, chapter) if chapter and python_features() else None
     if script:
         files.append(script)
     if open_in_editor(*files):
@@ -458,13 +514,14 @@ def open_chapter(slug: str, number: int | None, base_url: str, resume: bool = Fa
     return f"{what}: opened " + ", ".join(opened)
 
 
-def open_script(slug: str, number: int) -> str:
+def open_script(doc_id: str, number: int) -> str:
     """The chapter's Python script, created from the template the first time, in your editor."""
-    row = catalog.load(CATALOG)[slug]
-    chapter = next((c for c in library_page.chapters(slug) if c["number"] == number), None)
+    row = catalog.load(CATALOG)[doc_id]
+    chapters = library_page.chapters(doc_id, library_page.readme_of(row))
+    chapter = next((c for c in chapters if c["number"] == number), None)
     if chapter is None:
         raise ValueError(f"no chapter {number}")
-    path = script_for(slug, chapter, row["title"], create=True)
+    path = script_for(row, chapter, create=True)
     where = paths.display(path)
     if open_in_editor(path):
         return f"{chapter['title']}: opened {where}"
@@ -514,8 +571,8 @@ def open_topic(term: str) -> dict:
     return {"file": where, "opened": opened}
 
 
-def tick(slug: str, number: int, done: bool) -> list[dict]:
-    readme = library_page.readme_path(slug)
+def tick(doc_id: str, number: int, done: bool) -> list[dict]:
+    readme = library_page.readme_path(doc_id)
     pattern = library_page.chapter_line(number)
 
     def ticked(text: str) -> str:
@@ -525,7 +582,7 @@ def tick(slug: str, number: int, done: bool) -> list[dict]:
         return new
 
     safe_io.update_text(readme, ticked)
-    return library_page.chapters(slug)
+    return library_page.chapters(doc_id, readme)
 
 
 # --- HTTP ---------------------------------------------------------------------------------
@@ -592,12 +649,38 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
         if found := reading_view.static_file(path):
             return self._send(HTTPStatus.OK, *found)
+        if m := re.fullmatch(r"/read/([0-9a-f-]{36})", path):
+            # A document's lasting link (/read/<id>?page=N): the reading view at that page,
+            # whatever its file is called now; a merged one opens the document that kept it
+            # ?page=N, and &find=<text> for a search result (highlighted when it opens)
+            query = {k: v[0] for k, v in parse_qs(self.path.partition("?")[2]).items()}
+            page = int(query["page"]) if query.get("page", "").isdigit() else None
+            find = " ".join(query.get("find", "").split())[:200]
+            if doc_id := live_id(m[1]):
+                row = catalog.load(CATALOG)[doc_id]
+                self.send_response(HTTPStatus.FOUND)
+                preview = query.get("preview") == "1"  # a search result: not reading
+                where = pdf_url(self.base_url, row["file"], page, doc_id, find, preview)
+                self.send_header("Location", where)
+                self.send_header("Content-Length", "0")
+                return self.end_headers()
+            status = HTTPStatus.GONE if catalog.resolve(CATALOG, m[1])["status"] == "removed" \
+                else HTTPStatus.NOT_FOUND  # fmt: skip
+            return self._send(status, unknown_document(m[1]).encode(), "text/plain; charset=utf-8")
         if m := re.fullmatch(r"/((?:books|papers|theses)/[a-z0-9-]+\.pdf)", path):
             known = {r["file"] for r in catalog.load(CATALOG).values()}
             pdf = LIBRARY / m[1]
             if m[1] in known and pdf.exists():
                 return self._send(HTTPStatus.OK, pdf.read_bytes(), "application/pdf")
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
+
+    def _body(self, length: int) -> bytes:
+        """The request's whole body. A body cut short (the tab closed while it was being sent)
+        is refused: half a PDF must never be written over the library's copy."""
+        data = self.rfile.read(length)
+        if len(data) != length:
+            raise ValueError(f"the request was cut short ({len(data)} of {length} bytes)")
+        return data
 
     def do_POST(self):
         if not self._local_host() or self.headers.get("X-Library-Token") != TOKEN:
@@ -608,17 +691,17 @@ class Handler(BaseHTTPRequestHandler):
                 if length > library_jobs.MAX_UPLOAD:
                     return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too big"})
                 name = unquote(self.headers.get("X-Filename", "book.pdf"))
-                path = library_jobs.save_upload(name, self.rfile.read(length))
+                path = library_jobs.save_upload(name, self._body(length))
                 return self._json(HTTPStatus.OK, {"job": library_jobs.start_add(path)})
             if self.path == "/api/save-marks":  # the reading view: the PDF with your marks
-                row = catalog.load(CATALOG).get(self.headers.get("X-Slug", ""))
+                row = catalog.load(CATALOG).get(self.headers.get("X-Document-Id", ""))
                 if not row or not row.get("file"):
                     return self._json(HTTPStatus.NOT_FOUND, {"error": "unknown book"})
                 if length > library_jobs.MAX_UPLOAD:
                     return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too big"})
-                data = self.rfile.read(length)
+                data = self._body(length)
                 return self._json(HTTPStatus.OK, reading_view.save_marks(row["file"], data))
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(self._body(length) or b"{}")
             if self.path == "/api/books":  # the page refreshes itself after reading
                 return self._json(HTTPStatus.OK, {"books": library_page.books(self.pdf_base)})
             if self.path == "/api/backup":
@@ -675,10 +758,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, reading_log.summary(LIBRARY, CATALOG))
             if self.path == "/api/lookup":
                 text, context = str(body.get("text", "")), str(body.get("context", ""))[:1000]
-                book = body.get("slug") if isinstance(body.get("slug"), str) else None
+                book = body.get("id") if isinstance(body.get("id"), str) else None
                 return self._json(HTTPStatus.OK, reading_view.lookup(text, context, book))
             if self.path == "/api/search":
-                current = body.get("slug") if isinstance(body.get("slug"), str) else None
+                current = body.get("id") if isinstance(body.get("id"), str) else None
                 found = book_search.search(str(body.get("text", ""))[:100], current)
                 return self._json(HTTPStatus.OK, found)
             if self.path == "/api/topic":
@@ -692,18 +775,20 @@ class Handler(BaseHTTPRequestHandler):
                     term, zh, definition, glossary_name=name or None
                 )
                 return self._json(HTTPStatus.OK, added)
-            slug = body.get("slug")
-            if slug not in catalog.load(CATALOG):
-                return self._json(HTTPStatus.NOT_FOUND, {"error": "unknown book"})
+            # Every other action is about one document, named by its id. A merged document's id
+            # still works (it's followed to the document that kept its work); a removed one says so
+            doc_id = live_id(body.get("id"))
+            if not doc_id:
+                return self._json(HTTPStatus.NOT_FOUND, {"error": unknown_document(body.get("id"))})
             chapter = body.get("chapter")
             if chapter is not None and not isinstance(chapter, int):
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad chapter"})
             if self.path == "/api/open":
                 resume = body.get("resume") is True
-                message = open_chapter(slug, chapter, self.base_url, resume)
+                message = open_chapter(doc_id, chapter, self.base_url, resume)
                 return self._json(HTTPStatus.OK, {"message": message})
             if self.path == "/api/open-notes":
-                notes = library_page.readme_path(slug)
+                notes = library_page.readme_path(doc_id)
                 if (notes.parent / "notes.md").exists():  # a paper: its one notes file
                     notes = notes.parent / "notes.md"
                 if open_in_editor(notes):
@@ -712,42 +797,42 @@ class Handler(BaseHTTPRequestHandler):
                     message = "the editor couldn't be started (see Settings)"
                 return self._json(HTTPStatus.OK, {"message": message})
             if self.path == "/api/ocr":
-                return self._json(HTTPStatus.OK, {"job": library_jobs.start_ocr(slug)})
+                return self._json(HTTPStatus.OK, {"job": library_jobs.start_ocr(doc_id)})
             if self.path == "/api/script" and chapter is not None:
                 if not python_features():
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": "Python features are off"})
-                return self._json(HTTPStatus.OK, {"message": open_script(slug, chapter)})
+                return self._json(HTTPStatus.OK, {"message": open_script(doc_id, chapter)})
             if self.path == "/api/shelves":
                 shelves = catalog.split_list(str(body.get("shelves", ""))[:300])
                 if len(shelves) > 12 or any(len(s) > 40 for s in shelves):
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": "too many or too long"})
-                catalog.set_field(CATALOG, slug, "shelves", "; ".join(shelves))
+                catalog.set_field(CATALOG, doc_id, "shelves", "; ".join(shelves))
                 library_page.build()  # keep the static copy in step
                 return self._json(HTTPStatus.OK, {"shelves": shelves})
             if self.path == "/api/position":
                 page = body.get("page")
                 if not isinstance(page, int) or page < 1:
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad page"})
-                return self._json(HTTPStatus.OK, {"last_read": save_position(slug, page)})
+                return self._json(HTTPStatus.OK, {"last_read": save_position(doc_id, page)})
             if self.path == "/api/reading":  # the reading view: a minute of reading
                 seconds, pages = body.get("seconds"), body.get("pages")
                 if not isinstance(seconds, int) or not isinstance(pages, list):
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad report"})
                 return self._json(
-                    HTTPStatus.OK, reading_log.record(LIBRARY, slug, seconds, pages[:500])
+                    HTTPStatus.OK, reading_log.record(LIBRARY, doc_id, seconds, pages[:500])
                 )
             if self.path == "/api/save-word":
                 page = body.get("page")
                 saved = reading_view.save_word(
-                    slug,
-                    catalog.load(CATALOG)[slug]["title"],
+                    doc_id,
+                    catalog.load(CATALOG)[doc_id]["title"],
                     str(body.get("text", "")),
                     str(body.get("context", ""))[:1000],
                     page if isinstance(page, int) else None,
                 )
                 return self._json(HTTPStatus.OK, saved)
             if self.path == "/api/tick" and chapter is not None:
-                chapters = tick(slug, chapter, bool(body.get("done")))
+                chapters = tick(doc_id, chapter, bool(body.get("done")))
                 library_page.build()  # keep the static copy in step
                 return self._json(HTTPStatus.OK, {"chapter_list": chapters})
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
@@ -829,6 +914,10 @@ def main() -> None:
     paths.add_argument(parser)
     args = parser.parse_args()
     paths.ensure_library()
+    if problem := startup_problem():
+        sys.exit(problem)
+    for done in add_book.recover_operations():  # a rename an interruption left halfway
+        print(f"  {done}")
 
     url = f"http://127.0.0.1:{args.port}"
     if (running := already_running(args.port)) is not None:

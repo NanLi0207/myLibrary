@@ -1,9 +1,9 @@
 """Subjects from OpenAlex, and shelves made from them."""
 
 import book_meta
-import catalog
 import shelves
 import subjects
+from testlib import entry, id_of, put  # noqa: F401
 
 REAL_LOOKUP = subjects.lookup  # conftest stubs it for every other test
 
@@ -71,7 +71,7 @@ def test_a_sure_subject_becomes_a_shelf_next_to_yours(tmp_path, monkeypatch):
         ("b-2002-lens", "Practical Lens Design", "Optics; Lens design"),
         ("c-2003-lens", "Modern Lens Design", "Optics; Lens design"),
     ):
-        catalog.upsert(path, {"slug": slug, "title": title, "shelves": on})
+        put(path, {"slug": slug, "title": title, "shelves": on})
     monkeypatch.setattr(
         subjects,
         "lookup",
@@ -82,14 +82,14 @@ def test_a_sure_subject_becomes_a_shelf_next_to_yours(tmp_path, monkeypatch):
             "source": "x",
         },
     )
-    catalog.upsert(path, {"slug": "d-2004-lens", "title": "Lens Design Fundamentals"})
-    subjects.classify("d-2004-lens", tmp_path, path)
-    assert shelves.auto_shelve("d-2004-lens", tmp_path, path) == [
+    put(path, {"slug": "d-2004-lens", "title": "Lens Design Fundamentals"})
+    subjects.classify(id_of(path, "d-2004-lens"), tmp_path, path)
+    assert shelves.auto_shelve(id_of(path, "d-2004-lens"), tmp_path, path) == [
         "Advanced optical system design",  # its subject, a new shelf
         "Optics",  # and your own shelves that fit
         "Lens design",
     ]
-    row = catalog.load(path)["d-2004-lens"]
+    row = entry(path, "d-2004-lens")
     assert (row["field"], row["topic"], row["topic_score"]) == (
         "Engineering",
         "Advanced optical system design",
@@ -99,7 +99,7 @@ def test_a_sure_subject_becomes_a_shelf_next_to_yours(tmp_path, monkeypatch):
 
 def test_an_unsure_subject_is_recorded_but_makes_no_shelf(tmp_path, monkeypatch):
     path = tmp_path / "catalog.csv"
-    catalog.upsert(
+    put(
         path,
         {"slug": "x-2001-y", "title": "Specifying excimer beam uniformity", "shelves": "Lasers"},
     )
@@ -113,23 +113,25 @@ def test_an_unsure_subject_is_recorded_but_makes_no_shelf(tmp_path, monkeypatch)
             "source": "x",
         },
     )
-    subjects.classify("x-2001-y", tmp_path, path)
-    assert shelves.add_topic_shelf("x-2001-y", path) == ""
-    row = catalog.load(path)["x-2001-y"]
+    subjects.classify(id_of(path, "x-2001-y"), tmp_path, path)
+    assert shelves.add_topic_shelf(id_of(path, "x-2001-y"), path) == ""
+    row = entry(path, "x-2001-y")
     assert row["topic"] == "Laser Material Processing Techniques" and row["shelves"] == "Lasers"
 
 
 def test_unknown_items_are_looked_up_once(tmp_path):
     path = tmp_path / "catalog.csv"
-    catalog.upsert(path, {"slug": "x-2001-y", "title": "Internal report"})
-    assert subjects.unclassified(tmp_path, path) == ["x-2001-y"]
-    subjects.classify("x-2001-y", tmp_path, path)  # OpenAlex doesn't know it (stub: {})
+    put(path, {"slug": "x-2001-y", "title": "Internal report"})
+    assert subjects.unclassified(tmp_path, path) == [id_of(path, "x-2001-y")]
+    subjects.classify(
+        id_of(path, "x-2001-y"), tmp_path, path
+    )  # OpenAlex doesn't know it (stub: {})
     assert subjects.unclassified(tmp_path, path) == []
 
 
 def test_a_less_sure_subject_only_when_nothing_else_fits(tmp_path, monkeypatch):
     path = tmp_path / "catalog.csv"
-    catalog.upsert(path, {"slug": "x-2001-y", "title": "Specifying excimer beam uniformity"})
+    put(path, {"slug": "x-2001-y", "title": "Specifying excimer beam uniformity"})
     monkeypatch.setattr(
         subjects,
         "lookup",
@@ -140,8 +142,8 @@ def test_a_less_sure_subject_only_when_nothing_else_fits(tmp_path, monkeypatch):
             "topic": "Laser Material Processing Techniques",
         },
     )
-    subjects.classify("x-2001-y", tmp_path, path)
-    assert shelves.auto_shelve("x-2001-y", tmp_path, path) == [
+    subjects.classify(id_of(path, "x-2001-y"), tmp_path, path)
+    assert shelves.auto_shelve(id_of(path, "x-2001-y"), tmp_path, path) == [
         "Laser Material Processing Techniques"
     ]
 
@@ -188,17 +190,19 @@ def test_last_resort_the_clearly_closest_shelf():
 
 def test_an_item_is_not_marked_tried_when_openalex_cant_answer(tmp_path, monkeypatch):
     path = tmp_path / "catalog.csv"
-    catalog.upsert(path, {"slug": "x-2001-y", "title": "Modern Lens Design"})
+    put(path, {"slug": "x-2001-y", "title": "Modern Lens Design"})
 
     def daily_limit(row):
         raise book_meta.Unavailable("api.openalex.org: HTTP 429")
 
     monkeypatch.setattr(subjects, "lookup", daily_limit)
     try:
-        subjects.classify("x-2001-y", tmp_path, path)
+        subjects.classify(id_of(path, "x-2001-y"), tmp_path, path)
     except book_meta.Unavailable:
         pass
-    assert subjects.unclassified(tmp_path, path) == ["x-2001-y"]  # asked again next time
+    assert subjects.unclassified(tmp_path, path) == [
+        id_of(path, "x-2001-y")
+    ]  # asked again next time
 
 
 def test_strict_requests_tell_no_record_from_no_answer(monkeypatch):

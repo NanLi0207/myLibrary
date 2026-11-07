@@ -15,11 +15,19 @@ JavaScript, all tests, and the example library. 139 tests pass and ruff is clean
 marked **C** were confirmed (code path traced, or reproduced in a scratch copy, never in
 `library/`). Findings marked **S** are suspected.
 
-**Status (2026-11-06):** v0.3 tasks 1 (safe file writing and background jobs) and 2 (name
-collisions and accidental PDF replacement) are done but not released or committed;
-`pyproject.toml` still says 0.2.5. The task 1 checkpoint is a patch in
-`../myLibrary-checkpoints/task1-safe-writes/`. 185 tests pass. **Next: task 3** (permanent
-document IDs), which needs the user's agreement on how existing entries get their IDs.
+**Status (2026-11-07):**
+- **Tasks 1 and 2** are committed and pushed (`419a46f`, `ad47aff`); Windows CI passed.
+- **Task 3** (UUID-only identity, indexing reliability, search-result highlighting, correcting
+  marks, Undo / Redo, Preview Mode, persistence audit) is complete.
+  - The user's manual browser tests passed 9 of 10. The 10th, search navigation, led to the
+    highlighting below, which passes 11 of 11 automated real-browser checks.
+  - The user then asked for more: removing marks, Undo / Redo for marks, and a Preview Mode
+    for search results. All pass their automated real-browser checks (see the end of task 3)
+    and wait for the user's own confirmation.
+  - 212 tests pass.
+  - Not committed yet; the real library is migrated and verified.
+- **Next:** commit and push task 3 (two commits) once approved, then task 4.
+- **Not released yet:** `pyproject.toml` still says 0.2.5.
 
 ---
 
@@ -46,8 +54,10 @@ document IDs), which needs the user's agreement on how existing entries get thei
   - Rebuildable data under `.cache/`: `books.db` (FTS5 search index), `chapter_pages.json`,
     OCR text, hashes.
   - Marks are saved **inside the PDFs**; the original is kept once in `archive/before-marks/`.
-- **Identifiers.** The slug is the only document ID. Chapters are identified by number. Notes,
-  vocabulary entries and annotations have no IDs.
+- **Identifiers** (since v0.3 task 3). Every document has a permanent UUID (`catalog.csv`'s
+  `id`), its only identity. The slug is just its file and folder name, and retired ids keep
+  tombstones (see task 3). Chapters are identified by number within a document. Notes,
+  vocabulary entries and annotations have no ids of their own yet (task 5).
 - **Notes are edited outside the app.** `open_in_editor` opens VS Code, Notepad or a custom
   editor.
 
@@ -77,7 +87,10 @@ partial, not integrated, or missing. **Size** is the implementation effort: S, M
 
 - **Status:** partial.
 - **What exists:** PDF.js editor marks (highlight, ink, text, stamp) saved into the PDF
-  (`lookup.js keepMarks` → `reader.save_marks`), with the original kept once.
+  (`lookup.js keepMarks` → `reader.save_marks`), with the original kept once. A mark can be
+  selected by clicking it, removed (🗑 or Delete), undone (Ctrl+Z or the Undo bar), and the
+  removal is saved the same way (`lookup.js easyMarkEditing`, task 3). ↶ Undo and ↷ Redo are
+  on the toolbar, with Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z, also while reading (`undoRedo`).
 - **Limitations:**
   - Marks can't be listed, searched, filtered, tagged or exported, and aren't linked to notes.
   - Saving rewrites the whole PDF, and two tabs overwrite each other (D5).
@@ -416,6 +429,10 @@ D12. They are kept below for the record. Still open: D5 (task 5).
   - `render()` replaces placeholders after inserting book data.
 - **B15 (S) The reading log over-counts.** Fast scrolling counts every page passed, and two
   windows both add time.
+- **B17 (S) A native fault in pdfium can occur during text extraction.** Seen once (an
+  access violation while indexing). It isn't reproducible, so the cause is unconfirmed (see
+  task 3). Indexing now survives it per document. If it recurs, run `book_search.page_texts`
+  in a subprocess, so the server process never continues in an unsafe native state.
 - **B16 (S) Not yet confirmed.**
   - `pick_folder` decodes non-ASCII folder names in the ANSI code page.
   - Find online puts OpenAlex URLs into `href` with no scheme check.
@@ -434,11 +451,25 @@ D12. They are kept below for the record. Still open: D5 (task 5).
   - The OCR text layer is Latin only.
 - **L11 Test gaps.**
   - No JavaScript tests.
-  - Untested routes: PDF GET, the Host check, `/api/save-marks`, `/api/reading`,
+  - Untested routes: PDF GET, the Host check, `/api/reading`,
     `/api/review`, `/api/search`, `/api/topic`, `/api/shelves`, `/api/upload`,
     `/api/settings`, quit and restart.
   - `open_in_editor` is always stubbed in tests.
   - Packaging has no automated test.
+  - The reader's browser checks (scratchpad scripts driving Edge, see task 3) aren't part of
+    the test suite or CI.
+- **L12 Closing the browser by force loses unsaved marks.** The reader warns before a tab with
+  unsaved marks is closed, reloaded or left (task 3). Nothing protects against ending Edge in
+  Task Manager, a crash, or a power cut in the second after a change. A saved state is
+  durable (written atomically and flushed to disk before "Marks saved").
+- **L13 Reading time can lose up to a minute.** It is sent every minute and when the tab is
+  hidden or closed (`keepalive`). After a crash or a forced close, the last minute is lost. A
+  report the server refuses isn't retried. No warning is shown for it, since reading isn't an
+  edit.
+- **L14 Notes open in an outside editor.** myLibrary never writes a chapter note. It does
+  write the notes README ("Last read", chapter ticks, under a file lock). If the README is
+  open with unsaved edits in VS Code, VS Code reports the newer file when it saves, and the
+  user chooses.
 
 ### Example library data (`library/`)
 
@@ -482,7 +513,7 @@ leaves everything else working. A task is done only when its tests pass.
 - No `git add -A`, and no automatic commits or pushes.
 - Explain any production data migration and get agreement before writing it.
 
-### Task 1. Safe file writing and background jobs *(D1–D4, D9–D11, B1)*: done, unreleased
+### Task 1. Safe file writing and background jobs *(D1–D4, D9–D11, B1)*: done, committed `419a46f`
 
 - [x] **`scripts/safe_io.py`**:
   - `write_text` and `write_bytes` write to a temp file in the same folder, fsync it, then
@@ -558,7 +589,7 @@ leaves everything else working. A task is done only when its tests pass.
   - Not tested on the packaged build yet; run the package clean-environment test before the
     next release.
 
-### Task 2. Name collisions and accidental PDF replacement *(D6, D7, D8, D12)*: done, unreleased
+### Task 2. Name collisions and accidental PDF replacement *(D6, D7, D8, D12)*: done, committed `ad47aff`
 
 - [x] **Unique names, same convention.**
   - `Book.base_slug` is unchanged (`<surname>-<year>-<short-title>`).
@@ -646,19 +677,456 @@ leaves everything else working. A task is done only when its tests pass.
   - `has_marks` reads every page's annotations: slow for very large PDFs, and only done when
     a replacement is considered.
 
-### Task 3. Permanent document IDs *(prerequisite for tasks 4–6)*: next
+### Task 3. Permanent document ids: UUID-only identity *(prerequisite for tasks 4–6)*: complete, to be committed
 
-- [ ] **Add an `id` column** to `catalog.csv`: a short random ID (e.g. 8 base32 characters).
-  New items get one when added (`reserve_row`).
-- [ ] **Existing rows get an ID** lazily the first time the tool writes the catalog, or with an
-  explicit one-time step. Either way, explain it to the user and get agreement before it runs
-  on their real library. A `.bak` of the catalog is kept.
-- [ ] **Look up by ID or slug:** `catalog.by_id(id)` and `catalog.by_slug(slug)`. The reader
-  receives the ID too (`?file=…&id=…`).
-- [ ] **Sidecar references use the ID:** notes anchors, annotations and topic links refer to
-  `id`. Slugs stay the file and folder names, so nothing is renamed.
-- [ ] **Tests:** IDs are stable across writes; old catalogs without `id` open and work; merge
-  and remove keep IDs consistent.
+**Decisions** (user, 2026-11-06):
+- **One identity model.** No old slug system alongside it and no compatibility layer.
+- **Single source of truth:** `catalog.csv`, whose `id` column is the primary key. A SQLite
+  table was rejected: it's a binary file in git (the example library is public), has no Excel
+  view, and would mean rewriting every reader. A separate registry was rejected because it
+  would be a second source of truth.
+- **Explicit migration,** never at startup.
+- **Old versions (0.2.x) are no longer supported** on a migrated library. Their catalog writer
+  can't handle new columns and truncates the file.
+
+**Data model:**
+- **`catalog.csv`:** a new first column `id`, a UUID4, given once by `catalog.add` and never
+  changed or reused. `catalog.load()` returns `{id: row}`.
+- **Validated on every load and before every write:** each id valid and unique, each name
+  unique. A broken catalog (a row copied or an id cleared in Excel) raises `CatalogError` and
+  is never repaired.
+- **An old-format catalog** raises `NotMigrated`. The server refuses to start and names the
+  command to run.
+- **`slug`** is only the name, the base of the file and folder names. `file` and `notes` are
+  the document's paths and are always read from its row.
+- **`retired-documents.json`** (next to the catalog; tracked and backed up) holds tombstones
+  for ids that left: `{id: {event: merged|removed, into, date, title, slug, file}}`.
+  - It's written before the row is removed, and taken back if the removal fails.
+  - `catalog.resolve(id)` follows a merge to the document that kept the work, reports a
+    removed id with its title, or reports `unknown`.
+  - `catalog.check()` reports problems: an id both live and retired, or a merge into nothing.
+
+**References by id:**
+- **Reading log:** `{day: {id: {s, p}}}`.
+- **Search index:** a `doc_id` column; an old index is rebuilt.
+- **Caches:** the chapter-page cache and `subjects_tried` are keyed by id.
+- **Jobs:** they carry `doc_id`, separate from the job's own `id`.
+- **Review cards:** `seen` holds `{id, title, file, page}`.
+- **Find online:** `in_library` holds the id.
+- **Per-document APIs:** all take `id`. A merged id is followed to the kept document; a removed
+  one gets a "was removed on …" answer.
+- **Reader:** `X-Document-Id` on saved marks; the reader URL carries `&id=`; `lookup.js` uses
+  only the id.
+- **Library page:** `data-id` on every card.
+- **`GET /read/<id>?page=N`:** a lasting link that redirects to the reader (302), or answers 410
+  for removed and 404 for unknown documents.
+- **Unchanged:** notes text, chapter notes, vocabulary files, review progress (keyed by word),
+  marks, file and folder names, and the `hashes` and OCR caches (they're about files).
+
+**Merging and removing:**
+- **Merge** (Refresh, a proven repeat): the kept document keeps its id. The dropped one is
+  retired as `merged into` the kept one.
+- **Its reading records are never rewritten.** `reading_log.attribute` counts them for the kept
+  document, so two copies read on the same day keep both records. The summary adds their
+  seconds, counts each record's pages separately (two copies' page numbers needn't match) and
+  counts the day once.
+- **Removal:** retired as `removed`; its history is shown under its old title.
+
+**Renaming:** `add_book.rename_document(id, name)` is the base for task 6's user interface.
+- It moves the PDF, the notes folder, the chapter scripts and the original kept before marks.
+  It updates the README's `File:` line and the catalog's `slug`, `file` and `notes`. The id
+  never changes.
+- It's journaled in `.myLibrary/operations/`. Any failure puts everything back immediately. An
+  interruption (power cut) is put back by `add_book.recover_operations()`, which the server and
+  the CLI run at start.
+
+**Migration** (`scripts/migrate_ids.py`): it reads the old format itself, since the app refuses
+it.
+- **Dry run** (the default): the provisional mapping, clearly labelled ("--apply makes new
+  ids"), the changes, warnings and blocking problems, and a value-by-value check of the planned
+  files. It writes nothing.
+- **Blocking problems:** a reading-log key that is no entry's name, a duplicate or empty name,
+  or a row with more cells than columns.
+- **`--apply`, a recoverable multi-file transaction:**
+  1. Copies of the originals and the full new versions are written to
+     `.myLibrary/migrations/<time>-uuid/` and read back. That's a dedicated place: gitignored,
+     and never touched by Clear archive.
+  2. The manifest moves `prepared` → `committing`. Each file is swapped in atomically and
+     recorded.
+  3. `committed`: the caches are deleted.
+  4. Verification compares values, not bytes: every row's every value under its mapped id, and
+     every reading-log record under its id.
+  5. `done`.
+- **Recovery:** any manifest that isn't `done` makes the app refuse the library.
+  - `--resume` rolls forward, using the hashes to tell which files are already done.
+  - `--rollback` restores the originals, but refuses if a file has changed in any other way
+    since (new work would be lost).
+- **Also:** `--check`, and a running-server guard.
+- **Planned removal:** keep it through the v0.3 release, delete it in v0.4.
+
+**Tests:**
+- **`tests/test_document_ids.py`** (21 tests):
+  - ids unique across 200 documents, and immutable;
+  - broken catalogs refused, never repaired; the old format refused;
+  - tombstones;
+  - the dry run writes nothing (whole-library hash);
+  - full conversion keeps every value, and every file other than the two targets and the
+    caches is byte-identical;
+  - the backup survives Clear archive; a second migration does nothing;
+  - after migrating, the reading log, review cards, search, page data and reader URL all work
+    by id;
+  - interruption mid-swap, then resume, or rollback instead;
+  - a failure while staging changes nothing;
+  - rollback after `done`, and refused when it would lose new work;
+  - ambiguous data blocks; verification is by value;
+  - a merge keeps both same-day records under one identity; removal keeps its history under
+    the old title;
+  - renaming, a failed rename, and an interrupted rename recovered;
+  - `/read/<id>` gives 302, 410 or 404;
+  - concurrent imports get distinct ids.
+- **The existing 185 tests** were converted to ids (with the `tests/testlib.py` helpers).
+  Several now also check that a *name* sent as an id is refused (404).
+- **Total: 206 pass.** Ruff and the format check are clean.
+
+**Checked by hand:**
+- **On a temporary copy of the real library** (catalog, notes, glossaries; no PDFs):
+  - dry run, `--apply` and `--check` all OK;
+  - the server on the copy: `/read/<id>` redirects to the reader with `&id=`; lookup, ticking,
+    reading log and review cards work by id; ticking by name is refused;
+  - the library page and the reading view load in headless Edge with no script errors.
+- **Read-only dry run on the real `library/`:** 31 entries, 3 reading-log records, no warnings,
+  nothing blocking, "every value is kept". All 329 files were byte-identical afterwards.
+
+**Found and fixed during development** (never committed): jobs had stored the document id in
+their own `id` field, which would have broken the page's job tracking.
+
+**Remaining risks:**
+- **No JavaScript tests.** The page and reader were checked in headless Edge and through the
+  API, but not by clicking through every button.
+- **Old copies of the tool** (0.2.x, other checkouts) truncate a migrated `catalog.csv` if they
+  write to it. That's accepted. The migration backup allows going back.
+- **Locks are per process:** the migration refuses while the server is running, but two
+  command-line tools at once aren't guarded.
+- **Edits in Excel** that duplicate a row or clear an id stop the app until they're fixed. This
+  is deliberate.
+
+**Migration of the real library:** applied 2026-11-06 22:18, with the user's approval.
+- It moved 31 documents and 3 reading-log records, and kept every value.
+- These are byte-identical to before: all 32 PDFs, 273 notes files, review progress,
+  glossaries and the archive.
+- Journal: `prepared` → `committing` → `committed` → `done`.
+- An independent backup is in `../myLibrary-checkpoints/task3-pre-migration/`.
+- `--check` is clean, and a second `--apply` changes nothing.
+- Read-only smoke test on the migrated library:
+  - the page lists 31 documents by id;
+  - `/read/<id>` redirects with `&id=`;
+  - notes, progress, lookup, review cards and the reading log all work by id.
+
+**Full-text indexing reliability** (`book_search.py`; found during that smoke test):
+- **The problem:** a single exception while indexing one PDF stopped `update()` for every
+  remaining document. Only "updated (n books)" was reported, so partial runs looked complete.
+- **Each document is read completely first,** then replaced in **one transaction per
+  document**. A failure, whether reading or writing, rolls back that document only. Its
+  previous pages stay searchable, and indexing goes on with the others.
+- **A `status` table** records each document's state by id:
+  - states: `indexed`, `failed` (not searchable), or `stale` (an older version of a changed
+    PDF is still searchable);
+  - also the PDF stamp tried, the last error, the attempt count, and the time of the last
+    attempt and last success.
+- **Retry:** a failed document is tried again at the next update. Success resets its error and
+  its attempt count.
+- **Reporting:** `update()` returns a report (`indexed`, `failed`, `unchanged`, `missing`,
+  `removed`, `complete`).
+  - The server logs "full-text index complete: …" or "INCOMPLETE: … FAILED (names)".
+  - Search results carry `stale`, and the search answer lists `not_indexed` documents.
+  - `book_search.py --status` prints every document's state.
+- **`page_texts` closes every pdfium object explicitly** (text page, page, document), instead
+  of leaving it to the garbage collector.
+- **Tests:** 6 in `tests/test_book_search.py`:
+  - one failing PDF among five;
+  - retry, with the attempt count reset;
+  - a changed PDF that fails stays searchable and is marked stale;
+  - a write interrupted halfway is rolled back;
+  - a missing PDF makes the run incomplete, and removed documents leave the status table;
+  - everything is keyed by id.
+
+**The access violation (`exception: access violation reading 0x…E8`):** not reproduced.
+- **What happened:** once, while the server rebuilt the index of the migrated real library
+  during the smoke test, indexing stopped after 9 of 31 documents.
+- **The likely origin:** the error text is a Windows memory fault that ctypes turns into an
+  `OSError`. Of the libraries in that code path only **pypdfium2**, which wraps the native
+  pdfium library, uses ctypes. pypdf and sqlite3 are not ctypes-based. A read at a small offset
+  from address 0 usually means a NULL pointer inside native code.
+- **No traceback:** `warm_cache` printed only the message.
+- **Bounded attempts to reproduce it, all without a crash:**
+  - stress test: 3 runs, 9 passes over all 31 PDFs (6,729 pages each), with garbage collection
+    forced constantly from another thread;
+  - indexing the same library alone: 22 documents completed;
+  - three server attempts on a temporary copy with `faulthandler`: two with the previous
+    indexer, one with the new one. Each had 41–43 load rounds during indexing (page loads,
+    which parse every PDF with pypdf, the document API, `/read/<id>`, a 38 MB PDF, and the Edge
+    reading view). All 31 documents were indexed every time, with 0 fault reports.
+- **Suspected, unconfirmed:** a timing-dependent fault in pdfium during text extraction. One
+  possible mechanism: pdfium objects finalized by the garbage collector in another thread
+  while the indexing thread was inside pdfium. The explicit closing removes that path.
+- **Related to Task 3?** Not in its logic. `page_texts` is unchanged except for the id. The
+  migration deletes the old index (it's a cache), so the next start re-reads every PDF, and
+  this is where the failure surfaced.
+- **What protects the data:**
+  - the index is a rebuildable cache;
+  - a failed document now keeps its older pages, is reported, and is retried;
+  - PDFs are only read, never written, by indexing.
+- **Not done: running the extraction in a subprocess.** That would contain a native crash that
+  actually takes down the process, which `try`/`except` can't do. Without a reproduction it
+  wasn't justified, but it's the next step if the fault reappears (see B17).
+
+**Manual acceptance (user, 2026-11-07, on a temporary copy of the library):**
+- Passed: opening, page navigation and zoom; text lookup; saving and restoring reading
+  progress; shelves; notes; scripts; highlighting and saving marks; reopening with the marks
+  kept; ids in every request.
+- Search across documents found and opened the right document and page, but didn't show where
+  the term was on the page. That led to the next item.
+
+**Search-result highlighting** (`reader_static/lookup.js`, `lookup.css`, `library_server.py`):
+- **How a term gets there:** a result in 在我的书中 (In my books) opens
+  `/read/<id>?page=N&find=<term>`. The server passes `find` on to the reader URL (encoded:
+  `&`, `#` and quotes stay inside the term).
+- **It reuses PDF.js's own find**, with no separate highlighter:
+  - the term is highlighted on the page in yellow, the current match in orange, and moved to
+    the middle of the window;
+  - the find bar opens with the term and "n of N matches", and its ▲▼ buttons go through the
+    matches;
+  - phrases, any case, and text split across spans are handled by PDF.js;
+  - closing the find bar, or Esc, clears the highlights.
+- **On screen only:** nothing is written into the PDF, the highlights are not annotations, and
+  the marks-saving code never sees them.
+- **When the term isn't on the page:**
+  - The index matches other word forms ("vignetted" for "vignetting"), so the term may not be
+    on the result's page as typed. Then the reader stays on that page with a notice in Chinese
+    and English, instead of jumping to another page. The find bar's arrows still reach the
+    other matches.
+  - If the term isn't in the document at all, or the page is a scan without text, a notice
+    says so.
+- **Checks:** a server test (the term passed on and encoded; nothing added without a search),
+  and 11 real-browser checks in Edge through its DevTools protocol, on the temporary copy:
+  - another document opened by id at the right page;
+  - highlighted and centred;
+  - next and previous;
+  - a second document with a phrase in a different case;
+  - not found in the document;
+  - found only on other pages (stays on the page);
+  - closing clears the highlights;
+  - all 31 PDFs unchanged.
+- **Fixed during these checks:** PDF.js scrolled to a match on another page *after* the reader
+  had returned to the result's page. The reader now withdraws that scroll request.
+- **Note:** this relies on PDF.js 4.10.38's find controller (`findBar`, the
+  `updatefindcontrolstate` event, and the `_scrollMatches` field). Recheck it after a PDF.js
+  upgrade.
+
+**Correcting marks** (`reader_static/lookup.js` `easyMarkEditing`). The user's request: remove
+or undo a highlight or other mark made with PDF.js's tools.
+- **Built on PDF.js 4.10.38, nothing new for deleting:**
+  - PDF.js already selects, deletes (🗑 on the mark's toolbar, Delete or Backspace) and undoes
+    (Ctrl+Z, and the Undo bar after a deletion). This also works for marks saved in the PDF
+    earlier.
+  - But only while an editing tool is on, which wasn't obvious.
+- **Added:**
+  - A single click on a highlight while reading turns the highlight tool on and selects that
+    mark, so its 🗑 shows. A double-click still looks a word up.
+  - Esc with no mark selected leaves the tool. With one selected, PDF.js's Esc unselects it.
+  - The first time a tool is turned on, a notice in Chinese and English says how.
+- **Saving:** a deletion is a change of marks like any other. `keepMarks` writes it into the
+  PDF a second later, and the original stays in `archive/before-marks/`.
+- **Only the selected mark is removed;** the search highlights aren't marks and aren't affected.
+- **Limits:**
+  - The click selects highlights only. Other kinds of mark (drawings, text, stamps) are
+    selected with their own tool, as before.
+  - An undo is possible only until the tab is closed (see Undo / Redo below). After that, the
+    way back is the original in `archive/before-marks/` (it has none of the later marks).
+  - This relies on PDF.js internals: the `switchannotationeditormode` event,
+    `annotationEditorMode`, the `.highlightEditor` and `.highlightAnnotation` layers. Recheck
+    them after a PDF.js upgrade.
+
+**Undo / Redo for marks** (`lookup.js` `undoRedo`, `keepMarks`; `lookup.css`). The user's
+request: familiar Undo and Redo, as in a word processor.
+- **On the toolbar:** ↶ 撤销 (Undo) and ↷ 重做 (Redo), left of PDF.js's tools. Each is greyed
+  out when there is nothing to undo or redo, and its tooltip gives the shortcut.
+- **Shortcuts:** Ctrl+Z undoes; Ctrl+Y and Ctrl+Shift+Z redo. They work with a tool on and
+  while reading.
+- **The history is PDF.js 4.10.38's own; no second history was built:**
+  - one history per open document, up to 128 steps;
+  - leaving a tool (Esc) doesn't clear it;
+  - a new mark after an undo drops the steps that could have been redone.
+  
+  PDF.js turns its own shortcuts off outside a tool. These buttons and keys ask it through
+  the `editingaction` event (the one its own menus use), and read its
+  `annotationeditorstateschanged` event to enable or grey out the buttons.
+- **Text fields keep their own Ctrl+Z / Ctrl+Y:** the find bar, the dictionary popup, forms,
+  anything editable. PDF.js doesn't see the keys there either; with a tool on, it used to
+  take Ctrl+Z from search-type fields and text areas.
+- **Search highlights aren't marks,** so they never enter the history.
+- **Bug found and fixed (was in v0.2.5):**
+  - **The bug:** a mark removed after a save wasn't saved. That is an undo of a new mark, a
+    redo of a deletion, and also the plain undo of a deletion. PDF.js doesn't raise its
+    "modified" flag when a mark leaves its storage, and it clears the flag when the last
+    mark leaves. So the PDF kept the mark.
+  - **The fix:** `keepMarks` compares the marks'
+    hash with the last saved one, whatever the flag says. `""`, PDF.js's hash for no
+    changes, stands for the PDF as opened.
+- **Saving during undo or redo:**
+  - a save writes the marks as they were when it started;
+  - a change during the save is saved next;
+  - "标注已保存 (Marks saved)" appears only once the server has written the file.
+- **Limits:**
+  - The history lasts as long as the tab: reopening starts a new one, as asked.
+  - It covers this tab only. Two tabs of the same PDF still overwrite each other (D5).
+  - It relies on PDF.js internals: the `editingaction` and `annotationeditorstateschanged`
+    events, the `#editorModeButtons` toolbar group, and the empty hash `""`. Recheck them
+    after a PDF.js upgrade.
+- **Checks** (real Edge, temporary library, `browser_undo_check.py`), 55 of 55:
+  - A, B; delete A; Ctrl+Z restores A; Ctrl+Z removes B; Ctrl+Y restores B; Ctrl+Shift+Z
+    deletes A again;
+  - the same after Esc, with the buttons and the keys;
+  - three undos and three redos in a row;
+  - a new mark after an undo drops the redo steps;
+  - Ctrl+Z and Ctrl+Y in the find field (its own undo ran), a text area and a search field
+    (with a tool on) leave the marks alone;
+  - the buttons enabled and greyed out at every step;
+  - rapid undo/redo pairs;
+  - an undo, redo and undo during a save slowed to 3 s:
+    - "Marks saved" not shown early;
+    - a second save followed;
+    - the PDF ends with exactly the final marks;
+  - a saved mark deleted, restored with ↶ and deleted again with ↷, saved;
+  - reopened: the final marks, and a new, empty history.
+  
+  The earlier marks and Preview checks pass again, apart from the two reading-log checks
+  described there.
+
+**Preview Mode** (`lookup.js` `previewBar`; `library_server.pdf_url(..., preview=True)`). The
+user's request: opening a search result shouldn't count as reading.
+- A result in 在我的书中 (In my books) opens `/read/<id>?page=N&find=<term>&preview=1`. The
+  server passes `preview=1` on to the reader.
+- **In a preview:**
+  - nothing is recorded: no "Last read" in the notes README, no reading time, no pages in the
+    reading log, whatever you do (turn pages, zoom, search, close);
+  - a small bar at the top says 预览：不计入阅读进度 (Preview: not counted as reading);
+  - notes, saved words and marks still work as usual, because you made them yourself.
+- **开始阅读 (Start reading)** on the bar makes it a normal reading tab:
+  - the current page is saved as "Last read" at once, and reading time is counted from then;
+  - `preview` is taken out of the address, so a reload reads normally.
+- **Read and Continue** on the library page are unchanged.
+
+**Checks for both** (real Edge through the DevTools protocol, on a temporary library with two
+invented PDFs, server on port 8767; script `browser_marks_check.py`):
+- Marks, 21 of 21:
+  - two highlights made and saved into the PDF (checked with pypdf); original archived;
+  - reopened: a click on one selects it and shows 🗑;
+  - Delete removes it, the Undo bar shows, Ctrl+Z restores it;
+  - Esc leaves the tool;
+  - 🗑 removes the first. After saving, the PDF has exactly the other one, also after reopening.
+- Preview, 12 checks:
+  - the bar shows and the search highlights stay;
+  - turning pages, zooming and closing leaves no "Last read" and no reading-log entry;
+  - Start reading removes the bar and `preview` from the address, and saves the current page;
+  - later pages count, and a normal open still saves "Last read".
+- **Not settled by that run:**
+  - In the full run, the reading-log entries sent as a tab closes reached the server only when
+    the headless browser exited. That send is unchanged code (v0.2.5).
+  - Checked on its own, both navigating away and closing the tab delivered them within
+    4 seconds, and the log held no page from the preview part.
+- **Not tested by hand yet:** the user's own acceptance test of both.
+- 212 Python tests pass. The server test checks that `preview=1` is passed on.
+
+**Persistence audit (2026-11-07).** The user found that a highlight made, or a saved one
+deleted, just before closing the tab could be lost, and asked for a review of every write.
+
+| Change | Starts in | When it's sent | Server writes | Saved shown after | Close at once | Errors | Concurrent writes |
+|---|---|---|---|---|---|---|---|
+| Marks: make, edit, delete, undo, redo | reader (PDF.js) | 1 s after the last change, or Save now | whole PDF, atomic + fsync, original kept once | server's answer | **was lost** → now warned until saved | status + Retry | one save at a time; changes during a save saved next; two tabs: D5 |
+| Reading position | reader | 2 s after a page turn; on close (`keepalive`) | README line, locked | none shown | arrives | none shown | last arrival wins |
+| Reading time | reader | every minute; on hide or close (`keepalive`) | `reading-log.json`, locked | none shown | arrives; up to 1 min lost on a crash (L13) | none shown | adds up, locked |
+| Save word, add glossary term, topic note | popup button | on click (`keepalive` now) | file, locked | server's answer (button) | arrives | button says "Save failed" | locked |
+| Chapter tick, shelves, review answer, settings, Script | library page | on click (`keepalive` now) | file or catalog, locked | server's answer (toast) | arrives | toast | locked; catalog via `catalog.*` |
+| Add, OCR, Refresh, backups, Find online → Add | library page | on click | background job | job finished | job continues on the server | job history | `FILING` lock |
+| Chapter notes, scripts' contents | outside editor (VS Code) | the editor's own save | not by myLibrary | the editor | the editor's own | the editor | L14 |
+
+There is no metadata editing yet (task 6); Refresh and adding change details in background
+jobs.
+
+- **Confirmed and fixed:**
+  - **Marks lost on closing** (release-blocking).
+    - Causes:
+      - The reader saved only after 2.5 s without changes, checked every second.
+      - Before that, the only protection was PDF.js's own close warning. It follows a flag
+        that PDF.js doesn't raise when a mark is removed, and clears when the last mark goes.
+      - So a deletion, or an undo after a save, could close without a warning and was lost.
+      - In one run, deleting a saved highlight and leaving at once gave no warning, and the
+        PDF kept the highlight. Two reruns of that case did warn: the miss is intermittent,
+        and its exact trigger wasn't pinned down.
+    - Now the reader tracks the marks themselves (`lookup.js` `keepMarks`). While PDF.js's
+      hash of the marks differs from the last one the server confirmed, or a save is under
+      way:
+      - the browser's own "Leave site?" warning comes up on close, reload or navigation;
+      - a status shows 标注未保存 (Marks not saved yet) with 立即保存 (Save now);
+      - then 正在保存 (Saving);
+      - 标注已保存 (Marks saved) appears only after the server's answer.
+    - A failure shows 标注没保存 (Marks not saved) with the error and 重试 (Retry):
+      - it is tried again automatically 3 times, 3 s apart;
+      - it stays visible until a save succeeds.
+    - Saves start after 1 s without changes, checked 4 times a second.
+    - Nothing is sent while closing: a whole PDF can't be sent reliably then.
+  - **A marked PDF or upload cut short was accepted.**
+    - When the tab closes while the PDF is being sent, the server read fewer bytes than
+      announced.
+    - For marks, the cut-off copy could pass the "%%EOF near the end" check, because the
+      original's own %%EOF is still near the end. The cut-off copy was then written over the
+      book.
+    - `Handler._body` now refuses a short body (400, "cut short"), and the book is left as it
+      was.
+    - Test: `test_marks_cut_short_are_refused`. It fails without the fix.
+- **Safe already:**
+  - Small writes reach the server in one request and are written under a lock before the
+    answer.
+  - The page shows the answer.
+  - They now also use `keepalive`, so a click just before closing still arrives.
+- **Checks** (real Edge, temporary library, `browser_close_check.py`), 53 of 53. Each
+  action is followed by close, navigation or reload with no delay:
+  - Make a highlight and leave (close, navigate, reload): warned. After Stay: saved, and on
+    disk.
+  - Delete a saved highlight and leave: the same.
+  - Rapid changes with undo and redo, then close: warned. After Stay, the final state is on
+    disk.
+  - Failure, once: shown with the error, then saved automatically.
+  - Lasting failure: still shown after the automatic attempts, warned on close, nothing on
+    disk. Then Retry saves it.
+  - Slow server (4 s): "Saving" until the answer, warned on close, then saved.
+  - Save now: saved, then closing is free.
+  - Browsing only (tool on and off over saved marks, pages, zoom): no status, no warning.
+  - Position: a page turn and leave at once (close, navigate, reload): saved, no warning.
+  - A chapter tick and Save word sent just before closing: both written.
+  - Undo/Redo checks: 54 of 55. The one miss is a check timing artifact: saves now come
+    sooner, so the expected new "Marks saved" never appeared, and the PDF check after it
+    passed.
+  - Marks and Preview checks: unchanged.
+- **Distinctions:**
+  - *Verified persistence:* every case above whose final state was read back from the disk.
+  - *Correctly warned:* closing with unsaved or still-saving marks.
+  - *Not supported:* forced or OS termination (L12); reading time on a crash (L13).
+- **Not verified:**
+  - closing with the window's ✕ or Ctrl+W by hand. The checks close tabs through the
+    DevTools protocol, which runs the same warning;
+  - a real disk failure (simulated in the page).
+  - The library page's own beforeunload: none was added. Its writes are single requests,
+    without pending edits.
+- **Note:** clicking Save now unselects a new highlight, and PDF.js then stores it slightly
+  differently. So a second, short save can follow; closing during it warns, as it should.
+
+**Not yet done (needs approval):**
+- [x] Apply the migration to the real `library/` (done and verified; `--check` clean).
+- [ ] Commit the code (one commit) and the migrated example data (a separate commit:
+      `library/catalog.csv` and `library/notes/reading-log.json`, the latter including the
+      uncommitted reading data), then push both together.
 
 ### Task 4. Notes panel in the reader *(2.1; design in section 5)*
 

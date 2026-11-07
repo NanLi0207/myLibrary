@@ -7,6 +7,7 @@ import pytest
 from book_meta import Meta
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
+from testlib import entry, id_of, put  # noqa: F401
 
 
 @pytest.fixture
@@ -22,6 +23,15 @@ def library(tmp_path, monkeypatch):
     monkeypatch.setattr(library_jobs.book_search, "update", lambda: 0)
     monkeypatch.setattr(library_jobs, "_jobs", {})
     return tmp_path
+
+
+def names(library) -> list[str]:
+    """The names of the documents in the catalog, sorted."""
+    return sorted(r["slug"] for r in catalog.load(library / "catalog.csv").values())
+
+
+def name_of(library, doc_id: str) -> str:
+    return catalog.load(library / "catalog.csv")[doc_id]["slug"]
 
 
 def text_pdf() -> bytes:
@@ -51,9 +61,10 @@ def test_upload_is_identified_named_and_registered(library, monkeypatch):
     assert path.parent == library / "books" and path.name == "my download (z).pdf"
     done = wait(library_jobs.start_add(path))
     assert done["status"] == "done" and done["scan"] is False
-    assert done["slug"] == "doe-2015-practical-lens-design"
+    assert catalog.is_id(done["doc_id"])
+    assert name_of(library, done["doc_id"]) == "doe-2015-practical-lens-design"
     assert (library / "books" / "doe-2015-practical-lens-design.pdf").exists()
-    assert "doe-2015-practical-lens-design" in catalog.load(library / "catalog.csv")
+    assert names(library) == ["doe-2015-practical-lens-design"]
     assert (library / "notes" / "doe-2015-practical-lens-design" / "README.md").exists()
 
     # The very same file again: recognised, and the second copy is moved to the archive
@@ -65,7 +76,9 @@ def test_upload_is_identified_named_and_registered(library, monkeypatch):
     # A different file with the same title, author and year: no proof it's the same work (no
     # shared DOI or ISBN), so it's kept under a name of its own and reported, never thrown away
     other = wait(library_jobs.start_add(library_jobs.save_upload("other.pdf", text_pdf())))
-    assert other["status"] == "done" and other["slug"] == "doe-2015-practical-lens-design-2"
+    assert other["status"] == "done"
+    assert name_of(library, other["doc_id"]) == "doe-2015-practical-lens-design-2"
+    assert other["doc_id"] != done["doc_id"]  # a different document, its own id
     assert "possibly the same work as doe-2015-practical-lens-design" in other["message"]
     assert len(catalog.load(library / "catalog.csv")) == 2
 
@@ -83,7 +96,7 @@ def test_nothing_is_ever_asked(library, monkeypatch):
     monkeypatch.setattr(library_jobs, "identify", identify)
     job = wait(library_jobs.start_add(library_jobs.save_upload("scan001.pdf", text_pdf())))
     year = str(__import__("datetime").date.today().year)  # the file's own date, at worst
-    assert job["status"] == "done" and job["slug"] == f"unknown-{year}-optics"
+    assert job["status"] == "done" and name_of(library, job["doc_id"]) == f"unknown-{year}-optics"
 
 
 def test_only_pdfs_are_accepted(library):
@@ -109,9 +122,10 @@ def test_ocr_reports_progress_one_book_at_a_time(library, monkeypatch):
 
     monkeypatch.setattr(library_jobs.ocr_pdf, "make_searchable", fake_ocr)
     monkeypatch.setattr(library_jobs.add_book, "refresh_chapters", lambda pdf, dry_run: None)
-    job = library_jobs.start_ocr("doe-2015-scan")
+    doc = put(library / "catalog.csv", {"slug": "doe-2015-scan", "file": "books/doe-2015-scan.pdf"})
+    job = library_jobs.start_ocr(doc)
     with pytest.raises(ValueError, match="another book"):
-        library_jobs.start_ocr("doe-2015-scan")
+        library_jobs.start_ocr(doc)
     done = wait(job)
     assert done["status"] == "done" and (done["done"], done["total"]) == (3, 3)
     assert started == [pdf]
@@ -141,12 +155,11 @@ def test_refresh_adds_pdfs_put_into_the_folders_by_hand(library, monkeypatch):
     for job in list(library_jobs.list_jobs()):
         wait(job)
     assert ("final_version.pdf", False, True) in seen  # a file in theses/ is a thesis
-    rows = catalog.load(library / "catalog.csv")
-    assert rows["doe-2019-freeform-mirrors"]["type"] == "thesis"
+    assert entry(library / "catalog.csv", "doe-2019-freeform-mirrors")["type"] == "thesis"
     assert (library / "theses" / "doe-2019-freeform-mirrors.pdf").exists()
     assert (library / "books" / "lee-2015-practical-optics.pdf").exists()
     # The one already named by hand keeps its name
-    assert "lee-2015-practical-optics-handmade" in rows
+    assert "lee-2015-practical-optics-handmade" in names(library)
     assert (library / "notes" / "lee-2015-practical-optics-handmade" / "README.md").exists()
 
     # The same book copied in again (the very same file): reported, and moved to the archive
@@ -193,7 +206,7 @@ def _registered(library, slug, folder="papers", **row):
     (library / "notes" / slug / "README.md").write_text(
         "# x\n\n- [ ] Chapter 1\n", encoding="utf-8"
     )
-    catalog.upsert(
+    put(
         library / "catalog.csv",
         {"slug": slug, "title": slug, "file": f"{folder}/{slug}.pdf", "added": "2026-01-01"} | row,
     )
@@ -212,17 +225,20 @@ def test_repeats_by_doi_isbn_and_identical_file(library):
         return Meta(title="X", author="A", year="2000", **kw)
 
     assert add_book.repeat_of(new, meta(doi="10.1364/OE.27.1", kind="paper")) == (
-        "doe-2019-freeform",
+        id_of(library / "catalog.csv", "doe-2019-freeform"),
         "same DOI",
     )
     assert add_book.repeat_of(new, meta(isbn="0070591784")) == (  # ISBN-10 of the same book
-        "smith-1992-lens-design",
+        id_of(library / "catalog.csv", "smith-1992-lens-design"),
         "same ISBN",
     )
     # A paper printing its proceedings volume's ISBN is not a repeat of another paper from it
     assert add_book.repeat_of(new, meta(isbn="9780819491640", kind="paper")) is None
     new.write_bytes(b"%PDF-1.4 the same bytes")  # same contents, whatever its details say
-    assert add_book.repeat_of(new, meta()) == ("lee-2001-proceedings-paper", "identical file")
+    assert add_book.repeat_of(new, meta()) == (
+        id_of(library / "catalog.csv", "lee-2001-proceedings-paper"),
+        "identical file",
+    )
 
 
 def test_every_way_in_sends_repeats_to_the_archive(library, monkeypatch):
@@ -239,7 +255,7 @@ def test_every_way_in_sends_repeats_to_the_archive(library, monkeypatch):
     copy.write_bytes(text_pdf())
     add_book.add_book(copy, add_book.Book("Freeform", "Jane Doe", "2019"), False, found)
     assert not copy.exists() and (library / "archive" / "books" / "copy.pdf").exists()
-    assert list(catalog.load(library / "catalog.csv")) == ["doe-2019-freeform"]
+    assert names(library) == ["doe-2019-freeform"]
 
 
 def scan_pdf() -> bytes:
@@ -280,15 +296,14 @@ def test_refresh_keeps_the_richer_copy_and_moves_your_work_to_it(library):
 
     result = library_jobs.refresh()
     assert "1 repeat moved to archive/" in result["message"]
-    rows = catalog.load(library / "catalog.csv")
-    assert list(rows) == ["doe-2019-freeform-optics"]
+    assert names(library) == ["doe-2019-freeform-optics"]
     readme = (new / "README.md").read_text(encoding="utf-8")
     assert "Last read: page 4, 2026-03-02" in readme and "- [x] [Ch 1: Intro]" in readme
     intro = (new / "ch01-introduction.md").read_text(encoding="utf-8")
     assert intro.endswith("My notes on the intro.\n")  # into the matching (empty) template
     assert (new / "vocabulary.md").exists()
     assert (library / "examples" / "doe-2019-freeform-optics" / "ch01_intro.py").exists()
-    assert rows["doe-2019-freeform-optics"]["shelves"] == "Optics"
+    assert entry(library / "catalog.csv", "doe-2019-freeform-optics")["shelves"] == "Optics"
     backup = library / "archive" / "notes" / "doe-2019-freeform" / "ch01-intro.md"
     assert backup.exists()  # the original goes to the archive as a backup
     [job] = [j for j in library_jobs.list_jobs() if j["kind"] == "repeat"]
@@ -299,7 +314,7 @@ def test_equal_copies_keep_the_older_one(library):
     _registered(library, "doe-2019-a", doi="10.1/x", type="paper", added="2026-01-01")
     _registered(library, "doe-2019-b", doi="10.1/x", type="paper", added="2026-03-01")
     library_jobs.refresh()
-    assert list(catalog.load(library / "catalog.csv")) == ["doe-2019-a"]
+    assert names(library) == ["doe-2019-a"]
 
 
 def test_both_with_your_work_are_only_reported(library):
@@ -323,7 +338,7 @@ def test_a_better_copy_replaces_the_pdf_and_keeps_your_notes(library, monkeypatc
     assert job["status"] == "done" and "searchable text" in job["message"]
     assert PdfReader(pdf).pages[0].extract_text().startswith("Line 0")  # the new copy
     assert "Last read: page 3" in readme.read_text(encoding="utf-8")  # your notes stay
-    row = catalog.load(library / "catalog.csv")["doe-2019-freeform"]
+    row = entry(library / "catalog.csv", "doe-2019-freeform")
     assert row["publisher"] == "Example Press"  # details it lacked, added
     # The same file again: nothing replaced, only archived
     job = wait(library_jobs.start_add(library_jobs.save_upload("again.pdf", text_pdf())))
@@ -373,5 +388,6 @@ def test_ocr_of_a_locked_pdf_ends_with_a_message(library, monkeypatch):
         raise SystemExit("  ! doe-2015-scan.pdf is open in another program")
 
     monkeypatch.setattr(library_jobs.ocr_pdf, "make_searchable", locked)
-    job = wait(library_jobs.start_ocr("doe-2015-scan"))
+    doc = put(library / "catalog.csv", {"slug": "doe-2015-scan", "file": "books/doe-2015-scan.pdf"})
+    job = wait(library_jobs.start_ocr(doc))
     assert job["status"] == "error" and "open in another program" in job["message"]

@@ -233,29 +233,31 @@ def refresh() -> dict:
     return {"started": 0, "message": f"Nothing new: every PDF is already in the library{note}"}
 
 
-def _classify_all(job: dict, slugs: list[str]) -> None:
+def _classify_all(job: dict, doc_ids: list[str]) -> None:
     """Look up the subject of each item (OpenAlex), put it on its subject's shelf when OpenAlex
     is sure, and give shelves to the items still on none."""
     found, shelved, unavailable = 0, [], ""
     try:
-        for n, slug in enumerate(slugs, 1):
+        for n, doc_id in enumerate(doc_ids, 1):
             if _stopping.is_set():  # the rest are looked up by the next Refresh
-                _finish(job, "error", f"Stopped after {n - 1} of {len(slugs)} items: {STOPPED}; "
+                _finish(job, "error", f"Stopped after {n - 1} of {len(doc_ids)} items: {STOPPED}; "
                         "Refresh looks up the rest")  # fmt: skip
                 return
-            _update(job, message=f"Looking up subjects: {n} of {len(slugs)}")
+            _update(job, message=f"Looking up subjects: {n} of {len(doc_ids)}")
             try:
-                if not unavailable and subjects.classify(slug, add_book.LIBRARY, add_book.CATALOG):
+                if not unavailable and subjects.classify(
+                    doc_id, add_book.LIBRARY, add_book.CATALOG
+                ):
                     found += 1
             except book_meta.Unavailable as e:
                 unavailable = str(e)  # don't ask again for the rest; the next Refresh will
-            topic = shelves.add_topic_shelf(slug, add_book.CATALOG)
-            if topic or shelves.auto_shelve(slug, add_book.LIBRARY, add_book.CATALOG):
-                shelved.append(slug)
+            topic = shelves.add_topic_shelf(doc_id, add_book.CATALOG)
+            if topic or shelves.auto_shelve(doc_id, add_book.LIBRARY, add_book.CATALOG):
+                shelved.append(doc_id)
         library_page.build()
         note = (f" OpenAlex couldn't answer ({unavailable}); Refresh again later (its free"
                 " daily limit resets at midnight UTC)." if unavailable else "")  # fmt: skip
-        _finish(job, "done", f"Subjects found for {found} of {len(slugs)} items; "
+        _finish(job, "done", f"Subjects found for {found} of {len(doc_ids)} items; "
                 f"{len(shelved)} put on shelves (change any with Shelves).{note}")  # fmt: skip
     except Exception as e:
         _finish(job, "error", f"Looking up subjects stopped: {e}")
@@ -296,22 +298,22 @@ def _register(job: dict, path: Path) -> None:
                 return _repeat(job, path, meta, *repeat)
             book = add_book.Book(meta.title, meta.author, meta.year, meta.publisher)
             with safe_io.critical():
-                add_book.reserve_row(path, book, meta)
+                doc_id = add_book.reserve_row(path, book, meta)
         with safe_io.critical():  # notes and catalog row written before quitting
-            add_book.setup_book(path, book, meta)
+            add_book.setup_book(path, book, meta, doc_id=doc_id)
         library_page.build()
         _in_background(book_search.update)
-        added = f"Added the {add_book.kind_word(meta)} “{book.title}”" + _on_shelves(path.stem)
-        _finish(job, "done", added, slug=path.stem)
+        added = f"Added the {add_book.kind_word(meta)} “{book.title}”" + _on_shelves(doc_id)
+        _finish(job, "done", added, doc_id=doc_id)
     except Stopped:
         _finish(job, "error", f"Not registered: {STOPPED}; Refresh does it next time")
     except Exception as e:
         _finish(job, "error", f"Couldn't add {path.name}: {e}")
 
 
-def _on_shelves(slug: str) -> str:
+def _on_shelves(doc_id: str) -> str:
     """' · on shelves: 光学 Optics, 激光 Lasers' (the ones it was put on), or ''."""
-    on = catalog.split_list(catalog.load(add_book.CATALOG).get(slug, {}).get("shelves") or "")
+    on = catalog.split_list(catalog.load(add_book.CATALOG).get(doc_id, {}).get("shelves") or "")
     return (
         f" · on shelves: {', '.join(library_page.shelf_labels().get(s, s) for s in on)}"
         if on
@@ -319,17 +321,18 @@ def _on_shelves(slug: str) -> str:
     )
 
 
-def _repeat(job: dict, path: Path, meta, slug: str, reason: str) -> None:
-    """A copy of something already in the library: never added twice (add_book.handle_repeat:
+def _repeat(job: dict, path: Path, meta, doc_id: str, reason: str) -> None:
+    """A copy of a document already in the library: never added twice (add_book.handle_repeat:
     a better file replaces the library's PDF, otherwise it goes to archive/)."""
-    title = catalog.load(add_book.CATALOG).get(slug, {}).get("title") or slug
+    row = catalog.load(add_book.CATALOG).get(doc_id, {})
+    title = row.get("title") or row.get("slug") or doc_id
     with add_book.FILING, safe_io.critical():  # moves PDFs: never two at once, never cut off
-        replaced, what = add_book.handle_repeat(path, meta, slug, reason=reason)
+        replaced, what = add_book.handle_repeat(path, meta, doc_id, reason=reason)
     if replaced:
         library_page.build()
         _in_background(book_search.update)
     status = "done" if replaced else "duplicate"
-    _finish(job, status, f"Already in the library as “{title}” ({reason}); {what}", slug=slug)
+    _finish(job, status, f"Already in the library as “{title}” ({reason}); {what}", doc_id=doc_id)
 
 
 def check_catalog_repeats() -> list[dict]:
@@ -342,21 +345,24 @@ def check_catalog_repeats() -> list[dict]:
 def _check_catalog_repeats() -> list[dict]:
     jobs = []
     rows = catalog.load(add_book.CATALOG)
+    name = {doc_id: row["slug"] for doc_id, row in rows.items()}
     for pair in add_book.catalog_repeats():
         keep = rows[pair["keep"]]["title"]
         if not pair["drop"]:
-            job = _new_job("repeat", file=pair["keep"])
+            job = _new_job("repeat", file=name[pair["keep"]])
             _finish(job, "error", f"“{keep}” is in the library twice ({pair['reason']}: "
-                    f"{pair['keep']} and {pair['other']}), and both have your notes or progress. "
-                    f"Keep one: uv run scripts/add_book.py --remove <slug>")  # fmt: skip
+                    f"{name[pair['keep']]} and {name[pair['other']]}), and both have your notes "
+                    "or progress. Keep one: add_book.py --remove <name>")  # fmt: skip
         else:
             moved = add_book.merge_into(pair["drop"], pair["keep"])
-            add_book.remove_book(pair["drop"], dry_run=False, yes=True)
-            job = _new_job("repeat", file=pair["drop"])
+            # Its tombstone points to the one kept: its reading history counts for that one
+            add_book.remove_book(pair["drop"], dry_run=False, yes=True, merged_into=pair["keep"])
+            job = _new_job("repeat", file=name[pair["drop"]])
             why = f" (it has {pair['why']})" if pair["why"] != "the same" else ""
             work = f"; your work moved over: {', '.join(moved)}" if moved else ""
             message = (f"“{keep}” was in the library twice ({pair['reason']}); kept "
-                       f"{pair['keep']}{why}, moved {pair['drop']} to archive/{work}")  # fmt: skip
+                       f"{name[pair['keep']]}{why}, moved {name[pair['drop']]} to "
+                       f"archive/{work}")  # fmt: skip
             _finish(job, "duplicate", message)
         jobs.append(job)
     return jobs
@@ -384,7 +390,7 @@ def _archive_plan() -> tuple[list[Path], list[str]]:
         empty_notes = (
             parts[0] == "notes"
             and len(parts) > 2
-            and not add_book.has_own_work(parts[1], notes_dir=archive / "notes" / parts[1])
+            and not add_book.has_own_work(archive / "notes" / parts[1])
         )
         if f.suffix.lower() in DOCUMENTS or f.name == ".gitkeep" or empty_notes:
             delete.append(f)
@@ -435,11 +441,11 @@ def _add(job: dict, path: Path) -> None:
             with safe_io.critical():
                 # A different document with the same usual name gets the next free name (-2)
                 target = add_book.place_book(path, book, meta)
-                add_book.reserve_row(target, book, meta)
-            note = add_book.name_note(book)
+                doc_id = add_book.reserve_row(target, book, meta)
+            note = add_book.name_note(book, doc_id)
         # Notes and the catalog row (other books are filed meanwhile); quitting waits for it
         with safe_io.critical():
-            add_book.setup_book(target, book, meta)
+            add_book.setup_book(target, book, meta, doc_id=doc_id)
         scan = ocr_pdf.needs_ocr(target)
         library_page.build()
         _in_background(book_search.update)  # make it searchable (在我的书中 / In my books)
@@ -447,10 +453,10 @@ def _add(job: dict, path: Path) -> None:
             job,
             "done",
             f"Added the {add_book.kind_word(meta)} “{book.title}”"
-            + _on_shelves(book.slug)
+            + _on_shelves(doc_id)
             + (" (a scan: OCR recommended)" if scan else "")
             + (f" · {note}" if note else ""),
-            slug=book.slug,
+            doc_id=doc_id,
             scan=scan,
         )
     except Stopped:
@@ -469,10 +475,12 @@ def _check_stopping(job: dict) -> None:
 # --- OCR --------------------------------------------------------------------------------------
 
 
-def start_ocr(slug: str) -> dict:
+def start_ocr(doc_id: str) -> dict:
     """Give a scanned book an invisible text layer (in the background, one book at a time)."""
-    row = catalog.load(add_book.CATALOG).get(slug) or {}
-    pdf = add_book.LIBRARY / row["file"] if row.get("file") else add_book.BOOKS / f"{slug}.pdf"
+    row = catalog.load(add_book.CATALOG).get(doc_id)
+    if row is None:
+        raise ValueError("no such document")
+    pdf = add_book.library_pdf(row)
     if not pdf.exists():
         raise ValueError("that book's PDF isn't in the library")
     _check_running()
@@ -480,7 +488,7 @@ def start_ocr(slug: str) -> dict:
         if any(j["kind"] == "ocr" and j["status"] == "working" for j in _jobs.values()):
             raise ValueError("another book is being OCR'd; try again when it's done")
         job = {"id": uuid.uuid4().hex[:12], "kind": "ocr", "status": "working",
-               "started": time.time(), "slug": slug, "done": 0, "total": 0,
+               "started": time.time(), "doc_id": doc_id, "done": 0, "total": 0,
                "message": "Starting OCR…"}  # fmt: skip
         _jobs[job["id"]] = job
     _in_background(_ocr, job, pdf)

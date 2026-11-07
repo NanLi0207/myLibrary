@@ -2,8 +2,8 @@
 
 from datetime import date, timedelta
 
-import catalog
 import vocab_review
+from testlib import entry, id_of, put  # noqa: F401
 
 DAY = date(2026, 11, 6)
 TABLE = """# Vocabulary: {title}
@@ -19,7 +19,7 @@ def library(tmp_path, books: dict[str, list[str]]):
     """books: {slug: ["| word | phonetic | zh | page | added |", ...]}"""
     path = tmp_path / "catalog.csv"
     for slug, rows in books.items():
-        catalog.upsert(path, {"slug": slug, "title": slug.title(), "file": f"books/{slug}.pdf"})
+        put(path, {"slug": slug, "title": slug.title(), "file": f"books/{slug}.pdf"})
         notes = tmp_path / "notes" / slug
         notes.mkdir(parents=True)
         (notes / "vocabulary.md").write_text(
@@ -38,7 +38,9 @@ def test_words_from_every_book_one_card_each(tmp_path):
     assert [c["word"] for c in cards] == ["Ordinate", "vignetting"]  # new: by when saved
     ordinate = cards[0]
     assert ordinate["zh"] == "n. 纵线, 纵座标" and ordinate["phonetic"] == "'ɒ:dineit"
-    assert [(s["slug"], s["page"]) for s in ordinate["seen"]] == [("a-book", 27), ("b-book", 3)]
+    a, b = id_of(path, "a-book"), id_of(path, "b-book")
+    assert [(s["id"], s["page"]) for s in ordinate["seen"]] == [(a, 27), (b, 3)]
+    assert [s["title"] for s in ordinate["seen"]] == ["A-Book", "B-Book"]
     assert all(c["box"] == 0 and c["due"] == DAY.isoformat() for c in cards)
 
 

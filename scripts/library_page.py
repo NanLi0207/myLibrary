@@ -4,7 +4,8 @@
     uv run scripts/library_page.py     # static file (add_book.py also rebuilds it)
     start library.html                 # open the static file in your browser
 
-Each book expands to its chapter checklist, read from notes/<slug>/README.md.
+Each document expands to its chapter checklist, read from its notes/<name>/README.md. On the
+page, documents are known by their id (catalog.py), which every request to the server carries.
 The static file is read-only; the server version can open everything for a chapter and
 tick chapters off (see library_server.py).
 """
@@ -37,9 +38,14 @@ LAST_READ_RE = re.compile(
 )
 
 
-def readme_path(slug: str) -> Path:
-    """notes/<slug>/README.md: a book's details, progress and "Last read" line."""
-    return LIBRARY / "notes" / slug / "README.md"
+def readme_of(row: dict) -> Path:
+    """A document's notes README (details, progress, "Last read" line): <its notes>/README.md."""
+    return LIBRARY / row["notes"] / "README.md"
+
+
+def readme_path(doc_id: str) -> Path:
+    """The notes README of the document with this id (KeyError if there is none)."""
+    return readme_of(catalog.load(CATALOG)[doc_id])
 
 
 def chapter_line(number: int, boxes: str = " xX") -> re.Pattern:
@@ -49,17 +55,17 @@ def chapter_line(number: int, boxes: str = " xX") -> re.Pattern:
     return re.compile(rf"^- \[[{boxes}]\] (\[?Ch(?:apter)?\.?\s*{number}:{paper})", re.MULTILINE)
 
 
-def last_read(slug: str) -> dict | None:
-    """{page, chapter, date} from the "Last read:" line in notes/<slug>/README.md."""
-    readme = readme_path(slug)
+def last_read(doc_id: str, readme: Path | None = None) -> dict | None:
+    """{page, chapter, date} from the "Last read:" line in the document's notes README."""
+    readme = readme or readme_path(doc_id)
     if not readme.exists():
         return None
     m = LAST_READ_RE.search(safe_io.read_text(readme))
     return {"page": int(m[1]), "chapter": m[2] or "", "date": m[3]} if m else None
 
 
-def chapters(slug: str) -> list[dict]:
-    readme = readme_path(slug)
+def chapters(doc_id: str, readme: Path | None = None) -> list[dict]:
+    readme = readme or readme_path(doc_id)
     return chapters_in(safe_io.read_text(readme)) if readme.exists() else []
 
 
@@ -120,23 +126,27 @@ def books(pdf_base: str | None = None) -> list[dict]:
     result = []
     for row in catalog.load(CATALOG).values():
         pdf = LIBRARY / row["file"]
+        readme = readme_of(row)
         scan, pages = scan_info(pdf)
+        # The reading view is told which document it shows (its id), whatever the file's name
+        reader = f"{pdf_base}/{row['file']}" + ("&id=" + row["id"] if "?file=" in (pdf_base or "")
+                                                else "") if pdf_base else ""  # fmt: skip
         result.append(
             row
             | {
-                "chapter_list": chapters(row["slug"]),
+                "chapter_list": chapters(row["id"], readme),
                 "shelf_list": catalog.split_list(row.get("shelves") or ""),
                 "kind": row.get("type") or "book",
                 "field_label": subjects.field_label(row.get("field") or ""),
                 "citations": citation.all_formats(row),
                 "scan": scan,
                 "ocr_minutes": max(1, round(ocr_minutes(pages))),
-                "last_read": last_read(row["slug"]),
+                "last_read": last_read(row["id"], readme),
                 # When the notes README last changed (reading position, ticks): orders books
                 # read on the same day for "Sort: recently read"
-                "touched": _mtime(readme_path(row["slug"])),
+                "touched": _mtime(readme),
                 "pdf_missing": not pdf.exists(),
-                "pdf_uri": f"{pdf_base}/{row['file']}" if pdf_base else pdf.as_uri(),
+                "pdf_uri": reader or pdf.as_uri(),
                 "notes_uri": "vscode://file/"
                 + quote((LIBRARY / row["notes"]).as_posix(), safe="/:"),
             }
@@ -788,7 +798,7 @@ function card(b, inList = false) {
       ${b.openlibrary ? `<a href="${esc(b.openlibrary)}" target="_blank" rel="noopener">Open Library</a>` : ""}
       <span class="cite-wrap"><button type="button" data-cite title="Copy a citation: APA, IEEE, GB/T 7714, BibTeX or RIS">Cite ▾</button></span>
       ${API && b.scan && !b.pdf_missing ? `<button type="button" data-ocr title="This book is a scan: OCR adds a text layer, so its words can be looked up and searched">OCR (~${b.ocr_minutes} min)</button>` : ""}`;
-  return `<article class="card" data-slug="${esc(b.slug)}">
+  return `<article class="card" data-id="${esc(b.id)}">
     <h2><span class="kind-tag">${esc(kindLabel(b))}</span>${esc(b.title)}</h2>
     ${inList  // from the list: ISBN / DOI on the author line, to keep the card short
       ? (byline || details ? `<div class="byline inline">${byline}${details ? `<span class="meta">${details}</span>` : ""}</div>` : "")
@@ -842,7 +852,7 @@ function render() {
     grid.innerHTML = `<p class="empty">No books match “${esc(q.value)}”.${API
       ? `<button type="button" data-findonline>🔎 Search online</button>` : ""}</p>`;
   } else if (view === "list") {
-    const open = shown.filter(b => expanded.has(b.slug)).length;
+    const open = shown.filter(b => expanded.has(b.id)).length;
     const head = (key, label, cls = "") => key
       ? `<button type="button" data-sortby="${key}" class="${sort.value === key ? "on" : ""}" title="Sort by ${label.toLowerCase()}">${label}${sort.value === key ? " ↓" : ""}</button>`
       : label;
@@ -872,8 +882,8 @@ function listItem(b) {
   const progress = isPaper(b) ? (done(b) ? "Read ✓" : pct(b) > 0 ? `${pctText(b)} read` : "Not read yet")
     : n ? `${done(b)}/${n} chapters${pct(b) > 0 ? ` · ${pctText(b)}` : ""}` : "no chapters";
   const last = b.last_read ? `p. ${b.last_read.page}<br>${esc(b.last_read.date)}` : "";
-  const isOpen = expanded.has(b.slug);
-  return `<div class="litem ${isOpen ? "open" : ""}" data-slug="${esc(b.slug)}">
+  const isOpen = expanded.has(b.id);
+  return `<div class="litem ${isOpen ? "open" : ""}" data-id="${esc(b.id)}">
     <div class="lrow" data-row role="button" tabindex="0" aria-expanded="${isOpen}">
       <span class="kind">${esc(kindLabel(b))}</span>
       <div><div class="ttl" title="${esc(b.title)}">${esc(b.title)}</div><div class="sub">${sub}</div></div>
@@ -898,6 +908,7 @@ function toast(message) {
 async function api(path, body) {
   const response = await fetch(path, {
     method: "POST",
+    keepalive: true,  // a click's write (tick, shelves, review answer) arrives even if the tab closes
     headers: {"Content-Type": "application/json", "X-Library-Token": API.token},
     body: JSON.stringify(body),
   });
@@ -906,9 +917,9 @@ async function api(path, body) {
   return data;
 }
 
-const bookOf = el => books.find(b => b.slug === el.closest("[data-slug]").dataset.slug);
+const bookOf = el => books.find(b => b.id === el.closest("[data-id]").dataset.id);
 const openLists = () => new Set([...grid.querySelectorAll("ol.chapters:not([hidden])")]
-  .map(ol => ol.closest(".card").dataset.slug));
+  .map(ol => ol.closest(".card").dataset.id));
 
 document.getElementById("shelves").addEventListener("click", e => {
   const button = e.target.closest("[data-shelf]");
@@ -926,16 +937,16 @@ function redraw({menus = false, counts = false} = {}) {
   if (counts) stats();
   if (menus) { renderFields(); renderShelves(); }
   render();
-  keepOpen.forEach(s => grid.querySelector(`.card[data-slug="${CSS.escape(s)}"] ol.chapters`)
+  keepOpen.forEach(s => grid.querySelector(`.card[data-id="${CSS.escape(s)}"] ol.chapters`)
     ?.removeAttribute("hidden"));
 }
 
 function toggleLine(row) {
-  const slug = row.closest("[data-slug]").dataset.slug;
-  if (expanded.has(slug)) expanded.delete(slug);
-  else expanded.add(slug);
+  const docId = row.closest("[data-id]").dataset.id;
+  if (expanded.has(docId)) expanded.delete(docId);
+  else expanded.add(docId);
   redraw();
-  grid.querySelector(`.litem[data-slug="${CSS.escape(slug)}"] .lrow`)?.focus({preventScroll: true});
+  grid.querySelector(`.litem[data-id="${CSS.escape(docId)}"] .lrow`)?.focus({preventScroll: true});
 }
 grid.addEventListener("keydown", e => {
   const row = e.target.closest("[data-row]");
@@ -958,7 +969,7 @@ grid.addEventListener("click", async e => {
     return render();
   }
   if (e.target.closest("[data-unfoldall]")) {  // every line shown (search, type, field, shelf)
-    grid.querySelectorAll(".litem[data-slug]").forEach(item => expanded.add(item.dataset.slug));
+    grid.querySelectorAll(".litem[data-id]").forEach(item => expanded.add(item.dataset.id));
     return render();
   }
   const cite = e.target.closest("[data-cite]");
@@ -967,7 +978,7 @@ grid.addEventListener("click", async e => {
   if (markRead && API) {
     const b = bookOf(markRead);
     try {
-      const r = await api("/api/tick", {slug: b.slug, chapter: 1, done: !done(b)});
+      const r = await api("/api/tick", {id: b.id, chapter: 1, done: !done(b)});
       b.chapter_list = r.chapter_list;
       stats();
       render();
@@ -979,7 +990,7 @@ grid.addEventListener("click", async e => {
   const notes = e.target.closest("[data-notes]");
   if (notes && API) {
     try {
-      toast((await api("/api/open-notes", {slug: bookOf(notes).slug})).message);
+      toast((await api("/api/open-notes", {id: bookOf(notes).id})).message);
     } catch (err) {
       toast(`Couldn't open the notes: ${err.message}`);
     }
@@ -990,7 +1001,7 @@ grid.addEventListener("click", async e => {
     const b = bookOf(ocr);
     if (!confirm(`OCR “${b.title}”? It takes about ${b.ocr_minutes} min; you can keep reading meanwhile.`)) return;
     try {
-      await api("/api/ocr", {slug: b.slug});
+      await api("/api/ocr", {id: b.id});
       pollJobs();
     } catch (err) {
       toast(`Couldn't start OCR: ${err.message}`);
@@ -1004,7 +1015,7 @@ grid.addEventListener("click", async e => {
       `Shelves for “${b.title}”, separated by ;`, b.shelf_list.join("; "));
     if (answer === null) return;
     try {
-      const r = await api("/api/shelves", {slug: b.slug, shelves: answer});
+      const r = await api("/api/shelves", {id: b.id, shelves: answer});
       b.shelf_list = r.shelves;
       renderShelves();
       render();
@@ -1024,7 +1035,7 @@ grid.addEventListener("click", async e => {
   if (script && API) {
     script.disabled = true;
     try {
-      const r = await api("/api/script", {slug: bookOf(script).slug, chapter: +script.dataset.script});
+      const r = await api("/api/script", {id: bookOf(script).id, chapter: +script.dataset.script});
       toast(r.message);
     } catch (err) {
       toast(`Couldn't open the script: ${err.message}`);
@@ -1041,7 +1052,7 @@ grid.addEventListener("click", async e => {
     read.disabled = true;
     toast("Opening…");
     try {
-      const r = await api("/api/open", {slug: b.slug, chapter, resume});
+      const r = await api("/api/open", {id: b.id, chapter, resume});
       toast(r.message);
     } catch (err) {
       toast(`Couldn't open: ${err.message}`);
@@ -1056,7 +1067,7 @@ grid.addEventListener("change", async e => {
   if (!box || !API) return;
   const b = bookOf(box);
   try {
-    const r = await api("/api/tick", {slug: b.slug, chapter: +box.dataset.tick, done: box.checked});
+    const r = await api("/api/tick", {id: b.id, chapter: +box.dataset.tick, done: box.checked});
     b.chapter_list = r.chapter_list;
     redraw({counts: true});
   } catch (err) {
@@ -1472,25 +1483,25 @@ if (API) {
   function reviewFilter() {
     const counts = new Map(), titles = new Map();
     for (const c of reviewCards) for (const x of c.seen) {
-      if (!titles.has(x.slug)) titles.set(x.slug, x.title);
+      if (!titles.has(x.id)) titles.set(x.id, x.title);
     }
-    for (const c of reviewCards) for (const slug of new Set(c.seen.map(x => x.slug)))
-      counts.set(slug, (counts.get(slug) || 0) + 1);
+    for (const c of reviewCards) for (const docId of new Set(c.seen.map(x => x.id)))
+      counts.set(docId, (counts.get(docId) || 0) + 1);
     const keep = reviewBook.value;
     const short = t => t.length > 40 ? t.slice(0, 39) + "…" : t;
     reviewBook.innerHTML = `<option value="">所有书 All books (${reviewCards.length})</option>`
-      + [...counts].map(([slug, n]) => `<option value="${esc(slug)}">${esc(short(titles.get(slug)))} (${n})</option>`).join("");
+      + [...counts].map(([docId, n]) => `<option value="${esc(docId)}">${esc(short(titles.get(docId)))} (${n})</option>`).join("");
     reviewBook.value = counts.has(keep) ? keep : "";
   }
   function startReview() {
-    const slug = reviewBook.value;
-    reviewQueue = reviewCards.filter(c => !slug || c.seen.some(x => x.slug === slug));
+    const docId = reviewBook.value;
+    reviewQueue = reviewCards.filter(c => !docId || c.seen.some(x => x.id === docId));
     reviewDone = 0;
     showCard();
   }
   function seenLine(card) {
     return card.seen.map(x => {
-      const book = books.find(b => b.slug === x.slug);
+      const book = books.find(b => b.id === x.id);
       const where = `${esc(x.title)}${x.page ? `, p. ${x.page}` : ""}`;
       return book && !book.pdf_missing
         ? `<a href="${esc(book.pdf_uri + (x.page ? `#page=${x.page}` : ""))}" target="_blank" rel="noopener" title="Open the book at this page">${where}</a>`

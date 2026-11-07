@@ -1,10 +1,10 @@
 """🔎 Find online: DOI / arXiv / ISBN lookups, free searches, and "in your library"."""
 
 import book_meta
-import catalog
 import find_online
 import library_jobs
 import pytest
+from testlib import entry, id_of, put  # noqa: F401
 
 WORK = {
     "title": "Laser weeding of common weed species",
@@ -22,7 +22,7 @@ WORK = {
 @pytest.fixture
 def owned(tmp_path, monkeypatch):
     path = tmp_path / "catalog.csv"
-    catalog.upsert(
+    put(
         path,
         {
             "slug": "smith-1992-modern-lens-design",
@@ -31,7 +31,7 @@ def owned(tmp_path, monkeypatch):
             "isbn": "9780070591783",
         },
     )
-    catalog.upsert(
+    put(
         path,
         {
             "slug": "andreasen-2024-laser-weeding",
@@ -75,8 +75,10 @@ def test_free_text_searches_works_authors_and_books(owned, monkeypatch):
         "https://example.org/paper.pdf",
         "Frontiers in Plant Science",
     )
-    assert paper["in_library"] == "andreasen-2024-laser-weeding"  # same DOI
-    assert books["results"][0]["in_library"] == "smith-1992-modern-lens-design"  # same ISBN
+    assert paper["in_library"] == id_of(find_online.CATALOG, "andreasen-2024-laser-weeding")  # DOI
+    assert books["results"][0]["in_library"] == id_of(
+        find_online.CATALOG, "smith-1992-modern-lens-design"
+    )  # ISBN
     assert books["results"][0]["isbn"] == "9780070591783"
     # "laser weeding" could be a name: the author search ran, but "Somebody Else" doesn't match
     assert any("/authors?" in u for u in asked)
@@ -152,7 +154,9 @@ def test_doi_arxiv_and_isbn_go_straight_to_the_work(owned, monkeypatch):
         lambda isbns: book_meta.Meta(title="Modern lens design", isbn="9780070591783", year="1992"),
     )
     [section] = find_online.find("978-0-07-059178-3")["sections"]
-    assert section["results"][0]["in_library"] == "smith-1992-modern-lens-design"
+    assert section["results"][0]["in_library"] == id_of(
+        find_online.CATALOG, "smith-1992-modern-lens-design"
+    )
 
 
 def test_people_and_topics():

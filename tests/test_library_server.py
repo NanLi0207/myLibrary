@@ -1,4 +1,6 @@
+import io
 import json
+import socket
 import subprocess
 import sys
 import threading
@@ -6,10 +8,18 @@ import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
-import catalog
 import library_page
 import library_server
 import pytest
+from testlib import entry, id_of, put  # noqa: F401
+
+NAME = "doe-2015-practical-lens-design"
+
+
+def doc(library) -> str:
+    """The one book's id."""
+    return id_of(library / "catalog.csv", NAME)
+
 
 README = """# Practical Lens Design
 
@@ -31,7 +41,7 @@ def library(tmp_path, monkeypatch):
     notes = tmp_path / "notes" / "doe-2015-practical-lens-design"
     notes.mkdir(parents=True)
     (notes / "README.md").write_text(README, encoding="utf-8")
-    catalog.upsert(
+    put(
         tmp_path / "catalog.csv",
         {
             "slug": "doe-2015-practical-lens-design",
@@ -44,22 +54,22 @@ def library(tmp_path, monkeypatch):
 
 
 def test_tick_round_trip(library):
-    chapters = library_server.tick("doe-2015-practical-lens-design", 2, True)
+    chapters = library_server.tick(doc(library), 2, True)
     assert [c["done"] for c in chapters] == [False, True]
-    chapters = library_server.tick("doe-2015-practical-lens-design", 2, False)
+    chapters = library_server.tick(doc(library), 2, False)
     assert [c["done"] for c in chapters] == [False, False]
 
 
 def test_chapter_script_created_only_when_asked(library):
-    slug = "doe-2015-practical-lens-design"
-    chapter = library_page.chapters(slug)[1]
-    assert library_server.script_for(slug, chapter, "A Book") is None  # Read doesn't create one
-    title = 'A "Book" with C:\\paths and """quotes"""'
-    script = library_server.script_for(slug, chapter, title, create=True)
-    assert script == library / "examples" / slug / "ch02_aberrations.py"
+    chapter = library_page.chapters(doc(library))[1]
+    row = entry(library / "catalog.csv", NAME)
+    assert library_server.script_for(row, chapter) is None  # Read doesn't create one
+    row["title"] = 'A "Book" with C:\\paths and """quotes"""'
+    script = library_server.script_for(row, chapter, create=True)
+    assert script == library / "examples" / NAME / "ch02_aberrations.py"
     # Asking again returns the same file instead of overwriting it
     script.write_text(script.read_text(encoding="utf-8") + "# my edits\n", encoding="utf-8")
-    again = library_server.script_for(slug, chapter, title, create=True)
+    again = library_server.script_for(row, chapter, create=True)
     assert again == script and "# my edits" in again.read_text(encoding="utf-8")
     # The template runs as it is, and passes the linter (no unused imports)
     run = subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
@@ -90,7 +100,7 @@ def test_http_requires_token(library):
         page = urllib.request.urlopen(base + "/", timeout=5).read().decode()
         assert library_server.TOKEN in page and "Practical Lens Design" in page
 
-        tick = {"slug": "doe-2015-practical-lens-design", "chapter": 1, "done": True}
+        tick = {"id": doc(library), "chapter": 1, "done": True}
         with pytest.raises(urllib.error.HTTPError) as denied:
             post("/api/tick", tick)
         assert denied.value.code == 403
@@ -99,8 +109,49 @@ def test_http_requires_token(library):
         assert result["chapter_list"][0]["done"] is True
 
         with pytest.raises(urllib.error.HTTPError) as unknown:
-            post("/api/open", {"slug": "../../secret", "chapter": 1}, library_server.TOKEN)
+            post("/api/open", {"id": "../../secret", "chapter": 1}, library_server.TOKEN)
         assert unknown.value.code == 404
+        with pytest.raises(urllib.error.HTTPError) as by_name:  # names identify nothing now
+            post("/api/tick", tick | {"id": NAME}, library_server.TOKEN)
+        assert by_name.value.code == 404
+    finally:
+        server.shutdown()
+
+
+def test_marks_cut_short_are_refused(library, monkeypatch):
+    """The tab closed while the marked PDF was being sent: the book stays as it was."""
+    from pypdf import PdfWriter
+
+    monkeypatch.setattr(library_server.reading_view, "LIBRARY", library)
+    pdf = library / "books" / f"{NAME}.pdf"
+    pdf.parent.mkdir()
+    writer = PdfWriter()
+    writer.add_blank_page(200, 200)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    original = buffer.getvalue()
+    pdf.write_bytes(original)
+    # An incremental save: the original plus a short update (its own %%EOF is near the end)
+    marked = original + b"\n1 0 obj\n<< /Marks true >>\nendobj\n" + b"x" * 400 + b"\n%%EOF\n"
+    sent = marked[: len(original) + 60]  # cut off inside the update
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), library_server.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as s:
+            head = (
+                "POST /api/save-marks HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                f"X-Library-Token: {library_server.TOKEN}\r\nX-Document-Id: {doc(library)}\r\n"
+                f"Content-Type: application/pdf\r\nContent-Length: {len(marked)}\r\n\r\n"
+            )
+            s.sendall(head.encode() + sent)
+            s.shutdown(socket.SHUT_WR)  # the browser went away
+            answer = b""
+            while chunk := s.recv(4096):
+                answer += chunk
+        assert answer.startswith(b"HTTP/1.0 400 ") and b"cut short" in answer
+        assert pdf.read_bytes() == original
+        assert not (library / "archive").exists()
     finally:
         server.shutdown()
 
@@ -111,7 +162,7 @@ def test_missing_pdf_is_flagged_and_read_still_works(library, monkeypatch):
     monkeypatch.setattr(library_server, "open_in_editor", lambda *files: True)
 
     assert library_page.books()[0]["pdf_missing"] is True
-    message = library_server.open_chapter("doe-2015-practical-lens-design", 1, "http://x")
+    message = library_server.open_chapter(doc(library), 1, "http://x")
     assert opened == []  # no browser tab for a PDF that isn't there
     assert "missing" in message and "notes" in message
 
@@ -121,14 +172,14 @@ def chapter_pages(library, monkeypatch):
     """Chapter 1 starts on PDF page 5, chapter 2 on page 30 (as if already found)."""
     cache = library / ".cache" / "chapter_pages.json"
     cache.parent.mkdir()
-    cache.write_text(json.dumps({"doe-2015-practical-lens-design": {"1": 5, "2": 30}}))
+    cache.write_text(json.dumps({doc(library): {"1": 5, "2": 30}}))
     monkeypatch.setattr(library_server, "CACHE", cache)
     return library
 
 
 def test_save_position_writes_and_updates_one_line(chapter_pages):
-    slug = "doe-2015-practical-lens-design"
-    readme = chapter_pages / "notes" / slug / "README.md"
+    slug = doc(chapter_pages)
+    readme = chapter_pages / "notes" / NAME / "README.md"
     assert library_page.last_read(slug) is None
 
     saved = library_server.save_position(slug, 12)
@@ -149,17 +200,17 @@ def test_save_position_writes_and_updates_one_line(chapter_pages):
 
 
 def test_continue_opens_last_page_and_its_chapter(chapter_pages, monkeypatch):
-    slug = "doe-2015-practical-lens-design"
+    slug = doc(chapter_pages)
     (chapter_pages / "books").mkdir()
-    (chapter_pages / "books" / f"{slug}.pdf").write_bytes(b"%PDF-1.4")
-    (chapter_pages / "notes" / slug / "ch02-aberrations.md").write_text("# Ch 2\n")
+    (chapter_pages / "books" / f"{NAME}.pdf").write_bytes(b"%PDF-1.4")
+    (chapter_pages / "notes" / NAME / "ch02-aberrations.md").write_text("# Ch 2\n")
     opened, files = [], []
     monkeypatch.setattr(library_server.webbrowser, "open", opened.append)
     monkeypatch.setattr(library_server, "open_in_editor", lambda *f: files.extend(f) or True)
 
     library_server.save_position(slug, 33)
     message = library_server.open_chapter(slug, None, "http://x", resume=True)
-    assert opened[0].endswith(f"{slug}.pdf#page=33")
+    assert opened[0].endswith(f"{NAME}.pdf&id={slug}#page=33")  # the reader knows the id
     assert [f.name for f in files] == ["ch02-aberrations.md"]  # no script made for this chapter
     assert message.startswith("Continuing at page 33 (Ch 2: Aberrations)")
 
@@ -205,8 +256,8 @@ def test_chapter_title_in_running_text_is_not_a_chapter_start(tmp_path):
 def test_topic_note_lists_pages_and_keeps_your_writing(library, monkeypatch):
     found = {
         "results": [
-            {"slug": "doe-2015-practical-lens-design", "title": "Practical Lens Design", "page": 7},
-            {"slug": "roe-2020-optics", "title": "Optics", "page": 31},
+            {"id": "x", "title": "Practical Lens Design", "page": 7},
+            {"id": "y", "title": "Optics", "page": 31},
         ]
     }
     monkeypatch.setattr(library_server.book_search, "search", lambda term, limit: found)

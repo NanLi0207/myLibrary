@@ -119,11 +119,13 @@ def test_catalog_row_written_and_updated(tmp_path):
 
     book = add_book.Book("Practical Lens Design", "Jane Q. Doe", "2015")
     meta = Meta(isbn="9780306406157", pages="3")
-    add_book.setup_book(pdf, book, meta)
-    add_book.setup_book(pdf, book, Meta(subjects="Optics"))  # rerun updates the row
+    doc_id = add_book.setup_book(pdf, book, meta)
+    again = add_book.setup_book(pdf, book, Meta(subjects="Optics"))  # rerun updates the row
+    assert again == doc_id and catalog.is_id(doc_id)  # one document, one id
 
     rows = catalog.load(tmp_path / "catalog.csv")
-    row = rows["doe-2015-practical-lens-design"]
+    row = rows[doc_id]
+    assert row["slug"] == "doe-2015-practical-lens-design"
     assert (row["isbn"], row["pages"], row["subjects"], row["chapters"]) == (
         "9780306406157",
         "3",
@@ -205,19 +207,20 @@ def test_remove_book_archives_everything(tmp_path):
     add_book.BOOKS.mkdir()
     pdf = add_book.BOOKS / "doe-2015-practical-lens-design.pdf"
     make_pdf(pdf, {"1 Basics": []})
-    add_book.setup_book(pdf, add_book.Book("Practical Lens Design", "Jane Doe", "2015"), Meta())
+    doc_id = add_book.setup_book(pdf, add_book.Book("Practical Lens Design", "Jane Doe", "2015"),
+                                 Meta())  # fmt: skip
     note = tmp_path / "notes" / "doe-2015-practical-lens-design" / "ch01-basics.md"
     note.write_text("my own notes", encoding="utf-8")
     script = tmp_path / "examples" / "doe-2015-practical-lens-design" / "ch01_basics.py"
     script.parent.mkdir(parents=True)
     script.write_text("print('my check')\n", encoding="utf-8")
     add_book.PAGE_CACHE.parent.mkdir(exist_ok=True)
-    add_book.PAGE_CACHE.write_text('{"doe-2015-practical-lens-design": {"1": 3}}', encoding="utf-8")
+    add_book.PAGE_CACHE.write_text(f'{{"{doc_id}": {{"1": 3}}}}', encoding="utf-8")
 
-    add_book.remove_book("doe-2015-practical-lens-design", dry_run=True, yes=True)
+    add_book.remove_book(doc_id, dry_run=True, yes=True)
     assert pdf.exists()  # dry run changes nothing
 
-    add_book.remove_book("doe-2015-practical-lens-design", dry_run=False, yes=True)
+    add_book.remove_book(doc_id, dry_run=False, yes=True)
     archive = tmp_path / "archive"
     assert not pdf.exists() and (archive / "books" / pdf.name).exists()
     archived_note = archive / "notes" / "doe-2015-practical-lens-design" / "ch01-basics.md"
@@ -226,6 +229,9 @@ def test_remove_book_archives_everything(tmp_path):
     assert archived_script.read_text(encoding="utf-8") == "print('my check')\n"
     assert catalog.load(tmp_path / "catalog.csv") == {}
     assert add_book.PAGE_CACHE.read_text(encoding="utf-8").strip() == "{}"
+    # Its id isn't forgotten: a tombstone says it was removed
+    found = catalog.resolve(tmp_path / "catalog.csv", doc_id)
+    assert found["status"] == "removed" and found["tombstone"]["title"] == "Practical Lens Design"
 
 
 def test_pdf_author_must_look_like_a_name():

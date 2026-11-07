@@ -20,6 +20,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.annotations import Highlight
 from pypdf.generic import ArrayObject, FloatObject
 from reportlab.pdfgen import canvas
+from testlib import entry, id_of, put  # noqa: F401
 
 CHINESE_TITLES = "甲乙丙丁戊己庚辛壬癸子丑"  # 12 different titles, none with a Latin letter
 
@@ -74,11 +75,18 @@ def add(library, meta: Meta, data: bytes, name: str = "upload.pdf") -> dict:
     return wait(library_jobs.start_add(library_jobs.save_upload(name, data)))
 
 
+def names(library) -> list[str]:
+    return sorted(r["slug"] for r in catalog.load(library / "catalog.csv").values())
+
+
 def wait(job: dict, seconds: float = 30) -> dict:
     end = time.time() + seconds
     while time.time() < end:
         (current,) = [j for j in library_jobs.list_jobs() if j["id"] == job["id"]]
         if current["status"] != "working":
+            if current.get("doc_id"):
+                rows = catalog.load(library_jobs.add_book.CATALOG)
+                current["slug"] = rows[current["doc_id"]]["slug"]  # its name, to read tests
             return current
         time.sleep(0.02)
     raise AssertionError("job didn't finish")
@@ -101,7 +109,7 @@ def registered(library, slug, data, folder="books", **row) -> Path:
     notes = library / "notes" / slug
     notes.mkdir(parents=True, exist_ok=True)
     (notes / "README.md").write_text("# x\n\n- [x] Chapter 1\n\nLast read: page 7\n", "utf-8")
-    catalog.upsert(library / "catalog.csv", {"slug": slug, "title": slug, "added": "2026-01-01",
+    put(library / "catalog.csv", {"slug": slug, "title": slug, "added": "2026-01-01",
                                              "file": f"{folder}/{slug}.pdf"} | row)  # fmt: skip
     return pdf
 
@@ -121,9 +129,13 @@ def test_two_chinese_titled_documents_of_one_year_are_both_kept(library, monkeyp
     assert first["status"] == second["status"] == "done"
     assert (first["slug"], second["slug"]) == ("unknown-2020-untitled", "unknown-2020-untitled-2")
     assert "unknown-2020-untitled is another document's name" in second["message"]
-    rows = catalog.load(library / "catalog.csv")
-    assert rows["unknown-2020-untitled"]["title"] == "光学设计"
-    assert rows["unknown-2020-untitled-2"]["title"] == "激光技术"
+    path = library / "catalog.csv"
+    assert entry(path, "unknown-2020-untitled")["title"] == "光学设计"
+    assert entry(path, "unknown-2020-untitled-2")["title"] == "激光技术"
+    assert first["doc_id"] != second["doc_id"] and all(
+        map(catalog.is_id, (first["doc_id"], second["doc_id"]))
+    )
+    rows = {r["slug"]: r for r in catalog.load(path).values()}
     assert (library / "books" / "unknown-2020-untitled.pdf").read_bytes() == data_a
     assert (library / "books" / "unknown-2020-untitled-2.pdf").read_bytes() == data_b
     for slug in rows:
@@ -164,9 +176,9 @@ def test_concurrent_imports_with_the_same_candidate_name(library, monkeypatch):
     rows = catalog.load(library / "catalog.csv")
     assert len(rows) == len(metas) == len({j["slug"] for j in jobs})
     by_title = {m.title: k for k, m in metas.items()}
-    for slug, row in rows.items():  # every name holds its own document, whole
+    for row in rows.values():  # every name holds its own document, whole
         assert (library / row["file"]).read_bytes() == data[by_title[row["title"]]]
-        assert (library / "notes" / slug / "README.md").exists()
+        assert (library / row["notes"] / "README.md").exists()
 
 
 # --- repeats need proof ---------------------------------------------------------------------------
@@ -184,7 +196,7 @@ def test_the_exact_same_pdf_uploaded_again_and_again_is_added_once(library, monk
     assert first["status"] == "done"
     assert [j["status"] for j in later + together] == ["duplicate"] * 5
     assert all("identical file" in j["message"] for j in later + together)
-    assert list(catalog.load(library / "catalog.csv")) == [first["slug"]]
+    assert names(library) == [first["slug"]]
     assert (library / "books" / f"{first['slug']}.pdf").read_bytes() == data
     archived = sorted((library / "archive" / "books").iterdir())
     assert len(archived) == 5 and all(p.read_bytes() == data for p in archived)
@@ -215,9 +227,9 @@ def test_a_same_titled_different_file_never_replaces_the_library_pdf(library, mo
     assert old.read_bytes() == before
     readme = library / "notes" / "doe-2015-practical-lens-design" / "README.md"
     assert "Last read: page 7" in readme.read_text("utf-8")
+    doc = id_of(library / "catalog.csv", "doe-2015-practical-lens-design")
     with pytest.raises(ValueError, match="not a proven repeat"):
-        add_book.handle_repeat(old, meta, "doe-2015-practical-lens-design",
-                               reason="same author, year and title")  # fmt: skip
+        add_book.handle_repeat(old, meta, doc, reason="same author, year and title")
 
 
 def test_a_pdf_with_your_marks_and_notes_is_never_replaced(library, monkeypatch):
@@ -235,7 +247,7 @@ def test_a_pdf_with_your_marks_and_notes_is_never_replaced(library, monkeypatch)
     readme = library / "notes" / "doe-2019-freeform" / "README.md"
     assert "Last read: page 7" in readme.read_text("utf-8")
     assert len(list((library / "archive" / "books").iterdir())) == 1  # the new copy, kept
-    row = catalog.load(library / "catalog.csv")["doe-2019-freeform"]
+    row = entry(library / "catalog.csv", "doe-2019-freeform")
     assert row["publisher"] == "Example Press"  # its details still help
 
 
@@ -258,7 +270,9 @@ def test_refresh_never_archives_the_copy_with_your_marks(library):
                       type="book", added="2026-02-01")  # fmt: skip
     (library / "notes" / "doe-2019-freeform-optics" / "README.md").write_text("# x\n", "utf-8")
     [pair] = add_book.catalog_repeats()
-    assert pair["keep"] == "doe-2019-freeform-optics" and pair["drop"] == "doe-2019-freeform"
+    path = library / "catalog.csv"
+    assert pair["keep"] == id_of(path, "doe-2019-freeform-optics")
+    assert pair["drop"] == id_of(path, "doe-2019-freeform")
     assert plain.exists() and mine.exists()  # catalog_repeats itself moves nothing
 
 
@@ -301,7 +315,7 @@ def test_concurrent_archiving_of_one_name(library):
 def test_removing_twice_on_one_day_keeps_every_archived_copy(library):
     for n in range(3):
         registered(library, "doe-2015-x", f"pdf {n}".encode())
-        add_book.remove_book("doe-2015-x", dry_run=False, yes=True)
+        add_book.remove_book(id_of(library / "catalog.csv", "doe-2015-x"), dry_run=False, yes=True)
     assert len(list((library / "archive" / "books").iterdir())) == 3
     assert len(list((library / "archive" / "notes").iterdir())) == 3
 
@@ -323,7 +337,8 @@ def test_an_interrupted_replacement_puts_the_library_pdf_back(library, monkeypat
 
     monkeypatch.setattr(Path, "rename", failing_rename)
     with pytest.raises(PermissionError):
-        add_book.replace_pdf("doe-2019-freeform", new, Meta(isbn="9780070591783"))
+        add_book.replace_pdf(id_of(library / "catalog.csv", "doe-2019-freeform"), new,
+                             Meta(isbn="9780070591783"))  # fmt: skip
     assert old.read_bytes() == before  # back in its place
     assert new.exists()
     assert not list((library / "archive" / "books").glob("*"))
@@ -331,15 +346,19 @@ def test_an_interrupted_replacement_puts_the_library_pdf_back(library, monkeypat
 
 def test_an_interrupted_removal_moves_everything_back(library, monkeypatch):
     pdf = registered(library, "doe-2015-x", text_pdf())
+    doc = id_of(library / "catalog.csv", "doe-2015-x")
 
     def fail(*args):
         raise OSError("disk full")
 
     monkeypatch.setattr(catalog, "remove", fail)
     with pytest.raises(OSError):
-        add_book.remove_book("doe-2015-x", dry_run=False, yes=True)
+        add_book.remove_book(doc, dry_run=False, yes=True)
     assert pdf.exists() and (library / "notes" / "doe-2015-x" / "README.md").exists()
-    assert "doe-2015-x" in catalog.load(library / "catalog.csv")
+    assert doc in catalog.load(library / "catalog.csv")
+    # and its tombstone was taken back: the document is in the library, not retired
+    assert catalog.resolve(library / "catalog.csv", doc)["status"] == "live"
+    assert catalog.check(library / "catalog.csv") == []
 
 
 def test_an_interrupted_ocr_swap_keeps_the_book(library, monkeypatch):
@@ -367,24 +386,27 @@ def test_an_interrupted_ocr_swap_keeps_the_book(library, monkeypatch):
 
 @pytest.mark.parametrize("file", ["", "books", "books/", "../outside.pdf", "notes/x.pdf"])
 def test_an_entry_without_a_proper_pdf_is_never_replaced(library, file):
-    catalog.upsert(library / "catalog.csv", {"slug": "doe-2015-x", "file": file})
+    put(library / "catalog.csv", {"slug": "doe-2015-x", "file": file})
     upload = library / "books" / "upload.pdf"
     upload.parent.mkdir()
     upload.write_bytes(text_pdf())
     meta = Meta(isbn="9780070591783")
     with pytest.raises(ValueError):
-        add_book.replace_pdf("doe-2015-x", upload, meta)
-    assert add_book.richer_than_library(upload, meta, "doe-2015-x") == ""
+        add_book.replace_pdf(id_of(library / "catalog.csv", "doe-2015-x"), upload, meta)
+    assert (
+        add_book.richer_than_library(upload, meta, id_of(library / "catalog.csv", "doe-2015-x"))
+        == ""
+    )
     assert upload.exists() and (library / "catalog.csv").exists()
 
 
 def test_a_folder_is_never_taken_for_the_library_pdf(library):
     (library / "books" / "doe-2015-x.pdf").mkdir(parents=True)  # a folder with a PDF's name
-    catalog.upsert(library / "catalog.csv", {"slug": "doe-2015-x", "file": "books/doe-2015-x.pdf"})
+    put(library / "catalog.csv", {"slug": "doe-2015-x", "file": "books/doe-2015-x.pdf"})
     upload = library / "books" / "upload.pdf"
     upload.write_bytes(text_pdf())
     with pytest.raises(ValueError, match="isn't a file"):
-        add_book.replace_pdf("doe-2015-x", upload, Meta())
+        add_book.replace_pdf(id_of(library / "catalog.csv", "doe-2015-x"), upload, Meta())
     assert (library / "books" / "doe-2015-x.pdf").is_dir() and upload.exists()
 
 
@@ -457,8 +479,7 @@ def test_the_command_line_names_and_repeats_the_same_way(library, monkeypatch):
     data_a = a.read_bytes()
     add_book.process(a, cli_args())
     add_book.process(b, cli_args())
-    assert sorted(catalog.load(library / "catalog.csv")) == [
-        "unknown-2020-untitled", "unknown-2020-untitled-2"]  # fmt: skip
+    assert names(library) == ["unknown-2020-untitled", "unknown-2020-untitled-2"]
 
     # A file already named like an entry (copied in by hand), identical to a book: archived
     copy = library / "books" / "zhang-2020-copy.pdf"

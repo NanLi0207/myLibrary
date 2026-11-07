@@ -11,7 +11,7 @@ word, or drag over a phrase, to see:
     kept in .cache/reader/ecdict.db)
   - 在我的书中 (In my books): the pages of your books that discuss it most (book_search.py),
     and links to Wikipedia / 维基百科 (Chinese Wikipedia) / 百度百科 (Baidu Baike)
-"加入生词本" (Save word) adds the word to notes/<slug>/vocabulary.md.
+"加入生词本" (Save word) adds the word to the document's notes/<name>/vocabulary.md.
 """
 
 import argparse
@@ -404,12 +404,12 @@ def _short(translation: str, limit: int = 60) -> str:
     return first if len(first) <= limit else first[: limit - 1] + "…"
 
 
-def book_subject_words(slug: str | None) -> set[str]:
+def book_subject_words(doc_id: str | None) -> set[str]:
     """What the book being read is about, as words (stemmed: "optical" and "optics" are both
     "optic"): its shelves, its subject topic and its field, from catalog.csv."""
     import shelves  # its word matching, so a glossary matches the way shelves do
 
-    row = catalog.load(LIBRARY / "catalog.csv").get(slug) if slug else None
+    row = catalog.load(LIBRARY / "catalog.csv").get(doc_id) if doc_id else None
     if not row:
         return set()
     return set(
@@ -417,7 +417,7 @@ def book_subject_words(slug: str | None) -> set[str]:
     )
 
 
-def lookup(text: str, context: str = "", slug: str | None = None) -> dict:
+def lookup(text: str, context: str = "", doc_id: str | None = None) -> dict:
     """Everything the popup shows for a double-clicked word or a selected phrase.
 
     A phrase that neither a glossary nor the dictionary knows also gets "words": each word's
@@ -429,7 +429,7 @@ def lookup(text: str, context: str = "", slug: str | None = None) -> dict:
     # optics meaning before the biology one); longer, more specific terms still lead. A
     # glossary matches by its name or label ("optics", "光学 Optics") against the book's shelves,
     # subject and field ("Advanced optical system design", "Engineering")
-    about = book_subject_words(slug)
+    about = book_subject_words(doc_id)
 
     def rank(entry: dict) -> int:
         import shelves
@@ -541,10 +541,14 @@ Words looked up while reading (added with 加入生词本 / Save word in the rea
 """
 
 
-def save_word(slug: str, title: str, text: str, context: str, page: int | None) -> dict:
-    """Add a word to notes/<slug>/vocabulary.md (once per word), with its glossary meaning if
-    a glossary has one, else the first lines of the dictionary entry."""
-    info = lookup(text, context)
+def save_word(doc_id: str, title: str, text: str, context: str, page: int | None) -> dict:
+    """Add a word to the document's notes/<name>/vocabulary.md (once per word), with its
+    glossary meaning if a glossary has one (ranked by the document's subject, as in the popup),
+    else the first lines of the dictionary entry."""
+    row = catalog.load(LIBRARY / "catalog.csv").get(doc_id)
+    if row is None:
+        raise ValueError("no such document")
+    info = lookup(text, context, doc_id)
     entry = info["entries"][0] if info["entries"] else {}
     own = next((g for g in info["glossary"] if tokens(g["term"]) == tokens(text)), None)
     if own and len(tokens(text)) > 1:
@@ -558,7 +562,7 @@ def save_word(slug: str, title: str, text: str, context: str, page: int | None) 
         meaning = "； ".join(line.strip() for line in lines[:2])[:80]
     if not word:
         raise ValueError("nothing to save")
-    path = LIBRARY / "notes" / slug / "vocabulary.md"
+    path = LIBRARY / row["notes"] / "vocabulary.md"
     path.parent.mkdir(parents=True, exist_ok=True)
 
     def cell(value) -> str:

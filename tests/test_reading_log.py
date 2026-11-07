@@ -2,8 +2,8 @@
 
 from datetime import date, timedelta
 
-import catalog
 import reading_log
+from testlib import entry, id_of, put  # noqa: F401
 
 DAY = date(2026, 11, 6)  # a Friday
 
@@ -32,10 +32,10 @@ def test_streak_counts_reading_days_up_to_today_or_yesterday(tmp_path):
 
 def test_summary_for_the_page(tmp_path):
     path = tmp_path / "catalog.csv"
-    catalog.upsert(path, {"slug": "a-book", "title": "Modern Lens Design"})
-    reading_log.record(tmp_path, "a-book", 120, [5, 6], DAY)
-    reading_log.record(tmp_path, "a-book", 120, [7], DAY - timedelta(days=4))  # Monday
-    reading_log.record(tmp_path, "a-book", 120, [8], DAY - timedelta(days=40))  # long ago
+    doc = put(path, {"slug": "a-book", "title": "Modern Lens Design"})
+    reading_log.record(tmp_path, doc, 120, [5, 6], DAY)
+    reading_log.record(tmp_path, doc, 120, [7], DAY - timedelta(days=4))  # Monday
+    reading_log.record(tmp_path, doc, 120, [8], DAY - timedelta(days=40))  # long ago
     s = reading_log.summary(tmp_path, path, DAY)
     assert (s["today_seconds"], s["week_seconds"], s["week_pages"]) == (120, 240, 3)
     assert s["total_seconds"] == 360
@@ -43,5 +43,5 @@ def test_summary_for_the_page(tmp_path):
         s["days"][0]["date"] == (DAY - timedelta(days=4, weeks=reading_log.WEEKS - 1)).isoformat()
     )
     assert s["days"][-1]["date"] == DAY.isoformat()
-    assert s["books"] == [{"slug": "a-book", "title": "Modern Lens Design", "seconds": 240,
-                           "pages": 3, "days": 2}]  # fmt: skip
+    assert s["books"] == [{"id": doc, "title": "Modern Lens Design", "removed": False,
+                           "seconds": 240, "pages": 3, "days": 2}]  # fmt: skip

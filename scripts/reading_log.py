@@ -2,11 +2,17 @@
 
 The reading view (lookup.js trackReading) counts the time you actively read (the tab is
 visible and you moved, scrolled or turned a page in the last two minutes) and sends it every
-minute; this module adds it up per day and book in the library's notes/reading-log.json:
+minute; this module adds it up per day and document (by its id, see catalog.py) in the
+library's notes/reading-log.json:
 
-    {"2026-11-06": {"shannon-1997-art-science-optical-design": {"s": 1260, "p": [41, 42]}}}
+    {"2026-11-06": {"9f3c2a4e-1b7d-4c1e-9a55-2f0e6d1c3b8a": {"s": 1260, "p": [41, 42]}}}
 
 (s = seconds read, p = the pages you looked at.) It's backed up with your notes.
+
+A record is never rewritten once the day is over. When a document is merged into another
+(Refresh found it twice), its records stay under its own id and count for the one kept (its
+tombstone says which), so two copies read on the same day keep both records. A removed
+document's history stays too, shown under its old title.
 """
 
 from datetime import date, timedelta
@@ -31,15 +37,15 @@ def load(library: Path) -> dict:
 
 
 def record(
-    library: Path, slug: str, seconds: int, pages: list[int], today: date | None = None
+    library: Path, doc_id: str, seconds: int, pages: list[int], today: date | None = None
 ) -> dict:
-    """Add a report from the reading view to today's line for this book."""
+    """Add a report from the reading view to today's line for this document."""
     day = (today or date.today()).isoformat()
     seconds = max(0, min(int(seconds), MAX_STEP))
     pages = sorted({int(p) for p in pages if isinstance(p, int) and 0 < p < 100_000})
 
     def add(log: dict) -> dict:
-        entry = log.setdefault(day, {}).setdefault(slug, {"s": 0, "p": []})
+        entry = log.setdefault(day, {}).setdefault(doc_id, {"s": 0, "p": []})
         entry["s"] = int(entry.get("s", 0)) + seconds
         entry["p"] = sorted(set(entry.get("p", [])) | set(pages))
         return {"day": day, "seconds": entry["s"], "pages": len(entry["p"])}
@@ -48,6 +54,31 @@ def record(
     # the previous version in case the file is ever damaged
     return safe_io.update_json(log_path(library), add, {}, backup=True,
                                ensure_ascii=False, indent=1, sort_keys=True)  # fmt: skip
+
+
+def attribute(catalog_path: Path, doc_ids: set[str]) -> dict[str, dict]:
+    """Whom each recorded id's reading counts for now: {id: {"id", "title", "removed"}}. A
+    document in the library: itself. A merged one: the document that kept its work (following
+    its tombstone). A removed one: itself, under the title it had."""
+    rows = catalog.load(catalog_path)
+    stones = catalog.retired(catalog_path) if catalog.retired_path(catalog_path).exists() else {}
+    found = {}
+    for doc_id in doc_ids:
+        current, seen = doc_id, set()
+        while current not in rows and stones.get(current, {}).get("event") == "merged":
+            seen.add(current)
+            current = stones[current]["into"]
+            if current in seen:
+                break
+        if current in rows:
+            found[doc_id] = {"id": current, "title": rows[current].get("title") or current,
+                             "removed": False}  # fmt: skip
+        else:
+            stone = stones.get(current, {})
+            found[doc_id] = {"id": current, "removed": True,
+                             "title": stone.get("title") or "(a document no longer in the "
+                             "library)"}  # fmt: skip
+    return found
 
 
 def _day_totals(log: dict) -> dict[str, tuple[int, int]]:
@@ -90,17 +121,21 @@ def summary(library: Path, catalog_path: Path, today: date | None = None) -> dic
         days.append({"date": d.isoformat(), "seconds": seconds, "pages": pages})
     # Books read in the last 30 days, most time first
     since = (today - timedelta(days=29)).isoformat()
-    titles = {s: r.get("title") or s for s, r in catalog.load(catalog_path).items()}
+    owners = attribute(catalog_path, {doc_id for entries in log.values() for doc_id in entries})
     books: dict[str, dict] = {}
     for day, entries in log.items():
         if day < since:
             continue
-        for slug, entry in entries.items():
-            b = books.setdefault(slug, {"slug": slug, "title": titles.get(slug, slug),
-                                        "seconds": 0, "pages": set(), "days": 0})  # fmt: skip
+        counted = set()
+        for doc_id, entry in entries.items():
+            owner = owners[doc_id]
+            b = books.setdefault(owner["id"], owner | {"seconds": 0, "pages": set(), "days": 0})
             b["seconds"] += entry.get("s", 0)
-            b["pages"] |= set(entry.get("p", []))
-            b["days"] += 1
+            # Pages per record: a merged copy's page numbers needn't be the kept one's
+            b["pages"] |= {(doc_id, p) for p in entry.get("p", [])}
+            if owner["id"] not in counted:  # two records on one day are one reading day
+                b["days"] += 1
+                counted.add(owner["id"])
     book_list = sorted(
         ({**b, "pages": len(b["pages"])} for b in books.values()), key=lambda b: -b["seconds"]
     )

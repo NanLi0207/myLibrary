@@ -1,11 +1,11 @@
 import add_book
 import book_meta
-import catalog
 import citation
 import library_page
 import library_server
 import pytest
 from reportlab.pdfgen import canvas
+from testlib import entry, id_of, put  # noqa: F401
 
 # What Crossref answers for an (invented) journal article
 CROSSREF = {
@@ -98,7 +98,7 @@ def test_paper_notes_progress_and_continue(library, monkeypatch):
     )
     pdf = library / "books" / "doe-2019-freeform-optics-compact-imaging.pdf"
     paper_pdf(pdf)
-    add_book.setup_book(pdf, add_book.Book(meta.title, meta.author, meta.year), meta)
+    doc = add_book.setup_book(pdf, add_book.Book(meta.title, meta.author, meta.year), meta)
 
     slug = pdf.stem
     notes = library / "notes" / slug
@@ -107,23 +107,23 @@ def test_paper_notes_progress_and_continue(library, monkeypatch):
     assert "- [ ] [Read the paper](notes.md)" in readme
     assert "## Summary (in my own words)" in (notes / "notes.md").read_text(encoding="utf-8")
     assert not list(notes.glob("ch*.md"))  # no chapter templates for a paper
-    row = catalog.load(library / "catalog.csv")[slug]
+    row = entry(library / "catalog.csv", slug)
     assert (row["type"], row["doi"], row["openlibrary"]) == ("paper", "10.1364/oe.27.001234", "")
 
     # One item, "Read the paper", that ticks like a chapter
-    [item] = library_page.chapters(slug)
+    [item] = library_page.chapters(doc)
     assert (item["number"], item["note"], item["done"]) == (1, "notes.md", False)
-    assert library_server.tick(slug, 1, True)[0]["done"] is True
+    assert library_server.tick(doc, 1, True)[0]["done"] is True
 
     # Read / Continue: page 1 (or the page you were on) and notes.md
     opened, files = [], []
     monkeypatch.setattr(library_server.webbrowser, "open", opened.append)
     monkeypatch.setattr(library_server, "open_in_editor", lambda *f: files.extend(f) or True)
-    library_server.open_chapter(slug, None, "http://x")
+    library_server.open_chapter(doc, None, "http://x")
     assert opened[-1].endswith("#page=1") and files[0].name == "notes.md"
-    library_server.save_position(slug, 3)
+    library_server.save_position(doc, 3)
     assert "Last read: page 3, " in (notes / "README.md").read_text(encoding="utf-8")
-    library_server.open_chapter(slug, None, "http://x", resume=True)
+    library_server.open_chapter(doc, None, "http://x", resume=True)
     assert opened[-1].endswith("#page=3") and files[-1].name == "notes.md"
 
 
@@ -174,7 +174,7 @@ def test_a_recognised_paper_moves_to_papers(library, monkeypatch):
 
     target = library / "papers" / "doe-2019-freeform-optics-compact-imaging.pdf"
     assert target.exists() and not download.exists()
-    row = catalog.load(library / "catalog.csv")[target.stem]
+    row = entry(library / "catalog.csv", target.stem)
     assert row["file"] == "papers/doe-2019-freeform-optics-compact-imaging.pdf"
     readme = (library / "notes" / target.stem / "README.md").read_text(encoding="utf-8")
     assert "| File | `papers/doe-2019-freeform-optics-compact-imaging.pdf` |" in readme
@@ -250,7 +250,7 @@ def test_server_serves_papers(library):
 
     pdf = library / "papers" / "doe-2019-x.pdf"
     paper_pdf(pdf)
-    catalog.upsert(library / "catalog.csv", {"slug": "doe-2019-x", "file": "papers/doe-2019-x.pdf"})
+    put(library / "catalog.csv", {"slug": "doe-2019-x", "file": "papers/doe-2019-x.pdf"})
     server = ThreadingHTTPServer(("127.0.0.1", 0), library_server.Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:

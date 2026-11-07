@@ -20,9 +20,32 @@ fix, and update the architecture and gap analysis when they change. If a plan ch
 the file rather than leaving it stale. Don't claim a feature works unless it was verified; say
 when browser, Windows-specific or package testing wasn't done.
 
-**Stable IDs (from v0.3).** Once the catalog has an `id` column (ROADMAP task 3.1), new
-sidecar data (anchors, annotations, topic links) refers to documents by `id`, not slug or
-title. Slugs stay the file and folder names.
+**Document identity: the UUID, and only the UUID (v0.3 task 3).**
+- Every document has a permanent UUID4 in `catalog.csv`'s `id` column. `catalog.load()`
+  returns `{id: row}`.
+- The id is the only identity:
+  - every per-document API takes `id`;
+  - the reading log is keyed by id;
+  - the search index, chapter-page cache and jobs (`doc_id`) use it;
+  - the reader gets `&id=`;
+  - `/read/<id>` is the lasting link;
+  - all new references (anchors, annotations, topic links) use it.
+- The `slug` is only the human-readable name: the base of the file and folder names
+  (`books/<slug>.pdf`, `notes/<slug>/`, `examples/<slug>/`). Find a document's paths through
+  its row (`file`, `notes`; `add_book.notes_dir_of`, `examples_dir_of`), never by building them
+  from a slug you were given. `catalog.by_slug` is only for a name a person typed, or a file's
+  own name.
+- A document leaving the library leaves a tombstone in `retired-documents.json`
+  (`catalog.retire` before `catalog.remove`):
+  - merged into another: `resolve()` follows it, and its reading history counts for the kept
+    document, with the records never rewritten;
+  - removed: it keeps its title.
+- Renaming (`add_book.rename_document`) is journaled in `.myLibrary/operations/`.
+  `recover_operations()` at start rolls back an interrupted one.
+- An old-format catalog (no `id`) is refused, never upgraded silently: the one-time
+  `scripts/migrate_ids.py` (dry run, `--apply`, `--resume`, `--rollback`, `--check`; journal and
+  backups in `.myLibrary/migrations/`) converts it. Never add a slug-keyed reference or a
+  compatibility layer back.
 
 **Protect the user's data.** Notes, vocabulary, topic notes, reading log, review progress,
 marks in PDFs, `catalog.csv` and `library.toml` are the user's work. Never delete them; move to
@@ -89,7 +112,8 @@ the server (`restart_later`).
 `library_jobs.py`: identify, name, register in the background; never asks: `book_meta.fill_gaps`
 fills a missing title/year/author from the PDF itself; a name this tool gave before is not
 trusted (`OUR_NAME_RE`); repeats (`add_book.repeat_of`: same DOI, same ISBN for non-papers, identical file by
-SHA-256 with size prefilter, or same slug) always go to `archive/` from every path, CLI included;
+SHA-256 with size prefilter; a name or title alone never is, see Task 2 in ROADMAP) always go
+to `archive/` from every path, CLI included;
 the richer copy wins (`info_score`: text layer, filled INFO_FIELDS, bookmarks, pages): on
 adding, a better *file* replaces the PDF in place (`replace_pdf`), details always merge
 (`fill_details`); Refresh runs `catalog_repeats` (keeps the richer entry, ties: the older),
@@ -143,7 +167,8 @@ uv run scripts/add_book.py
 
 Each book gets one slug, `<first-author-surname>-<year>-<short-title>`, lowercase ASCII,
 hyphen-separated, stop words (a, the, of, and, ...) dropped, subtitle dropped, at most 5 title words.
-Example: `shannon-1997-art-science-optical-design`. The slug is used (inside the library) for:
+Example: `shannon-1997-art-science-optical-design`. The slug is the document's name, never its
+identity (that's its `id`, see above). Inside the library it's the base of:
 
 - `books/<slug>.pdf` (the book itself; never commit or push a book: `.gitignore` excludes every
   PDF, don't undo that)
@@ -179,7 +204,7 @@ Example: `shannon-1997-art-science-optical-design`. The slug is used (inside the
   `library.html` is the static read-only copy (built by `scripts/library_page.py`, rebuilt by
   add_book.py). Chapter start pages are cached in the library's `.cache/chapter_pages.json`
   (`--refresh-chapters` clears a book's entry automatically).
-- To take a book out, use `uv run scripts/add_book.py --remove <slug>`: it moves the PDF, notes
+- To take a book out, use `uv run scripts/add_book.py --remove <name or id>`: it moves the PDF, notes
   and scripts to the library's `archive/` and drops the catalog row. Never delete notes or
   scripts outright; they hold the user's own work. Rebuild the page after changing catalog or
   notes. If the user corrects a book's details, update its catalog row and notes README too.

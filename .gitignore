@@ -25,6 +25,8 @@ local.toml
 #   archive/  removed books, original scans, pre-bookmark copies
 .cache/
 archive/
+#   .myLibrary/  the tool's own records: migration backups and journals, operations in progress
+.myLibrary/
 
 # The previous version of the reading log and review progress, kept on this computer in case
 # the file is ever damaged (scripts/safe_io.py)

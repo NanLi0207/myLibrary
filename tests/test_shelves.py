@@ -6,6 +6,7 @@ import pytest
 import shelves
 from book_meta import Meta
 from reportlab.pdfgen import canvas
+from testlib import entry, id_of, put  # noqa: F401
 
 BOOKS = [
     # slug, title, keywords, shelves
@@ -34,7 +35,7 @@ def library(tmp_path, monkeypatch):
     )
     (glossaries / "glossaries.toml").write_text('[optics]\nlabel = "光学 Optics"\n', "utf-8")
     for slug, title, keywords, on in BOOKS:
-        catalog.upsert(
+        put(
             tmp_path / "catalog.csv",
             {"slug": slug, "title": title, "keywords": keywords, "shelves": on},
         )
@@ -90,9 +91,10 @@ def test_new_items_are_shelved_once_and_never_overruled(library):
     c.save()
     meta = Meta(title="Lens Design Fundamentals", author="Smith", year="1992")
     add_book.setup_book(pdf, add_book.Book(meta.title, meta.author, meta.year), meta)
-    row = catalog.load(library / "catalog.csv")[pdf.stem]
+    row = entry(library / "catalog.csv", pdf.stem)
     assert row["shelves"] == "Optics; Lens design"
     # Your own choice afterwards is kept: setting it up again doesn't touch it
-    catalog.set_field(library / "catalog.csv", pdf.stem, "shelves", "Lasers")
+    catalog.set_field(library / "catalog.csv", id_of(library / "catalog.csv", pdf.stem), "shelves",
+                      "Lasers")  # fmt: skip
     add_book.setup_book(pdf, add_book.Book(meta.title, meta.author, meta.year), meta)
-    assert catalog.load(library / "catalog.csv")[pdf.stem]["shelves"] == "Lasers"
+    assert entry(library / "catalog.csv", pdf.stem)["shelves"] == "Lasers"

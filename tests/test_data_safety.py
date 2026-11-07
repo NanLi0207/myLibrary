@@ -20,6 +20,7 @@ import safe_io
 import vocab_review
 from book_meta import Meta
 from reportlab.pdfgen import canvas
+from testlib import entry, id_of, put  # noqa: F401
 
 
 def numbered_pdf(n: int) -> bytes:
@@ -83,7 +84,7 @@ def test_an_interrupted_write_leaves_the_old_file_whole(tmp_path, monkeypatch):
 def test_an_interrupted_catalog_write_keeps_every_row(tmp_path, monkeypatch):
     path = tmp_path / "catalog.csv"
     for n in range(5):
-        catalog.upsert(path, row(f"doe-2015-book-{n}"))
+        put(path, row(f"doe-2015-book-{n}"))
     before = path.read_bytes()
 
     def crash(*args):
@@ -91,7 +92,7 @@ def test_an_interrupted_catalog_write_keeps_every_row(tmp_path, monkeypatch):
 
     monkeypatch.setattr(safe_io.os, "replace", crash)
     with pytest.raises(OSError):
-        catalog.upsert(path, row("doe-2015-book-new"))
+        put(path, row("doe-2015-book-new"))
     assert path.read_bytes() == before
     assert len(catalog.load(path)) == 5
 
@@ -113,7 +114,7 @@ def test_concurrent_catalog_updates_keep_every_row(tmp_path):
 
     def add(n: int) -> None:
         try:
-            catalog.upsert(path, row(f"doe-2015-book-{n}"))
+            put(path, row(f"doe-2015-book-{n}"))
             catalog.load(path)  # readers at the same time never see half a file
         except Exception as e:  # pragma: no cover - the failure being tested for
             errors.append(e)
@@ -143,10 +144,11 @@ def test_forty_concurrent_imports_keep_forty_catalog_entries(library, monkeypatc
 
     assert [j["message"] for j in done if j["status"] != "done"] == []
     rows = catalog.load(library / "catalog.csv")
-    assert len(rows) == 40
-    assert sorted(rows) == sorted(f"doe-2015-lens-study-{n}" for n in range(40))
+    assert len(rows) == 40 and all(catalog.is_id(doc_id) for doc_id in rows)
+    names = sorted(r["slug"] for r in rows.values())
+    assert names == sorted(f"doe-2015-lens-study-{n}" for n in range(40))
     assert len(list((library / "books").glob("*.pdf"))) == 40
-    assert all((library / "notes" / slug / "README.md").exists() for slug in rows)
+    assert all((library / r["notes"] / "README.md").exists() for r in rows.values())
 
 
 def test_the_same_file_uploaded_twice_at_once_is_added_once(library, monkeypatch):
@@ -157,7 +159,8 @@ def test_the_same_file_uploaded_twice_at_once_is_added_once(library, monkeypatch
     assert len(set(uploads)) == 4  # four uploads, four files: none overwrote another
     done = wait_all([library_jobs.start_add(p) for p in uploads])
     assert sorted(j["status"] for j in done) == ["done", "duplicate", "duplicate", "duplicate"]
-    assert list(catalog.load(library / "catalog.csv")) == ["doe-2015-practical-lens-design"]
+    [only] = catalog.load(library / "catalog.csv").values()
+    assert only["slug"] == "doe-2015-practical-lens-design"
 
 
 def test_concurrent_reading_reports_are_all_counted(tmp_path):
@@ -194,16 +197,17 @@ def test_an_entry_without_a_file_never_moves_the_library(library, monkeypatch):
     """A catalog row with an empty `file` (as a repeat arriving mid-filing used to leave) once
     made the next repeat take the library folder for the book's PDF and move it to archive/."""
     meta = Meta(title="Practical Lens Design", author="Jane Doe", year="2015")
-    catalog.upsert(library / "catalog.csv", {"slug": "doe-2015-practical-lens-design"})
+    doc = put(library / "catalog.csv", {"slug": "doe-2015-practical-lens-design"})
     upload = library_jobs.save_upload("copy.pdf", numbered_pdf(1))
-    assert add_book.richer_than_library(upload, meta, "doe-2015-practical-lens-design") == ""
+    assert add_book.richer_than_library(upload, meta, doc) == ""
     with pytest.raises(ValueError, match="no PDF file"):
-        add_book.replace_pdf("doe-2015-practical-lens-design", upload, meta)
+        add_book.replace_pdf(doc, upload, meta)
     with pytest.raises(ValueError, match="isn't an item in the library's folders"):
         add_book.move_to_archive(library)
     assert (library / "catalog.csv").exists() and upload.exists()
-    assert add_book.fill_details("doe-2015-unknown", meta) == []  # creates no entry
-    assert "doe-2015-unknown" not in catalog.load(library / "catalog.csv")
+    unknown = catalog.new_id()
+    assert add_book.fill_details(unknown, meta) == []  # creates no entry
+    assert unknown not in catalog.load(library / "catalog.csv")
 
 
 # --- damaged files -------------------------------------------------------------------------------
@@ -266,19 +270,19 @@ def test_a_damaged_cache_is_simply_rebuilt(tmp_path):
 
 def test_columns_added_by_hand_survive_every_change(tmp_path):
     path = tmp_path / "catalog.csv"
-    catalog.upsert(path, row("doe-2015-book-a"))
-    catalog.upsert(path, row("doe-2015-book-b"))
+    put(path, row("doe-2015-book-a"))
+    put(path, row("doe-2015-book-b"))
     text = path.read_text(encoding="utf-8-sig").splitlines()
     text = [text[0] + ",my rating"] + [line + ",5" for line in text[1:]]
     path.write_text("\n".join(text) + "\n", encoding="utf-8-sig")
 
-    catalog.upsert(path, row("doe-2015-book-a", year="2016"))
-    catalog.set_field(path, "doe-2015-book-b", "shelves", "Optics")
-    catalog.upsert(path, row("doe-2015-book-c"))
-    catalog.remove(path, "doe-2015-book-c")
-    rows = catalog.load(path)
-    assert rows["doe-2015-book-a"]["my rating"] == "5" and rows["doe-2015-book-a"]["year"] == "2016"
-    assert rows["doe-2015-book-b"]["my rating"] == "5"
+    put(path, row("doe-2015-book-a", year="2016"))
+    catalog.set_field(path, id_of(path, "doe-2015-book-b"), "shelves", "Optics")
+    put(path, row("doe-2015-book-c"))
+    catalog.remove(path, id_of(path, "doe-2015-book-c"))
+    a, b = entry(path, "doe-2015-book-a"), entry(path, "doe-2015-book-b")
+    assert a["my rating"] == "5" and a["year"] == "2016"
+    assert b["my rating"] == "5"
 
 
 def test_settings_with_any_characters_stay_readable(tmp_path, monkeypatch):
@@ -314,7 +318,7 @@ def test_quitting_waits_for_a_book_being_filed(library, monkeypatch):
     assert result["unfinished"] == []
     (current,) = [j for j in library_jobs.list_jobs() if j["id"] == job["id"]]
     assert current["status"] == "done"
-    assert "doe-2015-practical-lens-design" in catalog.load(library / "catalog.csv")
+    assert entry(library / "catalog.csv", "doe-2015-practical-lens-design")
     assert (library / "notes" / "doe-2015-practical-lens-design" / "README.md").exists()
     with pytest.raises(ValueError, match="stopping"):  # nothing new starts once quitting
         library_jobs.start_add(library_jobs.save_upload("b.pdf", numbered_pdf(2)))
@@ -326,7 +330,7 @@ def test_quitting_stops_ocr_between_pages_and_leaves_the_pdf_alone(library, monk
     pdf = library / "books" / "doe-2015-scan.pdf"
     pdf.parent.mkdir(parents=True)
     pdf.write_bytes(numbered_pdf(1))
-    catalog.upsert(library / "catalog.csv", row("doe-2015-scan"))
+    doc = put(library / "catalog.csv", row("doe-2015-scan"))
     before = pdf.read_bytes()
 
     def slow_ocr(path, progress=None):
@@ -336,7 +340,7 @@ def test_quitting_stops_ocr_between_pages_and_leaves_the_pdf_alone(library, monk
         raise AssertionError("OCR should have been stopped")
 
     monkeypatch.setattr(library_jobs.ocr_pdf, "make_searchable", slow_ocr)
-    job = library_jobs.start_ocr("doe-2015-scan")
+    job = library_jobs.start_ocr(doc)
     time.sleep(0.1)
     result = library_jobs.shutdown(timeout=10)
     assert result["unfinished"] == []

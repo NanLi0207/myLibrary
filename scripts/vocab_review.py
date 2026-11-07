@@ -1,4 +1,4 @@
-"""📇 Review words: the words saved while reading (notes/<slug>/vocabulary.md), as cards
+"""📇 Review words: the words saved while reading (notes/<name>/vocabulary.md), as cards
 reviewed with spaced repetition.
 
 Each word is one card, even when it was saved in several books. A card you knew comes back
@@ -47,15 +47,17 @@ def read_vocabulary(text: str) -> list[dict]:
 
 
 def cards(library: Path, catalog_path: Path, today: date | None = None) -> list[dict]:
-    """Every saved word: {word, phonetic, zh, seen: [{slug, title, file, page}], box, due,
+    """Every saved word: {word, phonetic, zh, seen: [{id, title, file, page}], box, due,
     right, wrong}, sorted by when it's due (new words by when they were saved)."""
     today = today or date.today()
     rows = catalog.load(catalog_path)
     state = _load_state(library)
     found: dict[str, dict] = {}
+    # Each document's words are in its notes folder (the catalog's `notes`); a vocabulary in a
+    # notes folder no document has any more is still reviewed, under the folder's name
+    by_folder = {(library / r["notes"]).resolve(): r for r in rows.values() if r.get("notes")}
     for vocab in sorted((library / "notes").glob("*/vocabulary.md")):
-        slug = vocab.parent.name
-        book = rows.get(slug, {})
+        book = by_folder.get(vocab.parent.resolve(), {})
         for row in read_vocabulary(safe_io.read_text(vocab)):
             key = row["word"].lower()
             card = found.setdefault(
@@ -72,8 +74,8 @@ def cards(library: Path, catalog_path: Path, today: date | None = None) -> list[
             card["zh"] = card["zh"] or row["zh"]
             card["added"] = min(card["added"] or row["added"], row["added"] or card["added"])
             card["seen"].append({
-                "slug": slug,
-                "title": book.get("title") or slug,
+                "id": book.get("id", ""),
+                "title": book.get("title") or vocab.parent.name,
                 "file": book.get("file", ""),
                 "page": int(row["page"]) if row["page"].isdigit() else None,
             })  # fmt: skip

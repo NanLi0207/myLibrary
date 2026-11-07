@@ -239,6 +239,46 @@
 .ml-saved[hidden] {
   display: none;
 }
+/* Notices (search, how to correct marks) sit above the marks' save status */
+.ml-saved.ml-find {
+  bottom: 64px;
+}
+/* "预览 (Preview)": a search result opened to look something up, not counted as reading */
+.ml-preview {
+  position: fixed;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px 4px 12px;
+  background: var(--ml-bg);
+  color: var(--ml-fg);
+  border: 1px solid var(--ml-border);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  font: 13px/1.4 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  opacity: 0.92;
+}
+/* Search results (在我的书中 / In my books → a page): PDF.js's own find highlights, in yellow;
+   the current match stronger. Only on screen: nothing is written into the PDF. */
+@media not (forced-colors: active) {
+  html .textLayer .highlight {
+    --highlight-bg-color: rgb(255 214 0 / 0.55);
+    --highlight-selected-bg-color: rgb(255 140 0 / 0.75);
+  }
+}
+/* ↶ Undo / ↷ Redo on PDF.js's toolbar, drawn like its own buttons (an icon as a mask) */
+#mlUndo::before,
+#mlRedo::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M5.5 3.5 2.5 6.5l3 3M2.8 6.5H10a3.5 3.5 0 0 1 0 7H7'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M5.5 3.5 2.5 6.5l3 3M2.8 6.5H10a3.5 3.5 0 0 1 0 7H7'/%3E%3C/svg%3E");
+}
+#mlRedo::before {
+  transform: scaleX(-1);
+}
 .ml-saved.ml-problem {
   border-color: #c2410c;
   color: #c2410c;

@@ -598,11 +598,13 @@ bookmarks are never changed; originals are kept in `archive/books/`.
 ### Removing a book
 
 ```powershell
-uv run scripts/add_book.py --remove <slug> --dry-run   # preview
-uv run scripts/add_book.py --remove <slug>             # asks before moving anything
+uv run scripts/add_book.py --remove <name> --dry-run   # preview (the name, or its id)
+uv run scripts/add_book.py --remove <name>             # asks before moving anything
 ```
 
-The PDF, notes and scripts move to `archive/`; nothing is deleted. To bring a book back,
+The PDF, notes and scripts move to `archive/`; nothing is deleted. Its id isn't forgotten: a
+note in `retired-documents.json` says it was removed, so your reading history still shows it
+under its title. To bring a book back,
 move its files back and run `add_book.py`. If you only delete the PDF, the card stays and says
 "PDF missing"; its notes and scripts still open.
 
@@ -620,7 +622,8 @@ myLibrary/                   the tool (this repository)
 
 <your library>/              e.g. Documents/myLibrary Library
 ├── library.toml             its name, and your shelves with their labels
-├── catalog.csv              one row per book: title, authors, year, ISBN, pages, shelves, ...
+├── catalog.csv              one row per book: its id, name, title, authors, year, ISBN, ...
+├── retired-documents.json   ids of documents merged or removed, and what became of them
 ├── books/<slug>.pdf         your books (never in git: they're copyrighted)
 ├── papers/<slug>.pdf        your papers (never in git either)
 ├── theses/<slug>.pdf        your theses (never in git either)
@@ -633,8 +636,30 @@ myLibrary/                   the tool (this repository)
 ├── code/                    your reusable Python code, by subject, and its tests
 ├── library.html             static copy of the library page (local only)
 ├── archive/                 removed books, original scans (local only)
+├── .myLibrary/              the tool's own records: migration backups, operations (local only)
 └── .cache/                  search index, chapter pages, OCR results (local only)
 ```
+
+**Every document has a permanent id**, a UUID in `catalog.csv`'s first column (for example
+`9f3c2a4e-1b7d-4c1e-9a55-2f0e6d1c3b8a`). It's given once, when the document is added, and never
+changes. Everything that refers to a document uses it: your reading log, the search, the
+library page and the reading view. Its name (`shannon-1997-art-science-optical-design`) is only
+what its files and folders are called, so a document keeps its identity if it's renamed or its
+details are corrected. `http://127.0.0.1:8765/read/<id>?page=12` always opens it, whatever its
+file is called now.
+
+**A library from before ids** (myLibrary 0.2) is converted once, by you, with:
+
+```powershell
+uv run scripts/migrate_ids.py --library <folder>            # dry run: shows every change
+uv run scripts/migrate_ids.py --library <folder> --apply    # do it (quit myLibrary first)
+```
+
+It gives every entry an id and moves your reading log to ids, keeping every value. PDFs, file
+names, notes, words and marks stay as they are. The originals are kept in the library's
+`.myLibrary/migrations/`. If it's interrupted, `--resume` finishes it and `--rollback` puts the
+old files back; until then myLibrary won't open the library. `--check` confirms the ids are in
+order.
 
 **Which library the tool opens**, in this order: `--library <folder>` on any command, the
 `MYLIBRARY_LIBRARY` environment variable, then `local.toml` in the tool's folder

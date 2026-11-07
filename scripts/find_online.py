@@ -187,12 +187,12 @@ def by_identifier(query: str) -> list[dict]:
 
 
 def _mark_owned(results: list[dict]) -> None:
-    """'in_library': the slug of the same work in the catalog (same DOI or ISBN, or same title
+    """'in_library': the id of the same work in the catalog (same DOI or ISBN, or same title
     and year)."""
     rows = catalog.load(CATALOG).values()
-    by_doi = {r["doi"].lower(): r["slug"] for r in rows if r.get("doi")}
-    by_isbn = {r["isbn"]: r["slug"] for r in rows if r.get("isbn")}
-    by_title = {(" ".join(_words(r["title"])), r.get("year", "")): r["slug"] for r in rows}
+    by_doi = {r["doi"].lower(): r["id"] for r in rows if r.get("doi")}
+    by_isbn = {r["isbn"]: r["id"] for r in rows if r.get("isbn")}
+    by_title = {(" ".join(_words(r["title"])), r.get("year", "")): r["id"] for r in rows}
     for result in results:
         result["in_library"] = (
             by_doi.get(result.get("doi", ""))
