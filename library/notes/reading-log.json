@@ -1,6 +1,6 @@
 {
  "2026-11-06": {
-  "blomqvist-2011-all-quartz-optics-low-focal": {
+  "110d3eba-cb31-4aed-b617-df4c3d2b0e4f": {
    "p": [
     1,
     2,
@@ -9,7 +9,14 @@
    ],
    "s": 0
   },
-  "shannon-1997-art-science-optical-design": {
+  "5a1037a4-23a7-4d3a-81a2-a172b2f4de13": {
+   "p": [
+    1,
+    2
+   ],
+   "s": 0
+  },
+  "a3356542-bd66-4586-a7e7-abbf74660bfe": {
    "p": [
     27,
     38,
@@ -18,14 +25,7 @@
     41,
     42
    ],
-   "s": 15
-  },
-  "zhu-2012-field-test-study-leaf-contamination": {
-   "p": [
-    1,
-    2
-   ],
-   "s": 0
+   "s": 30
   }
  }
 }
