@@ -2,6 +2,8 @@
 Markdown notes without ever losing or silently overwriting text. Temporary libraries only."""
 
 import json
+import os
+import sys
 import threading
 import urllib.error
 import urllib.request
@@ -300,3 +302,73 @@ def test_the_api_needs_a_known_document(server):
     status, answer = post("/api/notes/get", {"id": "0" * 8 + "-0000-4000-8000-" + "0" * 12,
                                              "key": "file:README.md"})  # fmt: skip
     assert status == 404
+
+
+# --- links and other editors -----------------------------------------------------------------
+
+
+def test_a_symlink_pointing_outside_the_notes_is_refused(lib, tmp_path_factory):
+    library, row = lib
+    outside = tmp_path_factory.mktemp("elsewhere") / "secret.md"
+    outside.write_bytes(b"not a note\n")
+    link = library / "notes" / NAME / "evil.md"
+    try:
+        os.symlink(outside, link)
+    except OSError as e:  # Windows: needs Developer Mode or administrator rights
+        pytest.skip(f"this system doesn't allow creating a symlink here ({e.strerror})")
+    with pytest.raises(NoteError):
+        notes_store.read(library, row, "file:evil.md")
+    with pytest.raises(NoteError):
+        notes_store.save(library, row, "file:evil.md", "x", notes_store.version_of(b"not a note\n"))
+    assert outside.read_bytes() == b"not a note\n"
+    assert "file:evil.md" not in {e["key"] for e in notes_store.entries(library, row)}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="directory junctions are a Windows feature")
+def test_a_notes_folder_that_is_a_junction_still_works(lib, tmp_path_factory):
+    """A whole notes folder kept elsewhere (e.g. on OneDrive) through a junction is the user's
+    own choice and works; only links *inside* a notes folder are refused (test above)."""
+    import _winapi
+    import shutil
+
+    library, row = lib
+    folder = library / "notes" / NAME
+    elsewhere = tmp_path_factory.mktemp("onedrive") / NAME
+    shutil.move(folder, elsewhere)
+    _winapi.CreateJunction(str(elsewhere), str(folder))
+    note = notes_store.read(library, row, "file:ch01-basics.md")
+    notes_store.save(library, row, "file:ch01-basics.md", note["text"] + "- via junction\n",
+                     note["version"])  # fmt: skip
+    assert (elsewhere / "ch01-basics.md").read_bytes().endswith(b"- via junction\n")
+
+
+def test_a_hard_link_is_never_written_through(lib, tmp_path_factory):
+    """A save replaces the file (atomically) instead of writing into it, so a file hard-linked
+    into the notes folder from elsewhere is never changed by a save."""
+    library, row = lib
+    outside = tmp_path_factory.mktemp("elsewhere") / "shared.md"
+    outside.write_bytes(b"shared text\n")
+    link = library / "notes" / NAME / "linked.md"
+    try:
+        os.link(outside, link)
+    except OSError as e:
+        pytest.skip(f"this file system doesn't allow hard links here ({e.strerror})")
+    note = notes_store.read(library, row, "file:linked.md")
+    notes_store.save(library, row, "file:linked.md", "changed\n", note["version"])
+    assert outside.read_bytes() == b"shared text\n" and link.read_bytes() == b"changed\n"
+
+
+def test_an_editor_rewriting_the_file_in_place_is_noticed(lib):
+    """Some editors write into the file instead of replacing it, keeping its size (and, at the
+    file system's resolution, perhaps its time): the version is the content's hash, so the
+    change is still seen."""
+    library, row = lib
+    path = library / "notes" / NAME / "ch01-basics.md"
+    note = notes_store.read(library, row, "file:ch01-basics.md")
+    stat = path.stat()
+    with open(path, "r+b") as f:  # same length, different text, written in place
+        f.write(b"# Chapter 1: BASICS")
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))  # even with the old time
+    with pytest.raises(Conflict):
+        notes_store.save(library, row, "file:ch01-basics.md", "mine\n", note["version"])
+    assert path.read_bytes() == b"# Chapter 1: BASICS\n\n- my idea\n"

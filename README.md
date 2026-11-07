@@ -615,7 +615,7 @@ The repository has two parts: **the tool**, and **a library** it works on.
 ```
 myLibrary/                   the tool (this repository)
 ├── scripts/                 the tool itself
-├── tests/                   the tool's tests (uv run pytest)
+├── tests/                   the tool's tests (uv run pytest); tests/browser/: in Edge
 ├── local.toml               which library this computer opens (local only, not in git)
 ├── .cache/reader/           PDF viewer and dictionary, shared by every library (local only)
 └── library/                 the author's library, included as an example
@@ -665,6 +665,8 @@ order.
 `MYLIBRARY_LIBRARY` environment variable, then `local.toml` in the tool's folder
 (`library = "D:/Study/My Library"`; a relative path is relative to the tool's folder). With none
 of these, the first start creates `Documents\myLibrary Library` and writes `local.toml`.
+The `MYLIBRARY_SETTINGS` environment variable names another settings file instead of
+`local.toml` (it must exist; the browser tests use a temporary one).
 
 **Your own work** (back it up, never delete): your library's `notes/`, `examples/`, `code/`,
 `glossaries/`, `catalog.csv` and `library.toml`. Version it with git if you like, in its own
@@ -691,7 +693,7 @@ to use another one.
 
 | Command | Does |
 |---|---|
-| `uv run scripts/library_server.py` | Start the library (same as the shortcut); `--port 8766` to use another port, `--no-browser` to not open a tab |
+| `uv run scripts/library_server.py` | Start the library (same as the shortcut); `--port 8766` to use another port, `--no-browser` to not open a tab, `--no-download` to never fetch the viewer or dictionary at start |
 | `uv run scripts/make_shortcut.py` | (Re)create the Desktop and Start menu shortcuts (Windows) |
 | `uv run scripts/add_book.py --dry-run` / no flag | Preview / register new books in `books/` |
 | `uv run scripts/add_book.py --refresh-chapters` | Re-read chapter lists (keeps your notes) |
@@ -702,6 +704,7 @@ to use another one.
 | `uv run scripts/add_bookmarks.py --dry-run` / no flag | Preview / add bookmarks to books without any |
 | `uv run scripts/reader.py <word or phrase>` | Look up a word in the terminal |
 | `uv run scripts/reader.py --setup` | Download the PDF viewer and dictionary |
+| `uv run scripts/reader.py --setup-viewer` | Download only the PDF viewer (PDF.js, pinned version, checksum verified) |
 | `uv run scripts/book_search.py <term>` | Search all books for a term |
 | `uv run scripts/library_page.py` | Write the static `library.html` |
 | `uv run scripts/backup.py` | Back up the library to GitHub (like ☁ Back up) |
@@ -709,7 +712,8 @@ to use another one.
 | `uv run <library>/examples/<book>/chNN_<topic>.py` | Run a chapter script |
 | `uv sync` | Create or update the Python environment (`--group optics` adds the optics packages) |
 | `uv add <package>` | Add a Python package |
-| `uv run pytest` | Run the tests |
+| `uv run pytest` | Run the tests (not the browser tests) |
+| `uv sync --group browser` then `uv run pytest tests/browser` | Run the browser tests: the reader in Microsoft Edge, each test on a temporary library (needs the PDF viewer: `--setup-viewer`); add `--headed` to watch, `--tracing retain-on-failure` for traces in `test-results/` |
 | `uv run ruff check . ; uv run ruff format .` | Lint and format the code |
 
 Your library's `catalog.csv` also opens in Excel, or search it from the terminal:

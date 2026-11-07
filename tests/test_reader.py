@@ -266,3 +266,93 @@ def test_glossaries_of_the_books_shelves_come_first(dictionary):
         "pupil", "the entrance pupil", id_of(dictionary / "catalog.csv", "eye-book")
     )
     assert [g["term"] for g in info["glossary"]] == ["entrance pupil", "pupil", "pupil"]
+
+
+# --- the PDF viewer (PDF.js): pinned, checksum-verified install --------------------------------
+
+
+def _fake_release(path, names=None):
+    """A small zip shaped like the PDF.js release; returns its bytes."""
+    import zipfile
+
+    names = names or ["web/viewer.html", "web/viewer.mjs", "build/pdf.mjs", "build/pdf.worker.mjs"]
+    with zipfile.ZipFile(path, "w") as z:
+        for name in names:
+            z.writestr(name, f"new {name}")
+    return path.read_bytes()
+
+
+@pytest.fixture
+def viewer_home(tmp_path, monkeypatch):
+    """The reader's cache in a temporary folder, with a working (old) viewer installed."""
+    monkeypatch.setattr(reader, "CACHE", tmp_path / "reader")
+    monkeypatch.setattr(reader, "PDFJS", tmp_path / "reader" / "pdfjs")
+    (reader.PDFJS / "web").mkdir(parents=True)
+    (reader.PDFJS / "web" / "viewer.html").write_text("old viewer", encoding="utf-8")
+    return tmp_path
+
+
+def _pin(monkeypatch, data):
+    import hashlib
+
+    monkeypatch.setattr(reader, "PDFJS_SHA256", hashlib.sha256(data).hexdigest())
+    monkeypatch.setattr(reader, "PDFJS_SIZE", len(data))
+
+
+def test_the_viewer_is_installed_only_from_the_expected_archive(viewer_home, monkeypatch):
+    good = viewer_home / "good.zip"
+    data = _fake_release(good)
+    assert reader.viewer_installed() == "unverified"  # installed before checksums
+    with pytest.raises(ValueError, match="isn't the expected file"):  # the real pin: no match
+        reader.install_viewer(good)
+    assert (reader.PDFJS / "web" / "viewer.html").read_text(encoding="utf-8") == "old viewer"
+
+    _pin(monkeypatch, data)
+    reader.install_viewer(good)
+    assert (reader.PDFJS / "web" / "viewer.html").read_text(encoding="utf-8").startswith("new")
+    assert reader.viewer_installed() == f"verified {reader.PDFJS_VERSION}"
+    assert sorted(p.name for p in reader.CACHE.iterdir()) == ["pdfjs"]  # nothing left over
+
+
+@pytest.mark.parametrize(
+    "names",
+    [
+        [
+            "../evil.txt",
+            "web/viewer.html",
+            "web/viewer.mjs",
+            "build/pdf.mjs",
+            "build/pdf.worker.mjs",
+        ],
+        ["web/viewer.html", "web/viewer.mjs", "build/pdf.worker.mjs"],  # no build/pdf.mjs
+        [
+            "C:/evil.txt",
+            "web/viewer.html",
+            "web/viewer.mjs",
+            "build/pdf.mjs",
+            "build/pdf.worker.mjs",
+        ],
+    ],
+)
+def test_an_unexpected_archive_leaves_the_working_viewer(viewer_home, monkeypatch, names):
+    bad = viewer_home / "bad.zip"
+    _pin(monkeypatch, _fake_release(bad, names))  # even with a matching checksum
+    with pytest.raises(ValueError):
+        reader.install_viewer(bad)
+    assert (reader.PDFJS / "web" / "viewer.html").read_text(encoding="utf-8") == "old viewer"
+    assert not (viewer_home / "evil.txt").exists() and not (reader.CACHE / "evil.txt").exists()
+    assert sorted(p.name for p in reader.CACHE.iterdir()) == ["pdfjs"]
+
+
+def test_setup_viewer_downloads_checks_and_installs(viewer_home, monkeypatch):
+    release = viewer_home / "release.zip"
+    _pin(monkeypatch, _fake_release(release))
+    monkeypatch.setattr(reader, "PDFJS_URL", release.as_uri())
+    reader.setup_viewer()  # an (unverified) viewer is there: nothing downloaded
+    assert (reader.PDFJS / "web" / "viewer.html").read_text(encoding="utf-8") == "old viewer"
+    import shutil
+
+    shutil.rmtree(reader.PDFJS)
+    reader.setup_viewer()
+    assert reader.viewer_installed() == f"verified {reader.PDFJS_VERSION}"
+    assert sorted(p.name for p in reader.CACHE.iterdir()) == ["pdfjs"]  # the zip removed

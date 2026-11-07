@@ -20,4 +20,50 @@ jobs:
       - name: Format
         run: uv run ruff format --check .
       - name: Tests
-        run: uv run pytest -q
+        # -rs lists every skipped test with its reason (e.g. a symlink test this runner can't do)
+        run: uv run pytest -q -rs
+
+  # The reader in Microsoft Edge (tests/browser/, Playwright): each test on its own temporary
+  # library and settings, its own server; nothing is downloaded while the tests run.
+  browser:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Python and packages (with the browser tests' group)
+        run: uv sync --locked --group browser
+      - name: Cache the PDF viewer (PDF.js, by version and checksum)
+        uses: actions/cache@v4
+        with:
+          path: .cache/reader/pdfjs
+          key: pdfjs-4.10.38-32bdd9c5198b77dbaa8f02de81f34476888b3abdd64b9fb5f607f81f01487e6a
+      - name: Install the PDF viewer (checksum verified)
+        run: uv run --group browser scripts/reader.py --setup-viewer
+      - name: Check Edge, the PDF viewer and the versions
+        run: |
+          $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+                  "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe" |
+                  Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $edge) { Write-Error "Microsoft Edge isn't installed on this runner; the browser tests use it (msedge channel)"; exit 1 }
+          "Edge " + (Get-Item $edge).VersionInfo.ProductVersion
+          uv run --group browser python -c "import importlib.metadata as m; print('Playwright', m.version('playwright'), '| pytest-playwright', m.version('pytest-playwright'))"
+          $viewer = uv run --group browser python -c "import sys; sys.path.insert(0, 'scripts'); import reader; print(reader.viewer_installed())"
+          "PDF.js: $viewer"
+          if ($viewer -ne "verified 4.10.38") { Write-Error "the PDF viewer isn't the checksum-verified PDF.js 4.10.38"; exit 1 }
+      - name: Browser tests
+        # Its own limit, so a hang still leaves time to upload the diagnostics
+        timeout-minutes: 15
+        run: >-
+          uv run --group browser pytest tests/browser -v -rs
+          --tracing retain-on-failure --screenshot only-on-failure
+          --output test-results --junitxml test-results/browser.xml
+      - name: Keep the diagnostics of a failure
+        # Generated test libraries and temporary paths only: never a real library or settings
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14

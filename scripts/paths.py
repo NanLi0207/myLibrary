@@ -12,7 +12,9 @@ glossaries and chapter scripts. Which library, in this order:
 The settings file is local.toml in the tool's folder (not in git), or, in the ready-to-use
 package (a package.toml next to scripts/), %APPDATA%/myLibrary/settings.toml, so a new version
 of the package keeps them. Besides the library, it holds which editor opens notes and whether
-the Python features (chapter scripts) are shown; see SETTINGS_DEFAULTS.
+the Python features (chapter scripts) are shown; see SETTINGS_DEFAULTS. The MYLIBRARY_SETTINGS
+environment variable names another settings file instead (the browser tests use a temporary
+one, so they never read or change the real settings).
 A relative library path is relative to the tool's folder.
 """
 
@@ -26,12 +28,30 @@ import safe_io
 
 APP = Path(__file__).resolve().parent.parent
 IS_PACKAGE = (APP / "package.toml").exists()
-if IS_PACKAGE:
-    SETTINGS_FILE = Path(os.environ.get("APPDATA") or Path.home()) / "myLibrary" / "settings.toml"
-else:
-    SETTINGS_FILE = APP / "local.toml"
-DEFAULT_LIBRARY = Path.home() / "Documents" / "myLibrary Library"
 ENV_VAR = "MYLIBRARY_LIBRARY"
+SETTINGS_VAR = "MYLIBRARY_SETTINGS"
+
+
+def _settings_file() -> Path:
+    """The settings file: MYLIBRARY_SETTINGS if set (tests, a desktop wrapper), else
+    %APPDATA%/myLibrary/settings.toml in the package, else local.toml in the tool's folder.
+    A file named by MYLIBRARY_SETTINGS must exist: falling back to the usual settings would
+    open the usual library and write there."""
+    if chosen := os.environ.get(SETTINGS_VAR):
+        path = Path(chosen).expanduser().resolve()
+        if not path.is_file():
+            raise SystemExit(
+                f"{SETTINGS_VAR} names a settings file that doesn't exist: {path}\n"
+                f"Create it (it may be empty), or unset {SETTINGS_VAR} to use the usual settings."
+            )
+        return path
+    if IS_PACKAGE:
+        return Path(os.environ.get("APPDATA") or Path.home()) / "myLibrary" / "settings.toml"
+    return APP / "local.toml"
+
+
+SETTINGS_FILE = _settings_file()
+DEFAULT_LIBRARY = Path.home() / "Documents" / "myLibrary Library"
 
 EDITORS = ("vscode", "notepad", "system", "custom")
 SETTINGS_DEFAULTS = {

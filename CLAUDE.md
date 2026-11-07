@@ -78,9 +78,11 @@ library's folders).
 **Checks before calling a change done:** `uv run pytest`, `uv run ruff check .`,
 `uv run ruff format --check .` (CI runs the same on Windows). Add or update tests for every
 behavior change; test with a temporary library (see `tests/conftest.py`), never the real one.
-For page or reader changes, also try it in the browser with
-`uv run scripts/library_server.py --port <other port>`. The JavaScript in `library_page.py` and
-`reader_static/` has no tests yet, so check it by hand and say what you checked.
+For reader changes (`reader_static/`, `/read`, saving marks), run and extend the browser tests:
+`uv sync --group browser`, then `uv run pytest tests/browser` (Edge; each test on its own
+temporary library, settings and server; CI job `browser`). Plain `pytest` leaves them out.
+The library page's JavaScript (`library_page.py`) has no tests yet: try it in the browser with
+`uv run scripts/library_server.py --port <other port>` and say what you checked.
 
 **Environment:** Windows, Python 3.14 via uv (installed with winget). A terminal opened before
 uv was installed won't find it; restart VS Code. Use forward-slash paths and UTF-8 explicitly

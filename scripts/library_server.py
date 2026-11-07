@@ -414,7 +414,7 @@ def pdf_url(
     the reading view which document it shows; `find`: text to highlight on arrival (a search
     result; only on screen, see lookup.js showFound); `preview`: a look-up, not reading (the
     reading view records no position or reading time until "Start reading")."""
-    if reading_view.missing():
+    if not reading_view.viewer_ready():  # (the dictionary is optional)
         url = f"{base_url}/{file}"
     else:
         url = f"{base_url}/pdfjs/web/viewer.html?file=/{file}" + (f"&id={doc_id}" if doc_id else "")
@@ -645,7 +645,7 @@ class Handler(BaseHTTPRequestHandler):
                    "folder_backup": bool(paths.load_settings().get("backup_folder"))}  # fmt: skip
             html = library_page.render(api, pdf_base=self.pdf_base)
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
-        if path == "/pdfjs/web/viewer.html" and not reading_view.missing():
+        if path == "/pdfjs/web/viewer.html" and reading_view.viewer_ready():
             html = reading_view.viewer_html(TOKEN)
             return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
         if found := reading_view.static_file(path):
@@ -911,6 +911,23 @@ def stop(server) -> None:
     server.shutdown()
 
 
+def start_setup(parts: list[str], download: bool = True) -> threading.Thread | None:
+    """Fetch what the reading view still lacks (PDF.js, the dictionary) in the background,
+    unless downloads are off (--no-download): then books open as plain PDFs and lookups find
+    only the glossaries."""
+    if not parts:
+        return None
+    if not download:
+        effect = "books open as plain PDFs" if "PDF viewer" in parts else "no dictionary lookups"
+        print(f"Not downloading {' + '.join(parts)} (--no-download): {effect}.")
+        return None
+    print(f"Setting up the reading view ({' + '.join(parts)}, one-time download ~72 MB);")
+    print("  until it's ready, books open as plain PDFs.")
+    thread = threading.Thread(target=setup_reader, daemon=True)
+    thread.start()
+    return thread
+
+
 def setup_reader() -> None:
     try:
         reading_view.setup()
@@ -940,6 +957,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument(
+        "--no-download",
+        action="store_true",
+        help="never download the reading view or dictionary at start (tests, offline use)",
+    )
     paths.add_argument(parser)
     args = parser.parse_args()
     paths.ensure_library()
@@ -968,10 +990,7 @@ def main() -> None:
     print(f"myLibrary at {url}  (Ctrl+C to stop)")
     threading.Thread(target=warm_cache, daemon=True).start()
     threading.Thread(target=auto_backup, daemon=True).start()
-    if parts := reading_view.missing():
-        print(f"Setting up the reading view ({' + '.join(parts)}, one-time download ~72 MB);")
-        print("  until it's ready, books open as plain PDFs.")
-        threading.Thread(target=setup_reader, daemon=True).start()
+    start_setup(reading_view.missing(), download=not args.no_download)
     if not args.no_browser:
         webbrowser.open(url)
     try:

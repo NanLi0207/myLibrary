@@ -202,7 +202,7 @@ def test_save_position_writes_and_updates_one_line(chapter_pages):
 def test_continue_opens_last_page_and_its_chapter(chapter_pages, monkeypatch):
     slug = doc(chapter_pages)
     # The reading view (PDF.js) is set up; a fresh checkout (CI) doesn't download it
-    monkeypatch.setattr(library_server.reading_view, "missing", lambda: [])
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: True)
     (chapter_pages / "books").mkdir()
     (chapter_pages / "books" / f"{NAME}.pdf").write_bytes(b"%PDF-1.4")
     (chapter_pages / "notes" / NAME / "ch02-aberrations.md").write_text("# Ch 2\n")
@@ -278,3 +278,36 @@ def test_topic_note_lists_pages_and_keeps_your_writing(library, monkeypatch):
     assert note.read_text(encoding="utf-8").endswith("My own summary.\n")
     with pytest.raises(ValueError):
         library_server.topic_note("杂光")  # needs an English term for the file name
+
+
+def test_no_download_means_no_download(monkeypatch):
+    """--no-download (tests, offline use): nothing is fetched at start."""
+    started = []
+    monkeypatch.setattr(library_server, "setup_reader", lambda: started.append(True))
+    assert library_server.start_setup(["PDF viewer", "dictionary"], download=False) is None
+    assert library_server.start_setup([], download=True) is None
+    assert started == []
+    library_server.start_setup(["dictionary"], download=True).join(5)
+    assert started == [True]
+
+
+def test_without_the_dictionary_books_still_open_in_the_reader(library, monkeypatch, tmp_path):
+    """The dictionary (ECDICT) is optional: when only it is missing (a failed or pending
+    download), books still open in the reading view, with the reader's own script injected."""
+    pdfjs = tmp_path / "reader" / "pdfjs"
+    (pdfjs / "web").mkdir(parents=True)
+    (pdfjs / "web" / "viewer.html").write_text("<html><head></head><body></body></html>")
+    monkeypatch.setattr(library_server.reading_view, "PDFJS", pdfjs)
+    monkeypatch.setattr(library_server.reading_view, "DICT_DB", tmp_path / "no-dictionary.db")
+    assert library_server.reading_view.missing() == ["dictionary"]
+    url = library_server.pdf_url("http://x", "books/a.pdf", 3, doc(library))
+    assert url == f"http://x/pdfjs/web/viewer.html?file=/books/a.pdf&id={doc(library)}#page=3"
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), library_server.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        address = f"http://127.0.0.1:{server.server_port}/pdfjs/web/viewer.html"
+        with urllib.request.urlopen(address, timeout=5) as page:
+            assert b"/reader/lookup.js" in page.read()
+    finally:
+        server.shutdown()

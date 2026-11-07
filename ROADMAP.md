@@ -30,7 +30,7 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
       rightly links to the bare PDF.
     - The tests now say the reading view is set up. All 213 tests pass in a clean clone.
 - **Next:** task 4, plan approved 2026-11-07 (task 4 and section 5). M1 (notes store and
-  API) is done; M2 (browser tests in CI) is not started.
+  API) is done (`9acaf52`). M2 (browser tests in CI) is implemented and awaits review.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
@@ -313,10 +313,15 @@ partial, not integrated, or missing. **Size** is the implementation effort: S, M
 ### 2.16 Download safety (cross-cutting)
 
 - **Status:** partial.
-- **What exists:** PDF.js is pinned to a version.
-- **Limitations:** PDF.js has no checksum; ECDICT comes from an unpinned `master`; a corrupt
-  `pdfjs.zip` is reused forever (B10).
-- **Proposal:** pin ECDICT to a commit, add SHA-256 checks, replace corrupt downloads. Size S.
+- **What exists:** PDF.js is pinned to a version and checked with SHA-256 (task 4 M2):
+  - `reader.install_viewer` checks the archive's size and checksum, and refuses unsafe file
+    names;
+  - it unpacks next to the old viewer and swaps it in, so a failed update keeps the working
+    viewer;
+  - the downloaded zip is never reused.
+- **Limitations:** ECDICT comes from an unpinned `master`. B10's corrupt reused `pdfjs.zip`
+  is gone with M2.
+- **Proposal:** pin ECDICT to a commit with a SHA-256 check. Size S.
 
 ---
 
@@ -354,6 +359,7 @@ D12. They are kept below for the record. Still open: D5 (task 5).
 - **D5 (C) Marks from two tabs overwrite each other.**
   - `save_marks` accepts any whole PDF with the same page count; there is no version check.
   - After 3 failed saves, `keepMarks` stops trying for the session.
+  - Recorded as a strict expected failure: `tests/browser/test_two_tabs.py`.
 - **D6 (C, fixed in task 2) Different documents can get the same slug.**
   - Slugs keep ASCII only (`book_meta.surname`, `add_book.short_title`), so two Chinese-titled
     items from the same year both become `unknown-<year>-untitled`.
@@ -456,14 +462,15 @@ D12. They are kept below for the record. Still open: D5 (task 5).
   - There is no Chinese catalogue for Find online.
   - The OCR text layer is Latin only.
 - **L11 Test gaps.**
-  - No JavaScript tests.
+  - The reader's JavaScript is tested in Edge (`tests/browser/`, CI job `browser`, task 4 M2).
+    The library page's JavaScript (`library_page.py`) still has no tests.
   - Untested routes: PDF GET, the Host check, `/api/reading`,
     `/api/review`, `/api/search`, `/api/topic`, `/api/shelves`, `/api/upload`,
     `/api/settings`, quit and restart.
   - `open_in_editor` is always stubbed in tests.
   - Packaging has no automated test.
-  - The reader's browser checks (scratchpad scripts driving Edge, see task 3) aren't part of
-    the test suite or CI.
+  - The browser's own ✕ and Ctrl+W can't be automated. The tests close through Playwright,
+    which runs the same `beforeunload` handlers.
 - **L12 Closing the browser by force loses unsaved marks.** The reader warns before a tab with
   unsaved marks is closed, reloaded or left (task 3). Nothing protects against ending Edge in
   Task Manager, a crash, or a power cut in the second after a change. A saved state is
@@ -1209,26 +1216,239 @@ Every milestone also reruns the regression set (section 5, *Regression set*).
   No test covers this yet, because creating links on Windows needs administrator rights or
   Developer Mode. Add a regression test where links can be created (CI, M2).
 
-**M2. Browser tests in CI (closes L11 for the reader)**: not started; it begins once M1 is
-pushed and its CI passes.
-- **Scope:** the Edge checks from task 3 become pytest tests under `tests/browser/`, marked
-  `browser`:
-  - search highlighting;
-  - marks, deletion and Undo/Redo;
-  - closing with unsaved marks;
-  - Preview Mode and reading progress;
-  - `/read/<id>` navigation.
-- **Driver:** Playwright for Python, a *dev-only* dependency, using the Edge already installed
-  (`channel="msedge"`). No browser download is needed on Windows runners.
-- **CI:**
-  - a second job downloads PDF.js 4.10.38 (`reader.py --setup`, pinned, checksum checked) and
-    caches it;
-  - it runs `pytest -m browser`, with temporary libraries and generated PDFs only.
-  - Locally, `pytest` skips browser tests when Edge or PDF.js is missing.
-- **Tests:** the five task 3 areas above, with zero-delay closes where task 3 tested them.
+**M2. Browser tests in CI (closes L11 for the reader)**: implemented 2026-11-07, awaiting
+review (see *Results* at the end of M2). Not committed.
+- **Goal:** the reader's existing behaviour is checked in a real browser on every push, before
+  M3 changes the layout. The task 3 scratchpad checks (Edge through the DevTools protocol)
+  become maintained pytest tests.
+- **Framework:** Playwright for Python plus `pytest-playwright`, which gives fixtures, browser
+  options, traces and screenshots on failure.
+  - They go in a new dependency group, `browser`, which isn't installed by default.
+  - Run with `uv sync --group browser`, then `uv run pytest -m browser`.
+  - No Node.js, no build step, no frontend framework.
+- **Browser:** the installed Microsoft Edge (`--browser-channel msedge`), locally and in CI.
+  - It is what the user reads with, and the engine of the future desktop window (WebView2).
+  - Windows runners have it preinstalled, so there is no ~150 MB browser download.
+  - Its version isn't pinned (it updates with the runner image), so each run logs it.
+  - Pinned Chromium (`playwright install chromium`) stays an option if Edge updates ever make
+    runs flaky.
+- **Small app changes M2 needs** (packaging-friendly; they need the user's approval):
+  1. `paths.py`: a `MYLIBRARY_SETTINGS` variable naming the settings file. A test server then
+     never reads the real `local.toml`, its backup folder or its OpenAlex key. A desktop
+     wrapper can use it too.
+  2. `library_server.py`: `--no-download`. With it, the server never starts the PDF.js and
+     ECDICT download at start, which keeps CI offline after setup. The package will want this
+     too, since it bundles them.
+  3. `reader.py`: PDF.js setup on its own (`--setup-viewer`), checked against a pinned
+     SHA-256 of `pdfjs-4.10.38-dist.zip`. A wrong file is refused. This also starts spec 6.6
+     for PDF.js.
+- **Isolation:** every test gets its own temporary library.
+  - **PDFs:** small, original ones generated with reportlab, which is already a dependency.
+  - **The server:** started as a subprocess, the way users start it:
+    `library_server.py --library <tmp> --port 0 --no-browser --no-download`, with
+    `MYLIBRARY_SETTINGS`, `APPDATA` and `USERPROFILE` pointing into the temporary folder.
+  - **Port:** port 0 lets the system choose, and the test reads the address the server prints
+    ("myLibrary at http://127.0.0.1:…"). There are no fixed ports and no clashes.
+  - **Guard:** before any action, a test checks the server's `X-myLibrary-Library` header
+    names the temporary library; otherwise the test stops.
+  - **Shutdown:** `POST /api/quit` (the normal shutdown), then a kill after 10 s; the
+    temporary folder is removed afterwards.
+- **Layout:**
+  ```
+  tests/browser/
+    conftest.py        reader assets (skip if missing), PDF factory, library factory,
+                       server subprocess, page with error capture, failure artifacts
+    helpers.py         waits on reader states, PDF inspection (pypdf), README and log readers,
+                       request delays and failures (page.route)
+    test_reading.py    open by id, pages and zoom, Last read saved and restored, unknown or
+                       removed id
+    test_search.py     search across PDFs, the other document at the right page, highlight,
+                       next and previous, closing clears it; the results stay in the window
+                       and scroll (B18)
+    test_preview.py    no position or reading time; Start reading; only then recorded
+    test_marks.py      make, select, delete, Undo/Redo (with a tool on and while reading),
+                       saved, reopened
+    test_saving.py     zero-delay close, navigate and reload: warned, then saved after Stay;
+                       Save now; slow and failed saves; rapid changes, the final state on disk
+    test_two_tabs.py   D5 as a strict xfail: two tabs overwrite each other's marks (a record of
+                       the known bug; it starts failing once D5 is fixed)
+  ```
+- **Reliable tests:**
+  - **Waits** are on observable states: PDF.js loaded, text layer drawn, the save status, the
+    file on disk. There are no fixed sleeps; a deadline gives a clear message.
+  - **Selectors:** the reader's own ids and classes (`#mlUndo`, `.ml-marks[data-state]`,
+    `.ml-preview`) and PDF.js's documented ones.
+  - **What is checked:** the persisted data. The PDF's annotations are read with pypdf; the
+    README "Last read" line and `reading-log.json` are read from disk.
+  - **Slow and failed servers:** Playwright's `page.route` delays, fails or aborts
+    `/api/save-marks`. This happens in the test, not in the app.
+  - **Errors:** a JavaScript error in the page fails the test, and so does an uncaught
+    exception or the server process dying.
+  - **No automatic retries:** a flaky test is fixed, not rerun.
+- **Additional coverage:**
+  - **Symlink or junction** (M1's untested edge case), in the normal test suite:
+    - a file symlink in a notes folder pointing outside it is refused (`os.symlink`);
+    - it is skipped where Windows doesn't allow creating it; GitHub's Windows runners do;
+    - a directory junction as the notes folder itself is covered too.
+  - **External edit** (normal suite): a note rewritten in place, the way some editors save,
+    rather than replaced, is still detected as a conflict.
+  - **Missing PDF.js:** stays a Python test (`/read` gives the bare PDF, and the PDF is
+    served). Edge's own PDF viewer isn't scriptable reliably, so there is no browser test.
+  - **Marks:** within one tab, a change made during a slow save is saved next and the final
+    state wins (`test_saving.py`). Across tabs, D5 stays a known issue (`test_two_tabs.py`).
+- **CI:** a second job, `browser` (windows-latest, `timeout-minutes: 20`), runs beside the
+  existing `test` job:
+  1. checkout, setup-uv, `uv sync --group browser`;
+  2. cache `.cache/reader/pdfjs`, keyed by PDF.js version and SHA-256, then
+     `uv run scripts/reader.py --setup-viewer`;
+  3. log the Edge version;
+  4. `uv run pytest -m browser --browser-channel msedge --tracing retain-on-failure
+     --screenshot only-on-failure --output test-results --junitxml test-results/browser.xml`;
+  5. on failure, upload `test-results/` as an artifact: traces, screenshots, each test's
+     server log, and the page's console.
+  - The existing job runs `pytest -m "not browser"`. `pyproject.toml` registers the marker,
+    and plain `pytest` leaves browser tests out by default.
+  - **Network:** GitHub, PyPI (uv, Playwright) and the PDF.js download (cached). None while
+    the tests run.
+- **Expected time:** the browser job takes about 5–8 min (setup 1.5–2 min, about 25 tests at
+  5–15 s each, a server per test). The existing job is unchanged at about 2–3 min. The two
+  run in parallel.
+- **Diagnosing a failure:**
+  - the failing test's name and assertion message in the job log and the JUnit report;
+  - the Playwright trace (DOM, network, console at each step), viewed with
+    `playwright show-trace`;
+  - a screenshot at the failure;
+  - the test's server log;
+  - the list of files in the temporary library.
 - **Risks:**
-  - flaky timing: tests wait for states, never for fixed delays;
-  - CI time grows by a few minutes.
+  1. **Headless close behaviour:** in task 3, reading-log requests sent on close sometimes
+     arrived only when the browser exited. Assertions on them wait up to a deadline. If that
+     isn't enough, those cases are checked with a visible window locally, and recorded.
+  2. **Edge updates** on the runner: the version is logged, and pinned Chromium is the
+     fallback.
+  3. **PDF.js internals** used by the reader (`PDFViewerApplication`, the editor events): the
+     tests catch breakage after a PDF.js upgrade, which is part of their purpose.
+  4. **Windows file locks** when deleting the temporary folder: the server is stopped first,
+     then the deletion is retried briefly.
+  5. **CI minutes:** a few more per push.
+- **Steps:**
+  1. The three app changes, with Python tests.
+  2. The `browser` group, marker and conftest, plus one smoke test (open by id), run locally
+     in Edge.
+  3. Reading and progress, then search, then Preview Mode.
+  4. Marks and Undo/Redo.
+  5. Saving reliability: zero-delay close, slow, failed, rapid.
+  6. The symlink and junction test, the in-place external edit, D5 as xfail.
+  7. The CI job and artifacts; checked in a clean clone with no `.cache`, like CI.
+  8. The browser suite run 5 times in a row locally without a failure. Then commit for
+     approval, push, and the CI run.
+  9. ROADMAP (L11 closed for the reader) and README (how to run browser tests).
+- **Done when:**
+  - all planned tests pass locally in Edge and in GitHub Actions;
+  - 5 local runs in a row pass with no flaky failures;
+  - plain `pytest` (no browser group) still passes and skips browser tests;
+  - a deliberately broken check produces a trace, screenshot and server log as CI artifacts.
+    This is tried once, then reverted;
+  - no test touches the real library or `local.toml` (the guard above);
+  - nothing is downloaded during the tests;
+  - existing jobs and checks are unchanged and green; ROADMAP and README are updated.
+- **Ready for M3–M7:** fixtures for a library with notes, the server, and a reader page with
+  the notes panel. Helpers to change a note on disk "as VS Code would", and to wait for the
+  panel's save state. Each later milestone adds its own test file
+  (`test_notes_panel.py`, `test_notes_saving.py`, `test_preview_math.py`, `test_quotes.py`,
+  `test_references.py`).
+- **Results (2026-11-07):**
+  - **Files:**
+    - `tests/browser/`: conftest, helpers and 6 test files (31 tests plus D5 as a strict
+      expected failure);
+    - `tests/conftest.py`: plain `pytest` leaves the browser tests out, and asking for them
+      without the group gives a clear message;
+    - `pyproject.toml` (the `browser` group, marker, one warning filter) and `uv.lock`
+      (Playwright 1.64.1, pytest-playwright 0.10.0);
+    - `.github/workflows/tests.yml`:
+      - the `browser` job (20 minutes; the test step itself 15, so diagnostics are still
+        uploaded after a hang);
+      - it stops unless Edge is installed and PDF.js reports "verified 4.10.38";
+      - diagnostics are uploaded on failure or cancellation;
+      - `-rs` in the existing job.
+  - **App changes (approved):**
+    - `paths.MYLIBRARY_SETTINGS`;
+    - `library_server --no-download` (`start_setup`);
+    - `reader.py --setup-viewer` (`install_viewer`, `viewer_installed`; PDF.js 4.10.38 zip
+      SHA-256 `32bdd9c5…e6a`, 6,066,797 bytes).
+    - **The pin:** GitHub publishes no digest for this release, so the checksum was taken
+      from a fresh download. All 377 files in it equal the earlier, independent download.
+  - **Bug found and fixed:**
+    - When only the dictionary (ECDICT) was missing, `/read` opened books as plain PDFs, and
+      `viewer.html` was served without `lookup.js`.
+    - Cause: both checked "anything missing" instead of "PDF.js installed".
+    - This hit anyone whose dictionary download failed or hadn't finished.
+    - Fixed with `reader.viewer_ready()`, plus a test for it.
+  - **B18 found and fixed: search results could fall off-screen.**
+    - The lookup popup was placed once, when it opened. 📚 在我的书中 (In my books) then
+      added its results without placing it again, so for a word near the bottom of the
+      window they ended below it. Scrolling the page closes the popup, so they couldn't be
+      reached.
+    - In a window narrower than about 450 px, the popup also stuck out on the left: its
+      width rule left out its padding and borders.
+    - The fix (`lookup.js`, `lookup.css`):
+      - a `ResizeObserver` places the popup again whenever its size changes (results, the
+        add-term form, an error);
+      - `place()` adds it to the page only once, so placing it again keeps its scroll
+        position and its input's focus;
+      - its width counts the padding and borders, and it's never placed left of the window;
+      - `overscroll-behavior: contain`: the wheel at the end of a long list doesn't go on to
+        scroll the page, which would close it.
+    - Tests (`test_search.py`, all must pass):
+      - the word on a page's first or last line: the results stay in the window;
+      - a short window: the list scrolls with the wheel, also past its end, and the popup
+        stays open; the last result is clicked, and another opened with Enter;
+      - a 380 px window: the popup fits across.
+    - On the old code, the bottom-line, short-window and narrow-window tests fail. The
+      top-line one passes on both, as a control.
+  - **D5's expected failure is narrowed:** it accepts only an exception that the test raises
+    for D5's exact symptom (the PDF holds the second tab's mark, not the first's). Any other
+    error, including an `AssertionError` in a setup step, fails the test.
+  - **Also added to the normal suite:**
+    - a symlink in a notes folder is refused (skipped where Windows doesn't allow creating
+      it, as on the development PC);
+    - a notes folder that is itself a junction works;
+    - a hard-linked note is never written through;
+    - an in-place edit by another editor is detected;
+    - the settings variable, `--no-download`, and the viewer install (checksum, unsafe
+      names, failed update).
+  - **Isolation:** the server runs from a temporary folder, with temporary settings, home and
+    AppData. Its library is checked before every test, and nothing is downloaded during the
+    tests.
+  - **Clean environment:** a fresh copy with no `.cache` and no `library/` (after the B18 fix):
+    - plain `pytest` without the browser group (Playwright not installed): 254 passed,
+      1 skipped (the symlink test). The repository's 256 include the example library's own
+      2 tests;
+    - `pytest tests/browser` without the group: the clear message;
+    - without PDF.js: the setup message;
+    - `--setup-viewer`: "verified 4.10.38", with the dictionary still missing; books open in
+      the reader all the same (the tests for it pass);
+    - the browser suite: 31 passed, D5 failing as expected.
+  - **Edge:** 157.0.4341.42 locally.
+  - **Reliability:**
+    - the first five consecutive local runs passed, each 27 passed and 2 expected failures,
+      in about 128 s;
+    - the next five, run after formatting, failed 3 times in `test_rapid_changes…`:
+      - cause: a new highlight stays selected, and its toolbar (🗑) sits over the next line,
+        so a drag on line 11 straight after line 10 could start on it;
+      - fixed in the test helper: unselect before drawing the next mark;
+    - five more consecutive runs then passed, and a run in a clean clone;
+    - after the B18 fix, five more consecutive runs: each 31 passed and 1 expected failure
+      (D5), in about 135 s.
+  - **Diagnostics:** shown locally on the real failures above:
+    - each failing test got a Playwright trace, a screenshot, its server log, the page
+      console and the library's file list;
+    - they contain only the generated test library and temporary paths.
+    
+    A CI artifact upload hasn't been seen yet. It needs a failing CI run, on a temporary
+    branch the user approves.
+  - **Plain `pytest`:** 256 passed, 1 skipped (the symlink test, which needs a right this PC
+    doesn't have).
 
 **M3. Split-screen layout.**
 - **Scope:** `reader_static/notes.js` and `notes.css`, injected by `reader.viewer_html` next to
@@ -1699,7 +1919,7 @@ vocabulary work without it.
 5. [ ] **Imports** *(2.13)*: BibTeX and RIS, then Zotero, matched to PDFs.
 6. [ ] **Chinese documents** *(L9)*: 第N章 (Chapter N) contents, Chinese chapter titles, a CJK
    font for the OCR text layer.
-7. [ ] **Download safety** *(2.16)*: ECDICT pinned, SHA-256 checks.
+7. [ ] **Download safety** *(2.16)*: ECDICT pinned, SHA-256 checks (PDF.js done in task 4 M2).
 8. [ ] **Two workspaces** (Book study and Paper research) as different defaults over the same
    data, once the shared reader is mature.
 

@@ -16,6 +16,7 @@ word, or drag over a phrase, to see:
 
 import argparse
 import csv
+import hashlib
 import io
 import re
 import shutil
@@ -23,6 +24,7 @@ import sqlite3
 import sys
 import tomllib
 import urllib.request
+import uuid
 import zipfile
 from datetime import date
 from functools import lru_cache
@@ -40,7 +42,16 @@ GLOSSARIES = LIBRARY / "glossaries"
 GLOSSARY_CONFIG = GLOSSARIES / "glossaries.toml"
 STATIC = Path(__file__).resolve().parent / "reader_static"
 
-PDFJS_URL = "https://github.com/mozilla/pdf.js/releases/download/v4.10.38/pdfjs-4.10.38-dist.zip"
+PDFJS_VERSION = "4.10.38"
+PDFJS_URL = (
+    f"https://github.com/mozilla/pdf.js/releases/download/v{PDFJS_VERSION}/"
+    f"pdfjs-{PDFJS_VERSION}-dist.zip"
+)
+# The release zip, checked before it's installed. Taken 2026-11-07 from GitHub (which publishes
+# no digest for this release) and confirmed against an earlier download: all 377 files equal.
+PDFJS_SHA256 = "32bdd9c5198b77dbaa8f02de81f34476888b3abdd64b9fb5f607f81f01487e6a"
+PDFJS_SIZE = 6_066_797
+PDFJS_MARKER = ".myLibrary-pdfjs.txt"  # in an installed viewer: its version and zip checksum
 ECDICT_URL = "https://raw.githubusercontent.com/skywind3000/ECDICT/master/ecdict.csv"
 
 CONTENT_TYPES = {
@@ -58,6 +69,12 @@ CONTENT_TYPES = {
 
 
 # --- one-time setup -----------------------------------------------------------------------
+
+
+def viewer_ready() -> bool:
+    """PDF.js is installed, so books open in the reading view. The dictionary is optional:
+    without it lookups find only the glossaries, but the reader works."""
+    return (PDFJS / "web" / "viewer.html").exists()
 
 
 def missing() -> list[str]:
@@ -101,17 +118,76 @@ def build_dictionary(csv_path: Path, db_path: Path) -> int:
     return count
 
 
+def _check_zip(z: zipfile.ZipFile) -> None:
+    """A PDF.js release zip: no file may land outside the folder, and the viewer must be in it."""
+    names = z.namelist()
+    for name in names:
+        parts = Path(name).parts
+        if name.startswith(("/", "\\")) or ".." in parts or ":" in name:
+            raise ValueError(f"the PDF.js archive has an unsafe file name: {name!r}")
+    for needed in ("web/viewer.html", "web/viewer.mjs", "build/pdf.mjs", "build/pdf.worker.mjs"):
+        if needed not in names:
+            raise ValueError(f"the PDF.js archive lacks {needed}")
+
+
+def install_viewer(zip_path: Path) -> None:
+    """Install PDF.js from its release zip, after checking its size, SHA-256 and contents.
+    The new viewer is unpacked beside the old one and only then swapped in, so a wrong or
+    broken download leaves a working viewer as it was."""
+    data = zip_path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if len(data) != PDFJS_SIZE or digest != PDFJS_SHA256:
+        raise ValueError(
+            f"the PDF.js download isn't the expected file ({len(data):,} bytes, SHA-256 "
+            f"{digest[:16]}…; expected {PDFJS_SIZE:,} bytes, {PDFJS_SHA256[:16]}…)"
+        )
+    new = CACHE / f"pdfjs.new-{uuid.uuid4().hex[:8]}"
+    old = CACHE / f"pdfjs.old-{uuid.uuid4().hex[:8]}"
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            _check_zip(z)
+            z.extractall(new)
+        (new / PDFJS_MARKER).write_text(f"{PDFJS_VERSION}\n{PDFJS_SHA256}\n", encoding="utf-8")
+        if PDFJS.exists():
+            PDFJS.replace(old)
+        new.replace(PDFJS)
+    except BaseException:
+        if old.exists() and not PDFJS.exists():
+            old.replace(PDFJS)  # put the working viewer back
+        raise
+    finally:
+        shutil.rmtree(new, ignore_errors=True)
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def viewer_installed() -> str:
+    """How the installed viewer was checked: "verified <version>", "unverified" (installed
+    before checksums), or "" when there's none."""
+    if not (PDFJS / "web" / "viewer.html").exists():
+        return ""
+    marker = PDFJS / PDFJS_MARKER
+    lines = marker.read_text(encoding="utf-8").split() if marker.exists() else []
+    return f"verified {lines[0]}" if lines[1:2] == [PDFJS_SHA256] else "unverified"
+
+
+def setup_viewer() -> None:
+    """Download and install PDF.js (pinned version, checksum checked) unless it's there."""
+    if viewer_installed():
+        print(f"  PDF viewer already installed ({viewer_installed()})")
+        return
+    CACHE.mkdir(parents=True, exist_ok=True)
+    zip_path = CACHE / f"pdfjs-{PDFJS_VERSION}-dist.zip"
+    try:
+        _download(PDFJS_URL, zip_path)
+        install_viewer(zip_path)
+    finally:
+        zip_path.unlink(missing_ok=True)
+    print(f"  PDF viewer ready (PDF.js {PDFJS_VERSION}, checksum verified)")
+
+
 def setup() -> None:
     CACHE.mkdir(parents=True, exist_ok=True)
-    if not (PDFJS / "web" / "viewer.html").exists():
-        zip_path = CACHE / "pdfjs.zip"
-        if not zip_path.exists():
-            _download(PDFJS_URL, zip_path)
-        shutil.rmtree(PDFJS, ignore_errors=True)
-        with zipfile.ZipFile(zip_path) as z:
-            z.extractall(PDFJS)
-        zip_path.unlink()
-        print("  PDF viewer ready")
+    setup_viewer()
     if not DICT_DB.exists():
         csv_path = CACHE / "ecdict.csv"
         if not csv_path.exists():
@@ -653,10 +729,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     paths.add_argument(parser)
     parser.add_argument("--setup", action="store_true", help="download the viewer + dictionary")
+    parser.add_argument(
+        "--setup-viewer",
+        action="store_true",
+        help="download and install only the PDF viewer (PDF.js), checksum verified",
+    )
     parser.add_argument("word", nargs="*", help="look up a word or phrase")
     args = parser.parse_args()
     if sys.stdout.encoding.lower() != "utf-8":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    if args.setup_viewer:
+        setup_viewer()
+        return
     if args.setup or not args.word:
         setup() if missing() else print("Reading view is set up.")
     if args.word:

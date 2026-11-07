@@ -44,3 +44,6 @@ Thumbs.db
 
 # The ready-to-use package, built by scripts/build_package.py
 dist/
+
+# A failing browser test's trace, screenshot and logs (pytest-playwright --output)
+test-results/

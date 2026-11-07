@@ -59,3 +59,51 @@ def test_settings_saved_with_defaults(tmp_path, monkeypatch):
         paths.save_settings({"editor": "emacs"})
     with pytest.raises(ValueError):
         paths.save_settings({"colour": "blue"})
+
+
+# --- MYLIBRARY_SETTINGS: another settings file (tests, a desktop wrapper) ---------------------
+
+
+def _paths_in_subprocess(tmp_path, settings: str | None):
+    """Import paths in a fresh Python with MYLIBRARY_SETTINGS set (or not): the variable is
+    read at import, before anything else could read the usual settings."""
+    import os
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k not in (paths.ENV_VAR, paths.SETTINGS_VAR)}
+    env["PYTHONPATH"] = str(paths.APP / "scripts")
+    if settings is not None:
+        env[paths.SETTINGS_VAR] = settings
+    code = "import paths; print(paths.SETTINGS_FILE); print(paths.LIBRARY)"
+    return subprocess.run(
+        [sys.executable, "-c", code], env=env, cwd=tmp_path, capture_output=True, text=True
+    )
+
+
+def test_a_settings_file_named_by_the_environment(tmp_path):
+    real = paths.APP / "local.toml"
+    before = real.stat().st_mtime_ns if real.exists() else None
+    settings = tmp_path / "settings.toml"
+    settings.write_text(f"library = '{(tmp_path / 'lib').as_posix()}'\n", encoding="utf-8")
+    run = _paths_in_subprocess(tmp_path, str(settings))
+    assert run.returncode == 0, run.stderr
+    file, library = run.stdout.splitlines()
+    assert file == str(settings.resolve()) and library == str((tmp_path / "lib").resolve())
+    # relative to where the program starts
+    run = _paths_in_subprocess(tmp_path, "settings.toml")
+    assert run.stdout.splitlines()[0] == str(settings.resolve())
+    assert (real.stat().st_mtime_ns if real.exists() else None) == before  # not touched
+
+
+def test_a_missing_settings_file_stops_instead_of_using_the_usual_one(tmp_path):
+    for named in (tmp_path / "nowhere.toml", tmp_path):  # missing, or a folder
+        run = _paths_in_subprocess(tmp_path, str(named))
+        assert run.returncode != 0 and run.stdout == ""
+        assert paths.SETTINGS_VAR in run.stderr and "doesn't exist" in run.stderr
+
+
+def test_without_the_variable_the_usual_settings_file(tmp_path):
+    run = _paths_in_subprocess(tmp_path, None)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.splitlines()[0] == str(paths.APP / "local.toml")

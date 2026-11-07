@@ -492,7 +492,7 @@ def test_an_interrupted_rename_is_put_back_at_the_next_start(library):
 
 def test_a_lasting_link_opens_the_document_whatever_its_name(library, monkeypatch):
     # The reading view (PDF.js) is set up; a fresh checkout (CI) doesn't download it
-    monkeypatch.setattr(library_server.reading_view, "missing", lambda: [])
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: True)
     doc = registered(library, "doe-2015-x", "Practical Optics")
     add_book.rename_document(doc, "doe-2015-practical-optics")
     removed = registered(library, "roe-2020-y", "Gone")
@@ -540,7 +540,7 @@ def test_a_lasting_link_opens_the_document_whatever_its_name(library, monkeypatc
 def test_without_the_reading_view_a_lasting_link_opens_the_plain_pdf(library, monkeypatch):
     """PDF.js not set up yet (a fresh checkout, or its download still running): the browser's
     own PDF viewer opens the file at the page. No reader address, so no id, search or preview."""
-    monkeypatch.setattr(library_server.reading_view, "missing", lambda: ["PDF.js"])
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: False)
     doc = registered(library, "doe-2015-practical-optics", "Practical Optics")
     server = ThreadingHTTPServer(("127.0.0.1", 0), library_server.Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()

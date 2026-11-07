@@ -33,7 +33,11 @@
     return e;
   }
 
+  let sizeWatch = null;
+
   function closeAll() {
+    sizeWatch?.disconnect();
+    sizeWatch = null;
     popup?.remove();
     bubble?.remove();
     popup = bubble = null;
@@ -58,10 +62,11 @@
   }
 
   function place(box, rect) {
-    document.body.append(box);
+    // Only added once: moving it again would reset its scroll and take the focus from its input
+    if (box.parentNode !== document.body) document.body.append(box);
     const w = box.offsetWidth;
     const h = box.offsetHeight;
-    let left = Math.min(Math.max(8, rect.left), innerWidth - w - 8);
+    let left = Math.max(8, Math.min(rect.left, innerWidth - w - 8));  // never off the left edge
     let top = rect.bottom + 6;
     if (top + h > innerHeight - 8) top = Math.max(8, rect.top - h - 6);
     box.style.left = `${left}px`;
@@ -331,15 +336,19 @@
     popup = el("div", "ml-popup");
     popup.append(biEl("div", "ml-muted", "查询中…", "Looking up…"));
     place(popup, rect);
+    // Placed again whenever it grows or shrinks (search results, the add-term form, an error),
+    // so it stays inside the window (B18); taller than 70vh, it scrolls
+    const box = popup;
+    sizeWatch = new ResizeObserver(() => { if (popup === box) place(box, rect); });
+    sizeWatch.observe(box);
     let data;
     try {
       data = await post("/api/lookup", { text, context, id: docId });
     } catch (e) {
-      popup.replaceChildren(biEl("div", "ml-error", "查询失败", "Lookup failed: " + e.message));
+      if (popup === box) box.replaceChildren(biEl("div", "ml-error", "查询失败", "Lookup failed: " + e.message));
       return;
     }
-    if (!popup) return; // closed while waiting
-    const box = popup;
+    if (popup !== box) return; // closed (or replaced) while waiting
     box.replaceChildren();
 
     const head = el("div", "ml-head");
@@ -420,7 +429,7 @@
     }
     if (/\s/.test(text)) actions.append(translateLink(text));
     box.append(actions);
-    place(box, rect); // re-place now that the size is known
+    place(box, rect); // now that the size is known (the size watch does it for later changes)
   }
 
   document.addEventListener("dblclick", (event) => {

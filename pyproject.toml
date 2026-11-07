@@ -37,6 +37,14 @@ optics = [
     "optiland>=0.6.3",  # lens design: ray tracing, aberrations, optimization
     "rayoptics>=0.9.10",  # reads Zemax .zmx and CODE V .seq files
 ]
+# The reader's browser tests (tests/browser/, in Microsoft Edge): not installed by default.
+#   uv sync --group browser
+#   uv run pytest tests/browser
+# Exact versions are pinned in uv.lock.
+browser = [
+    "playwright>=1.64.1",
+    "pytest-playwright>=0.10.0",
+]
 
 [tool.uv]
 package = false  # the tool is a set of scripts, not an installable package
@@ -56,3 +64,10 @@ select = ["E", "F", "I", "UP", "B"]
 # The tool's tests, plus the tests of your own code in the library (library/code/tests)
 testpaths = ["tests", "library/code/tests"]
 pythonpath = ["scripts", "library/code"]
+markers = [
+    "browser: a test in a real browser (tests/browser/; run with `uv run pytest tests/browser`)",
+]
+filterwarnings = [
+    # pytest-playwright 0.10's own base_url fixture (not ours); remove once it's updated
+    "ignore:Session-scoped fixtures defined as instance methods:pytest.PytestRemovedIn10Warning",
+]

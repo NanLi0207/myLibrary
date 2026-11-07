@@ -33,9 +33,13 @@
   font: 14px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 .ml-popup {
-  width: min(420px, calc(100vw - 16px));
+  /* 420px of content; in a narrow window, the whole box (with 2 x 12px padding and the
+     1px borders) leaves 8px each side */
+  width: min(420px, calc(100vw - 16px - 26px));
   max-height: 70vh;
   overflow: auto;
+  /* At the end of a long list, the wheel doesn't go on to scroll the page (which closes it) */
+  overscroll-behavior: contain;
   padding: 10px 12px;
 }
 .ml-bubble {
