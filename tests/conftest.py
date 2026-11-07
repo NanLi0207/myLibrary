@@ -1,4 +1,5 @@
 import importlib.util
+import time
 from pathlib import Path
 
 import book_ocr
@@ -49,6 +50,32 @@ def no_writes_to_real_project(tmp_path, monkeypatch):
     monkeypatch.setattr(book_ocr, "CACHE_DIR", tmp_path / ".cache" / "ocr")
     # No subject lookups online in tests (a test that needs one gives its own answer)
     monkeypatch.setattr(subjects, "lookup", lambda row: {})
+
+
+JOB_WAIT = 30  # seconds a test's background jobs get to finish after it
+
+
+@pytest.fixture(autouse=True)
+def background_jobs_end_with_the_test(no_writes_to_real_project):
+    """A job a test started in the background (library_jobs, e.g. Refresh's subject lookups)
+    finishes before the test's redirections are undone. Otherwise it could finish its writes
+    (library.html, the catalog) in the real library. Teardown runs before the monkeypatches'
+    because this fixture uses the one that sets them. Regression test: test_test_isolation.py."""
+    yield
+    with library_jobs._lock:  # (released before waiting: a finishing job needs the lock)
+        running = list(library_jobs._threads)
+    end = time.monotonic() + JOB_WAIT
+    for thread in running:
+        thread.join(max(0.0, end - time.monotonic()))
+    if late := [t.name for t in running if t.is_alive()]:
+        # Ask it to stop, then end the whole run: a job still running after the redirections
+        # are undone could write into the real library, so no test may run on beside it
+        library_jobs.shutdown(timeout=5)
+        pytest.exit(
+            f"background job {late} didn't finish within {JOB_WAIT} s of its test; "
+            "the test run stops so it can't write outside the test's library",
+            returncode=3,
+        )
 
 
 @pytest.fixture(autouse=True)

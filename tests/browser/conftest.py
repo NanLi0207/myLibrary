@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -179,11 +180,32 @@ def library(tmp_path) -> Library:
 # --- the server ----------------------------------------------------------------------------------
 
 
-class Server:
-    """A myLibrary server for one temporary library, as a subprocess."""
+# The test server's port: chosen here, from the dynamic/private range (IANA, 49152-65535).
+# Browsers refuse some lower ports (Chromium's "unsafe" ports, e.g. 2049 for NFS, all below
+# 10080), and Windows may hand out any free port from 1024 up when asked for one (--port 0),
+# so a test could fail with ERR_UNSAFE_PORT. No list of those ports to keep up to date.
+SAFE_PORTS = range(49152, 65536)
+START_ATTEMPTS = 5  # server starts (not test runs): a port can be taken meanwhile
 
-    def __init__(self, library: Library, home: Path, wait_for_index: bool):
+
+def browser_safe(port: int) -> bool:
+    return port in SAFE_PORTS
+
+
+def random_ports():
+    rng = random.Random()
+    while True:
+        yield rng.choice(SAFE_PORTS)
+
+
+class Server:
+    """A myLibrary server for one temporary library, as a subprocess, on a browser-safe port.
+    A start that fails (the port was taken meanwhile) is cleaned up and tried again on another
+    port, at most START_ATTEMPTS times in all; the test itself is never run again."""
+
+    def __init__(self, library: Library, home: Path, wait_for_index: bool, ports=None):
         self.library = library
+        self.home = home
         self.log_path = home / "server.log"
         settings = home / "settings.toml"
         settings.write_text("# browser test settings: nothing set\n", encoding="utf-8")
@@ -197,39 +219,78 @@ class Server:
             "PYTHONUNBUFFERED": "1",
             "PYTHONIOENCODING": "utf-8",
         }
-        command = [sys.executable, "-u", str(SERVER), "--library", str(library.root),
-                   "--port", "0", "--no-browser", "--no-download"]  # fmt: skip
+        self.env = env
+        self.lines: list[str] = []
+        self.attempts: list[subprocess.Popen] = []  # every server process started
+        tried = []
+        candidates = iter(random_ports() if ports is None else ports)
+        for _ in range(START_ATTEMPTS):
+            port = next(candidates)
+            if not browser_safe(port):
+                tried.append(f"{port}: refused by browsers, not started")
+                continue
+            if self._start(port):
+                break
+            tried.append(f"{port}: {self.lines[-1] if self.lines else 'no output'}")
+        else:
+            pytest.fail(
+                f"the myLibrary test server didn't start in {START_ATTEMPTS} attempts:\n"
+                + "\n".join(tried)
+            )
+        try:
+            assert browser_safe(self.port), self.port
+            if wait_for_index and not self._indexed.wait(60):
+                pytest.fail(f"the server's full-text index wasn't ready:\n{self.log()}")
+            self._check_library()
+        except BaseException:
+            self.stop()  # never left running when the test can't use it
+            raise
+
+    def _start(self, port: int) -> bool:
+        """One server process on `port`; True once it serves there. A failed one is stopped
+        (and waited for) before this returns False."""
+        header = f"--- starting on port {port}"
+        self.lines.append(header)
+        command = [sys.executable, "-u", str(SERVER), "--library", str(self.library.root),
+                   "--port", str(port), "--no-browser", "--no-download"]  # fmt: skip
         self.process = subprocess.Popen(
             command,
-            cwd=home,  # not the tool's folder: nothing may depend on where it's started
-            env=env,
+            cwd=self.home,  # not the tool's folder: nothing may depend on where it's started
+            env=self.env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             encoding="utf-8",
             errors="replace",
         )
-        self.lines: list[str] = []
-        self._ready = threading.Event()
+        self.attempts.append(self.process)
+        self._ready = threading.Event()  # its "myLibrary at" line came
+        self._settled = threading.Event()  # that line came, or its output ended
         self._indexed = threading.Event()
-        threading.Thread(target=self._read_output, daemon=True).start()
-        if not self._ready.wait(30) or self.process.poll() is not None:
-            self.stop()
-            pytest.fail(f"the myLibrary server didn't start:\n{self.log()}")
-        if wait_for_index and not self._indexed.wait(60):
-            pytest.fail(f"the server's full-text index wasn't ready:\n{self.log()}")
-        self._check_library()
+        reader = threading.Thread(target=self._read_output, args=(self.process, header))
+        reader.daemon = True
+        reader.start()
+        self._settled.wait(30)
+        if self._ready.is_set() and self.process.poll() is None and self.port == port:
+            return True
+        if self.process.poll() is None:
+            self.process.kill()
+        self.process.wait(10)
+        return False
 
-    def _read_output(self) -> None:
-        with open(self.log_path, "w", encoding="utf-8") as log:
-            for line in self.process.stdout:
+    def _read_output(self, process: subprocess.Popen, header: str) -> None:
+        with open(self.log_path, "a", encoding="utf-8") as log:
+            log.write(header + "\n")
+            for line in process.stdout:
                 log.write(line)
                 log.flush()
                 self.lines.append(line.rstrip())
-                if m := re.search(r"myLibrary at (http://127\.0\.0\.1:\d+)", line):
-                    self.base = m[1]
+                if m := re.search(r"myLibrary at (http://127\.0\.0\.1:(\d+))", line):
+                    self.base, self.port = m[1], int(m[2])
                     self._ready.set()
+                    self._settled.set()
                 if "full-text index" in line:
                     self._indexed.set()
+        self._settled.set()  # the process ended (a failed start says why in its last line)
 
     def log(self) -> str:
         return "\n".join(self.lines[-80:])
@@ -262,9 +323,10 @@ class Server:
                 self.process.wait(10)
             except Exception:
                 pass
-        if self.process.poll() is None:
-            self.process.kill()
-            self.process.wait(10)
+        for process in self.attempts:  # every one started, should a failed start remain
+            if process.poll() is None:
+                process.kill()
+                process.wait(10)
 
 
 @pytest.fixture

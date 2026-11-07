@@ -1489,6 +1489,48 @@ the end of M2. M2 is complete once CI is green.
     ticking chapters, add_book, merging repeats, backups) needs its own containment
     audit, as a separate task.
   - **Not yet verified:** the symlink tests, until the next CI run shows them passing.
+  - **A test isolation bug, found while checking the real library after the fix:**
+    - In 2 of 5 full `pytest` runs, the real `library/library.html` was rebuilt. That's the
+      static page, gitignored and rebuilt by the tool. The catalog, notes and PDFs were
+      unchanged.
+    - Cause: three Refresh tests in `test_library_jobs.py` started a background job (subject
+      lookups) and didn't wait for it.
+    - When such a job outlived its test, the test's redirections (`library_page.PAGE`, the
+      catalog paths, the `subjects.lookup` stub) were already undone. The job's last step then
+      built the real page.
+    - It could equally have written the real catalog or asked OpenAlex.
+    - Found with diagnostic runs that logged threads alive after each test, and every page
+      build aimed at the real file.
+    - Fixed in `tests/conftest.py`: `background_jobs_end_with_the_test` waits for a test's
+      background jobs before its redirections are undone, up to `JOB_WAIT` (30 s).
+    - A job still running after that is asked to stop (`library_jobs.shutdown`), and the
+      whole run ends (`pytest.exit`), so no job outlives its test's redirections.
+    - Regression test: `tests/test_test_isolation.py`. It runs small sessions with a copy of
+      the real `conftest.py`:
+      - a slow job must still see its own test's library;
+      - an endless job must stop the run.
+      Without the fixture, both fail.
+    - Three full runs since: no job outlived its test, and the real page wasn't touched.
+  - **A browser-test port bug, found in the final checks:**
+    - One test failed with `ERR_UNSAFE_PORT`: its test server had been given port 2049
+      (NFS), which Chromium-based browsers refuse.
+    - Cause: the server was started with `--port 0`, and Windows hands out any free port. On
+      the development PC that range starts at 1024; on GitHub's runners it's 49152–65535,
+      so CI wasn't affected.
+    - Fixed in `tests/browser/conftest.py`: the harness picks the port itself, at random,
+      from 49152–65535. That's above every port browsers refuse, so there's no blocklist to
+      maintain.
+    - A start that fails (the port was taken meanwhile) is stopped, waited for and tried on
+      another port, `START_ATTEMPTS` (5) times in all. Then the test fails, with every
+      attempt listed.
+    - Only the server start is retried, never a test.
+    - `stop()` ends every process the harness started, and a server that started but can't
+      be used is stopped.
+    - Tests (`tests/browser/test_test_server.py`):
+      - a blocked port is refused and never started;
+      - a safe port is used, and Edge opens it;
+      - an occupied port is left for the next one, with the failed start ended;
+      - the attempts are limited, and none is left running.
 
 **M3. Split-screen layout.**
 - **Scope:** `reader_static/notes.js` and `notes.css`, injected by `reader.viewer_html` next to
