@@ -201,6 +201,8 @@ def test_save_position_writes_and_updates_one_line(chapter_pages):
 
 def test_continue_opens_last_page_and_its_chapter(chapter_pages, monkeypatch):
     slug = doc(chapter_pages)
+    # The reading view (PDF.js) is set up; a fresh checkout (CI) doesn't download it
+    monkeypatch.setattr(library_server.reading_view, "missing", lambda: [])
     (chapter_pages / "books").mkdir()
     (chapter_pages / "books" / f"{NAME}.pdf").write_bytes(b"%PDF-1.4")
     (chapter_pages / "notes" / NAME / "ch02-aberrations.md").write_text("# Ch 2\n")

@@ -490,7 +490,9 @@ def test_an_interrupted_rename_is_put_back_at_the_next_start(library):
     assert not journal.exists()
 
 
-def test_a_lasting_link_opens_the_document_whatever_its_name(library):
+def test_a_lasting_link_opens_the_document_whatever_its_name(library, monkeypatch):
+    # The reading view (PDF.js) is set up; a fresh checkout (CI) doesn't download it
+    monkeypatch.setattr(library_server.reading_view, "missing", lambda: [])
     doc = registered(library, "doe-2015-x", "Practical Optics")
     add_book.rename_document(doc, "doe-2015-practical-optics")
     removed = registered(library, "roe-2020-y", "Gone")

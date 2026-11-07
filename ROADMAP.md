@@ -18,15 +18,18 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
 **Status (2026-11-07):**
 - **Tasks 1 and 2** are committed and pushed (`419a46f`, `ad47aff`); Windows CI passed.
 - **Task 3** (UUID-only identity, indexing reliability, search-result highlighting, correcting
-  marks, Undo / Redo, Preview Mode, persistence audit) is complete.
-  - The user's manual browser tests passed 9 of 10. The 10th, search navigation, led to the
-    highlighting below, which passes 11 of 11 automated real-browser checks.
-  - The user then asked for more: removing marks, Undo / Redo for marks, and a Preview Mode
-    for search results. All pass their automated real-browser checks (see the end of task 3)
-    and wait for the user's own confirmation.
-  - 212 tests pass.
-  - Not committed yet; the real library is migrated and verified.
-- **Next:** commit and push task 3 (two commits) once approved, then task 4.
+  marks, Undo / Redo, Preview Mode, persistence audit) is committed and pushed: `5b82b6d`
+  (code, tests, docs) and `17dd9c4` (the migrated example data).
+  - The user's manual acceptance tests passed, including the six persistence checks.
+  - The real library is migrated and verified; the migration backup stays local in
+    `library/.myLibrary/`.
+  - **CI failure, then fixed in a follow-up commit:**
+    - Two tests failed on CI: `test_a_lasting_link_opens_the_document_whatever_its_name` and
+      `test_continue_opens_last_page_and_its_chapter`.
+    - They assumed PDF.js was installed, which a fresh checkout never is. Without it, the app
+      rightly links to the bare PDF.
+    - The tests now say the reading view is set up. All 213 tests pass in a clean clone.
+- **Next:** task 4, once its plan is reviewed.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
 
 ---
@@ -677,7 +680,7 @@ leaves everything else working. A task is done only when its tests pass.
   - `has_marks` reads every page's annotations: slow for very large PDFs, and only done when
     a replacement is considered.
 
-### Task 3. Permanent document ids: UUID-only identity *(prerequisite for tasks 4–6)*: complete, to be committed
+### Task 3. Permanent document ids: UUID-only identity *(prerequisite for tasks 4–6)*: done, committed `5b82b6d`, `17dd9c4`
 
 **Decisions** (user, 2026-11-06):
 - **One identity model.** No old slug system alongside it and no compatibility layer.
@@ -1122,9 +1125,9 @@ jobs.
 - **Note:** clicking Save now unselects a new highlight, and PDF.js then stores it slightly
   differently. So a second, short save can follow; closing during it warns, as it should.
 
-**Not yet done (needs approval):**
+**Finishing:**
 - [x] Apply the migration to the real `library/` (done and verified; `--check` clean).
-- [ ] Commit the code (one commit) and the migrated example data (a separate commit:
+- [x] Commit the code (`5b82b6d`) and the migrated example data (`17dd9c4`:
       `library/catalog.csv` and `library/notes/reading-log.json`, the latter including the
       uncommitted reading data), then push both together.
 
