@@ -47,6 +47,7 @@ import find_online
 import folder_backup
 import library_jobs
 import library_page
+import notes_store
 import paths
 import reader as reading_view
 import reading_log
@@ -674,6 +675,32 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(HTTPStatus.OK, pdf.read_bytes(), "application/pdf")
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
 
+    def _notes(self, doc_id: str, body: dict):
+        """/api/notes/list {id}, /api/notes/get {id, key}, /api/notes/save {id, key, text,
+        base[, overwrite]}. A save based on an old version answers 409 with the note as it is
+        now, and writes nothing (notes_store.save)."""
+        row = catalog.load(CATALOG)[doc_id]
+        if self.path == "/api/notes/list":
+            return self._json(HTTPStatus.OK, {"notes": notes_store.entries(LIBRARY, row)})
+        if self.path == "/api/notes/get":
+            return self._json(HTTPStatus.OK, notes_store.read(LIBRARY, row, body.get("key")))
+        if self.path == "/api/notes/save":
+            # base: the version the text was read at; null for a note that didn't exist yet
+            base = body.get("base", "missing")
+            if base is not None and not (isinstance(base, str) and len(base) == 64):
+                return self._json(HTTPStatus.BAD_REQUEST, {"error": "no base version"})
+            overwrite = body["overwrite"] if "overwrite" in body else notes_store.NOT_GIVEN
+            try:
+                saved = notes_store.save(
+                    LIBRARY, row, body.get("key"), body.get("text"), base, overwrite=overwrite
+                )
+            except notes_store.Conflict as conflict:
+                return self._json(
+                    HTTPStatus.CONFLICT, {"error": str(conflict), "current": conflict.current}
+                )
+            return self._json(HTTPStatus.OK, saved)
+        return self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
+
     def _body(self, length: int) -> bytes:
         """The request's whole body. A body cut short (the tab closed while it was being sent)
         is refused: half a PDF must never be written over the library's copy."""
@@ -787,6 +814,8 @@ class Handler(BaseHTTPRequestHandler):
                 resume = body.get("resume") is True
                 message = open_chapter(doc_id, chapter, self.base_url, resume)
                 return self._json(HTTPStatus.OK, {"message": message})
+            if self.path.startswith("/api/notes/"):  # the reader's notes panel (notes_store)
+                return self._notes(doc_id, body)
             if self.path == "/api/open-notes":
                 notes = library_page.readme_path(doc_id)
                 if (notes.parent / "notes.md").exists():  # a paper: its one notes file

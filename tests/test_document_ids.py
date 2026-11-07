@@ -537,6 +537,35 @@ def test_a_lasting_link_opens_the_document_whatever_its_name(library, monkeypatc
         server.shutdown()
 
 
+def test_without_the_reading_view_a_lasting_link_opens_the_plain_pdf(library, monkeypatch):
+    """PDF.js not set up yet (a fresh checkout, or its download still running): the browser's
+    own PDF viewer opens the file at the page. No reader address, so no id, search or preview."""
+    monkeypatch.setattr(library_server.reading_view, "missing", lambda: ["PDF.js"])
+    doc = registered(library, "doe-2015-practical-optics", "Practical Optics")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), library_server.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_port}"
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kw):
+            return None
+
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with pytest.raises(urllib.error.HTTPError) as moved:
+            opener.open(f"{base}/read/{doc}?page=7&find=pupil&preview=1", timeout=5)
+        assert moved.value.code == 302
+        assert moved.value.headers["Location"] == (
+            f"{base}/books/doe-2015-practical-optics.pdf#page=7"
+        )
+        # ... and that address serves the PDF itself
+        with urllib.request.urlopen(moved.value.headers["Location"], timeout=5) as pdf:
+            assert pdf.headers["Content-Type"] == "application/pdf"
+            assert pdf.read().startswith(b"%PDF")
+    finally:
+        server.shutdown()
+
+
 def test_concurrent_imports_get_distinct_ids(library, monkeypatch):
     from book_meta import Meta
 

@@ -89,6 +89,41 @@ when reading/writing text.
 **Versions:** `pyproject.toml` `version` is the package version; bump it and rebuild the
 package only when the user asks for a package release.
 
+## Product direction: a desktop app later, packaging-friendly now (always apply)
+
+myLibrary is a local-first academic PDF reading, annotation and notes application. It keeps
+its Python backend and HTML/CSS/JS frontend (PDF.js, Markdown notes, SQLite and local files,
+UUID identity), and will later ship as a Windows desktop app (EXE/installer, a webview window)
+**without rewriting the interface**.
+- No Electron, React, Qt or other framework switch without a specific reason and the user's
+  approval.
+- No EXE, installer, desktop-window or licence work until the packaging milestone (ROADMAP
+  section 8).
+- Core features come first.
+
+Rules for all new code:
+- **Resources:**
+  - Find the tool's files through `paths.APP`, never the working directory or absolute
+    paths.
+  - Bundled resources are read-only: PDF.js, Markdown and maths renderers, CSS, fonts.
+  - Frontend assets are local files, pinned and checksum-verified, loaded without a network.
+    No CDNs at runtime, and no build step.
+- **User data:**
+  - Data lives only in the library (`paths.LIBRARY`) or the settings file. That covers
+    PDFs, notes, marks, vocabulary, reading history, catalog and ids, indexes and caches,
+    settings, reference metadata, and migration journals and backups.
+  - Never write into the installation folder or a temporary extraction folder.
+  - Updates and reinstalls must leave it untouched.
+  - Moving the data elsewhere later needs an explicit, verified, backed-up and reversible
+    migration, agreed first.
+- **Server:**
+  - It listens on 127.0.0.1 only, with a configurable port. The port is never part of a
+    stored identity: links are found by the `/read/<id>` path, whatever the host and port.
+  - It must keep working from a browser (development) and when started by a future desktop
+    wrapper: clean startup and shutdown, and the existing duplicate-instance check.
+- **Dependencies:** light, pinned, no global tools assumed. Without PDF.js in development,
+  the plain-PDF fallback stays.
+
 ## Tool vs. library (always keep them apart)
 
 - **The tool**: `scripts/`, `tests/`, docs, `pyproject.toml`. Its own cache (`.cache/reader/`:

@@ -29,7 +29,10 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
     - They assumed PDF.js was installed, which a fresh checkout never is. Without it, the app
       rightly links to the bare PDF.
     - The tests now say the reading view is set up. All 213 tests pass in a clean clone.
-- **Next:** task 4, once its plan is reviewed.
+- **Next:** task 4, plan approved 2026-11-07 (task 4 and section 5). M1 (notes store and
+  API) is done; M2 (browser tests in CI) is not started.
+- **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
+  section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
 
 ---
@@ -1131,25 +1134,221 @@ jobs.
       `library/catalog.csv` and `library/notes/reading-log.json`, the latter including the
       uncommitted reading data), then push both together.
 
-### Task 4. Notes panel in the reader *(2.1; design in section 5)*
+### Task 4. Reading and notes side by side *(2.1, spec 3.1; design in section 5)*: approved 2026-11-07
 
-- [ ] **New files:** `reader_static/notes.js` and `notes.css`, injected next to `lookup.js` by
-  `reader.viewer_html`.
-- [ ] **Panel:** a right-hand panel, resizable and toggled with a button and a keyboard
-  shortcut. Its width and open state are remembered in `localStorage`.
-- [ ] **Note choice:** the chapter note for the current page (`chapter_at`) is the default,
-  with a switch to the document note (`README.md` or `notes.md`) and topic notes.
-- [ ] **Editing:** Markdown in a `<textarea>` with a preview toggle.
-- [ ] **Autosave:** about 1.5 s after typing stops, and on page hide.
-- [ ] **New API:**
-  - `POST /api/note/get {id, kind, chapter}` returns `{text, stamp}`.
-  - `POST /api/note/save {..., text, stamp}` saves only if the stamp still matches, using
-    `safe_io.update_text`. Otherwise it returns `409` with the current text, and the panel
-    shows "changed in another editor: keep mine / take theirs".
-  - Paths are resolved on the server, never sent by the client.
-- [ ] **Keep "Open in editor"**, using `open_in_editor`.
-- [ ] **Tests:** round-trip; a stale stamp gives 409 and no write; a path can't escape the
-  notes folder.
+**Goal.** Read a PDF on the left and write its Markdown notes on the right, in the same browser
+tab.
+- The notes are the existing files (`notes/<slug>/*.md`, `notes/topics/*.md`), still editable
+  in VS Code.
+- A selected passage goes into the note as a quotation that links back to the exact place.
+- Saving is at least as safe as for marks (task 3): nothing is lost silently, and nothing is
+  overwritten silently.
+
+**Order.** Split screen and reliable editing first (M1–M4), then rendering (M5), then links
+(M6–M7), then polish (M8). Each milestone is committed on its own after its checks pass.
+Every milestone also reruns the regression set (section 5, *Regression set*).
+
+**M1. Notes store and API (Python only, no UI)**: done 2026-11-07.
+- **`scripts/notes_store.py`.** The library and the catalog row are passed in, so it is
+  testable and has no globals.
+  - `entries(library, row)`: the notes the panel can open:
+    - the README (and a paper's `notes.md`) as `document`;
+    - each chapter linked from the README's checklist as `chapter`, with its number, also
+      when the file isn't written yet (`exists: false`);
+    - other `.md` files in the folder as `other`;
+    - topic notes naming the document's title or id as `topic`.
+  - `read(library, row, key)` returns `{key, text, version, exists}`. The text always ends
+    lines in `\n`; `version` is the SHA-256 of the file's bytes, or `null` for a note not
+    written yet.
+  - `save(library, row, key, text, base, overwrite=…)`:
+    - it writes only if the file still has version `base`, checked and written under
+      `safe_io.lock_for` and `critical()`, atomically with fsync;
+    - otherwise it raises `Conflict(current)`, and nothing is written;
+    - "Keep mine" is explicit: `overwrite` must be the version the user was shown, and that
+      version is first copied to `archive/notes-conflicts/<place>/<name>.<time>.md`;
+    - unchanged text writes nothing.
+- **Keys, never paths:**
+  - `file:<name>.md` is a file directly in the document's notes folder (catalog `notes`
+    column);
+  - `topic:<name>` is `notes/topics/<name>.md`;
+  - anything else is refused: `..`, slashes, other extensions, hidden files, links pointing
+    out of the folder.
+  - A missing file is created only if the README links to it (a chapter note not written
+    yet), or for a topic note.
+- **Form kept:**
+  - CRLF or LF (the file's majority; `os.linesep` for a new file), a BOM, and the final
+    newline or its absence;
+  - checked read-only on the real library: every existing note of a book and a paper
+    re-encodes byte-identically.
+- **Refused, never replaced:** text that isn't UTF-8, and notes over 5 MB (open those in
+  VS Code).
+- **API** (POST, token; the id is resolved as for other per-document routes, so a merged id is
+  followed):
+  - `/api/notes/list {id}`;
+  - `/api/notes/get {id, key}`;
+  - `/api/notes/save {id, key, text, base[, overwrite]}`: `200 {version, saved, kept}`, or
+    `409 {error, current}`; a bad key, base or text gives 400.
+- **Tests:**
+  - `tests/test_notes_store.py`, 29 tests:
+    - CRLF, LF, BOM and the final newline kept; an unchanged save writes nothing;
+    - a change made meanwhile is never overwritten; "keep mine" only over the version seen,
+      archived first;
+    - the reader's own "Last read" write is detected as a change;
+    - two saves from one version: exactly one wins;
+    - a chapter note created on first save, and unlisted files not created;
+    - 13 bad keys refused; non-UTF-8 and too-large text refused;
+    - the note list;
+    - the API round trip, 409, bad requests and an unknown id.
+  - `test_without_the_reading_view_a_lasting_link_opens_the_plain_pdf` (test_document_ids):
+    the fallback without PDF.js.
+- **Limit:** an editor writing the file *outside* myLibrary's lock in the same millisecond
+  as a save can't be detected (the check and the write are milliseconds apart). The next
+  save sees the new version as a conflict.
+- **Untested edge case:** a symlink or junction inside a notes folder pointing outside it is
+  refused by `notes_store.path_of`, which resolves the path and checks it stays in the folder.
+  No test covers this yet, because creating links on Windows needs administrator rights or
+  Developer Mode. Add a regression test where links can be created (CI, M2).
+
+**M2. Browser tests in CI (closes L11 for the reader)**: not started; it begins once M1 is
+pushed and its CI passes.
+- **Scope:** the Edge checks from task 3 become pytest tests under `tests/browser/`, marked
+  `browser`:
+  - search highlighting;
+  - marks, deletion and Undo/Redo;
+  - closing with unsaved marks;
+  - Preview Mode and reading progress;
+  - `/read/<id>` navigation.
+- **Driver:** Playwright for Python, a *dev-only* dependency, using the Edge already installed
+  (`channel="msedge"`). No browser download is needed on Windows runners.
+- **CI:**
+  - a second job downloads PDF.js 4.10.38 (`reader.py --setup`, pinned, checksum checked) and
+    caches it;
+  - it runs `pytest -m browser`, with temporary libraries and generated PDFs only.
+  - Locally, `pytest` skips browser tests when Edge or PDF.js is missing.
+- **Tests:** the five task 3 areas above, with zero-delay closes where task 3 tested them.
+- **Risks:**
+  - flaky timing: tests wait for states, never for fixed delays;
+  - CI time grows by a few minutes.
+
+**M3. Split-screen layout.**
+- **Scope:** `reader_static/notes.js` and `notes.css`, injected by `reader.viewer_html` next to
+  `lookup.js`.
+  - A 📝 笔记 (Notes) button on PDF.js's toolbar, and Alt+N.
+  - A right-hand panel; a divider to drag; collapse and expand.
+  - Width and open state remembered per browser (`localStorage`, wrapped in try/catch).
+  - The note is shown read-only in this milestone.
+  - PDF.js's `#mainContainer` gets `right: <panel width>`, and a `resize` event lets PDF.js
+    re-lay the pages (page-width zoom follows).
+- **Tests (browser):**
+  - opening, closing and dragging keep the current page and zoom mode;
+  - find bar, popup, marks toolbar and Undo/Redo still work with the panel open;
+  - the narrow-window behaviour;
+  - the panel never appears without `&id=` (a bare PDF).
+- **Risks:**
+  - PDF.js's toolbar breakpoints follow the *window* width, not the viewer's. With the panel
+    open, some buttons may wrap. Mitigation: hide the same groups PDF.js hides at the smaller
+    width while the panel is open.
+  - Recheck after a PDF.js upgrade.
+
+**M4. Editing and saving.**
+- **Scope:** a `<textarea>` editor (no dependency) with:
+  - Tab and Shift+Tab indenting a line or selection;
+  - Enter continuing a list or quote;
+  - the browser's own Undo/Redo inside the text.
+
+  Saving (section 5, *Saving and conflicts*):
+  - status 未保存 (Unsaved) · 正在保存 (Saving) · 已保存 (Saved) · 保存失败 (Save failed) with
+    重试 (Retry);
+  - autosave 1.5 s after typing stops; Ctrl+S saves now;
+  - a close warning while unsaved or saving;
+  - a local draft (`localStorage`) until the server confirms;
+  - the conflict bar when the file changed on disk;
+  - switching notes saves first.
+  - "Open in VS Code" stays (`open_in_editor`).
+- **Tests:**
+  - Python: the API under concurrent saves; a 409 leaves the file untouched; an overwrite
+    after a conflict archives the disk version first.
+  - Browser:
+    - type, then close, reload or navigate at once: warned, or saved;
+    - a slow and a failing server: the states shown, Retry;
+    - a change in VS Code meanwhile (simulated by writing the file): the conflict bar, and
+      both texts kept;
+    - switching notes with unsaved text;
+    - a crash before saving (the tab killed): the draft is offered on reopening;
+    - rapid typing: the final text is on disk.
+- **Risks:**
+  - VS Code open on the same file with unsaved edits (L14): VS Code detects the newer file
+    when it saves;
+  - Ctrl+S and Alt shortcuts must not collide with PDF.js, the browser or the IME.
+
+**M5. Preview: Markdown, equations, links.**
+- **Scope:** an 编辑 / 预览 (Edit / Preview) switch, with Alt+P.
+  - **Rendering:** markdown-it with `html: false`, so raw HTML in a note is shown as text,
+    never run.
+  - **Equations:** KaTeX for `$…$`, `$$…$$`, `\(...\)` and `\[...\]` (the forms VS Code's
+    preview shows).
+  - **Links:**
+    - `/read/<id>` links are handled in the reader (M7);
+    - links to other notes switch the panel;
+    - other links open in a new tab.
+  - **Delivery:** both libraries are downloaded by `reader.py --setup` into `.cache/reader/`
+    like PDF.js. They are pinned, checked against SHA-256, and copied into the package with
+    their licences (MIT). Without them, the preview shows the plain text with a note.
+- **Tests:**
+  - browser: headings, lists, a code block, inline and display maths, a table, a link;
+    `<script>` in a note isn't run;
+  - Python: the setup checksum, and offline behaviour.
+- **Risks:** about 1 MB more in the package (mostly KaTeX fonts).
+
+**M6. Quote to note (PDF → note).**
+- **Scope:** 引用到笔记 (Quote to note) in the selection bubble, and Alt+Q.
+  - It inserts a quotation with its source link at the cursor of the open note, or at its end
+    (format in section 5).
+  - It records the anchor privately in `.myLibrary/references/<id>.json`
+    (`safe_io.update_json`; see *Decisions*).
+  - On a page without a text layer (a scan without OCR), 引用此页 (Reference this page) gives
+    a page link without quoted text.
+- **Tests:**
+  - browser: a quote from one line; one across lines and spans; a hyphenated line end;
+    ligatures; Greek letters and symbols; a quote on a page where the same words occur
+    twice; a page without text;
+  - Python: the references file (concurrent writes, damage → `.bak`, never replaced).
+- **Risks:** the copyright and public-repository question (section 5, *Decisions*).
+
+**M7. Back to the passage (note → PDF).**
+- **Scope:**
+  - clicking a source link in Preview, or Ctrl+click on one in the editor, goes there:
+    - same document: it moves within the open reader;
+    - another document: it opens in a new tab in Preview Mode (a look-up, not reading);
+  - the passage gets a temporary yellow outline, on screen only, never written into the PDF;
+  - `/read/<id>?page=N&ref=<rid>` from outside (VS Code, the library page) does the same.
+- **Finding the passage:** section 5, *Finding the passage again*. A notice says when only the
+  page could be found, or when the PDF has changed since the quote.
+- **Tests (browser):**
+  - the exact passage (same words twice on the page: the right one);
+  - text split over spans;
+  - a missing references file (falls back to `q=` text, then the page);
+  - a PDF with marks saved since (still found);
+  - a deleted document (the tombstone message, as for `/read`).
+- **Risks:** PDF.js upgrades may change text extraction. Matching is fuzzy at the edges and
+  falls back to the page, so such a change degrades the result rather than breaking it.
+
+**M8. Polish and finish.**
+- When reading moves into another chapter, a small chip offers that chapter's note. It never
+  switches by itself while you type.
+- Topic notes in the note list.
+- The behaviour on small screens.
+- The help line, README and CLAUDE.md updated; the package built and tested unzipped (as
+  CLAUDE.md describes).
+
+**Deferred to task 5** (needs `/NM` stability first):
+- linking a PDF mark (highlight) to a note, both ways;
+- the annotation list;
+- comments and tags;
+- fuzzy anchoring across different PDF editions.
+
+**Not in task 4:** AI explain or translate (v0.4/0.5); notes search across the library
+(v0.4); more than one note open at once.
 
 ### Task 5. Structured annotations, search and note linking *(2.2, D5)*
 
@@ -1157,12 +1356,9 @@ jobs.
   - `save_marks` checks the stamp of the PDF the viewer loaded and refuses a stale one.
   - Retry with backoff instead of giving up.
   - After a save, update `book_search`'s stamp instead of re-indexing.
-- [ ] **Notes linked to passages:**
-  - "Add to notes" from a selection inserts a quote and a `/read/<id>?page=…&a=<anchor>` link
-    into the current note.
-  - `notes/<slug>/anchors.json` stores the page, quote, surrounding text, rectangles, chapter
-    and times.
-  - `GET /read/<id>` opens the page and flashes the passage.
+- [ ] **Marks linked to notes:** quotes from passages move to task 4 (M6–M7); task 5 adds
+  linking a PDF mark to a note, using the same references file once `/NM` is known to be
+  stable.
 - [ ] **Annotation index:** `scripts/annotations.py` reads each mark's `/NM` name, type, page,
   rectangle, colour, highlighted text and contents. It writes `annotations.json`, keeping
   comments and tags in the sidecar.
@@ -1212,40 +1408,246 @@ passes.
 
 ---
 
-## 5. Design: notes and passages in the reader (tasks 4–5)
+## 5. Design: notes and passages in the reader (task 4; approved 2026-11-07)
 
-- **Where it lives.** The panel is injected into PDF.js's `viewer.html` like `lookup.js`, so
-  PDF.js itself is not patched. The panel sits beside `#viewerContainer`; setting the
-  container's `right` makes PDF.js re-layout pages.
-- **What it edits.** It edits the existing Markdown files only:
-  - `notes/<slug>/chNN-*.md` (picked by `chapter_at` for the current page);
-  - `README.md` or `notes.md`;
-  - `notes/topics/<term>.md`.
+**Layout.**
 
-  The server maps `(id, kind, chapter|term)` to a path inside the library, so the client never
-  sends a path.
-- **Saving.**
-  - Writes go through `safe_io.update_text` (atomic, under the file's lock).
-  - The stamp is `mtime_ns` plus size. A mismatch returns 409; the panel never overwrites
-    silently, because the same file may be open in VS Code (see CLAUDE.md's note on stale
-    files).
-- **Passages.**
-  - The link text is ordinary Markdown, so notes stay readable in any editor and on GitHub.
-  - Anchor details live in `anchors.json`; a deleted anchor just opens the page.
-  - The quote plus surrounding text is matched against the page's text layer, falling back to
-    the stored rectangles.
-- **Selection actions.** The popup gets a small action row: Add to notes, Highlight (uses
-  PDF.js's highlight editor), Add to vocabulary (existing), Search in my library (existing),
-  and Translate/Explain (hidden until a provider exists, v0.4).
-- **No new dependencies** except possibly a small Markdown renderer for the preview, pinned
-  with a checksum.
-- **Files affected:**
-  - `reader.py` (`viewer_html` injection);
-  - `library_server.py` (`/api/note/*`, `/read/<id>`, anchors);
-  - new `reader_static/notes.js` and `notes.css`;
-  - new `scripts/notes_store.py` (paths, stamps, anchors);
-  - `lookup.js` (action row only);
-  - tests: new `test_notes_store.py`, plus route tests.
+```
+┌ PDF.js toolbar ─────────────────────────────── ↶ ↷  ✎ 🖍 …  📝 ┐┌ 📝 Ch 2: Basic Optics ▾  编辑|预览  ● 已保存  ⋯ ┐
+│                                                                ││                                              │
+│                PDF (PDF.js, unchanged)                         ││   Markdown editor or preview                 │
+│                                                                ││                                              │
+│                                              selection bubble: ││                                              │
+│                                    [查词] [翻译] [引用到笔记]   ││ (chip, when reading moved on: Ch 3 →)         │
+└────────────────────────────────────────────────────────────────┘└──────────────────────────────────────────────┘
+                                                                 ↔ divider: drag; double-click collapses
+```
+
+- **Proportions:**
+  - by default, notes take 38 % of the window: PDF at least 480 px, notes at least 320 px;
+  - 1100–1400 px wide windows default to 40 %;
+  - below 1100 px, the panel opens *over* the PDF (a drawer at 420 px) instead of beside it;
+  - below 760 px it is full width, with 📝 to go back.
+- **Collapse:**
+  - 📝 on PDF.js's toolbar or Alt+N opens and closes the panel;
+  - double-clicking the divider also closes it;
+  - the panel opens where you left it (per browser).
+- **Panel header, left to right:**
+  - the note menu (this chapter, the book's note, other chapters, topic notes);
+  - 编辑 / 预览 (Edit / Preview);
+  - the save status;
+  - ⋯ with 在 VS Code 中打开 (Open in VS Code), 从磁盘重新载入 (Reload from disk) and the
+    shortcuts.
+  - That's all: no formatting toolbar, since Markdown is typed.
+- **Shortcuts** (only while the reader has the focus; the browser's own Ctrl+T/W/N are never
+  touched):
+
+  | Keys | Action |
+  |---|---|
+  | Alt+N | Show or hide notes |
+  | Alt+P | Edit / Preview |
+  | Alt+Q | Quote the selection into the note |
+  | Ctrl+S | Save now (instead of the browser's "Save page") |
+  | Ctrl+click on a link in the editor | Go to the passage |
+
+  - In the editor, Ctrl+Z, Ctrl+Y and Tab are the editor's own. PDF.js already ignores keys
+    typed in a text field.
+  - The marks' Undo/Redo keeps working when the focus is in the PDF.
+- **Interference to prevent:** `lookup.js` stays away from the panel:
+  - no dictionary on double-click there;
+  - its Esc doesn't close the panel;
+  - typing in the panel still counts as activity for reading time, since it's study time.
+    This is to confirm (see *Decisions*).
+
+**Main workflows.**
+1. **Read and write.**
+   - Read or Continue opens the reader with notes open on the chapter of the page.
+   - Type; "Saved" follows a moment after you stop.
+   - Close the tab at any time. If something isn't confirmed yet, the browser asks first.
+2. **Quote.**
+   - Select a sentence; the bubble shows 引用到笔记 (Quote to note).
+   - The quotation and its source link appear at the cursor in the note.
+   - Write your own words below it.
+3. **Go back.**
+   - In Preview, click the source link: the PDF moves to the page and outlines the passage.
+   - From VS Code, the same link opens the reader there.
+4. **Another chapter.** A chip "Ch 3 →" appears when reading reaches chapter 3. Click it: the
+   current note is saved (confirmed) first, then chapter 3's note opens.
+5. **Edited in VS Code meanwhile.**
+   - With nothing unsaved in the panel, it reloads the file and says so.
+   - With unsaved text in the panel, the conflict bar offers:
+     - 载入磁盘版本 (Load the disk version): your text is kept as a draft you can copy from;
+     - 保留我的版本 (Keep mine): the disk version is first copied to
+       `archive/notes-conflicts/`, then yours is saved.
+     - Nothing is overwritten without one of these clicks.
+
+**Architecture.**
+- **Browser:**
+  - `notes.js` (panel, editor, saving, quotes, links) and `anchors.js` (pure functions: text
+    normalising, quote matching; no DOM, so they are testable on their own);
+  - `lookup.js` gets one more bubble button.
+  - Both use the reader's existing `post()` and token. PDF.js isn't patched.
+- **Server:**
+  - `notes_store.py` (paths from keys, versions, saving, references);
+  - routes in `library_server.py` (`/api/notes/*`, `ref=` in `/read/<id>`);
+  - `reader.py` (injection, setup of markdown-it and KaTeX).
+- **Identity:** everything goes by document id. The references file is named by the *source*
+  document's id (`.myLibrary/references/<id>.json`), never by a slug.
+- **Package:** the panel works in the package (core feature; no Python features needed).
+
+**Editor choice.**
+- **Recommended: a plain `<textarea>`** with a few Markdown helpers:
+  - no dependency, nothing to vendor;
+  - the file is kept byte for byte;
+  - the browser's own undo, IME (Chinese input) and spell-check work.
+- **Not chosen:**
+  - CodeMirror 6: good, but it is many ES modules and would need a build step this project
+    doesn't have. Reconsider only if syntax colouring becomes important. It could come later,
+    behind the same save code.
+  - EasyMDE and SimpleMDE: unmaintained CodeMirror 5.
+  - WYSIWYG editors (Milkdown, Toast UI): they rewrite Markdown on save, which breaks
+    VS Code round trips.
+- **Preview: markdown-it + KaTeX.** Both are mature, offline, MIT-licensed, single files plus
+  KaTeX's fonts. A dependency is justified here: equations are central to the user's books,
+  and a home-made Markdown or maths renderer would be worse.
+  - Delivered like PDF.js: pinned version, SHA-256 checked, cached in `.cache/reader/`,
+    included in the package.
+
+**Note file format (unchanged Markdown).** A quotation is plain Markdown that reads well in
+VS Code and on GitHub. By default it is short (decision 1):
+
+```markdown
+> Vignetting reduces the illumination towards the edge of the field … 
+> — [Shannon 1997, p. 41](http://127.0.0.1:8765/read/a3356542-bd66-4586-a7e7-abbf74660bfe?page=41&ref=r7f3c2a91&q=Vignetting%20reduces%20the%20illumination)
+```
+
+- **The link carries enough to work alone:**
+  - the document's permanent id;
+  - the PDF page;
+  - `ref`: the anchor id in the references file;
+  - `q`: the first ~60 characters of the quote, for when the references file is gone.
+- **Editing the visible quote** (fixing a garbled formula, shortening it) doesn't break the
+  link: the link finds the passage through `ref`, not through the text you see.
+- **The link's host** is the server's address (`127.0.0.1:<port>`), so it opens from VS Code
+  while myLibrary runs. Inside the reader, any host with `/read/<uuid>` is recognised, so a
+  changed port doesn't matter there.
+
+**`<library>/.myLibrary/references/<document id>.json`** (user data, private; `load_json` with `.bak`, never replaced when
+damaged):
+
+```json
+{"r7f3c2a91": {
+  "doc": "a3356542-…", "page": 41, "pages": 312, "fingerprint": "<PDF.js fingerprint>",
+  "exact": "Vignetting reduces the illumination towards the edge of the field.",
+  "prefix": "…light. ", "suffix": " This is usually…",
+  "start": 1234, "end": 1301,
+  "rects": [[72.1, 540.3, 410.8, 552.0]],
+  "created": "2026-11-08T10:12:00", "note": "notes/shannon-1997-…/ch02-basic-optics-design.md"}}
+```
+
+- `exact`, `prefix` and `suffix` follow the W3C Web Annotation "TextQuoteSelector".
+- `start` and `end` are the "TextPositionSelector": offsets in the page's normalised text.
+- `rects` are in PDF units, independent of zoom.
+- The prefix and suffix are about 32 characters each.
+
+**Finding the passage again** (`anchors.js`):
+1. **Normalise the page text** from PDF.js's own text content, the same way when quoting and
+   when finding:
+   - NFKC, so ligatures like "fi" become "f" + "i";
+   - soft hyphens and a hyphen at a line end are joined;
+   - all whitespace becomes one space.
+   - Also kept: an offset map from the normalised text back to the text-layer spans.
+2. **Exact match.** If there is more than one, the one whose prefix and suffix match best
+   wins; on a tie, the one closest to `start`. This handles the same words occurring twice.
+3. **No exact match** (an edited PDF, a different text layer): the best approximate match of
+   the quote near `start`, if it is above a similarity threshold.
+4. **Otherwise** the stored `rects` are outlined; failing that, just the page, with a notice:
+   找到页面，未找到原文 (Page found; passage not found).
+5. **Changed PDF:** a different fingerprint or page count adds a notice that the PDF has
+   changed since the quote, and it still tries 2–4.
+6. **Showing the passage:** a DOM Range over the matched spans gives the outline boxes. They
+   stay on screen only, and fade or go on the next click.
+
+- **Equations and symbols:** whatever PDF.js extracts (often imperfect for maths) is what is
+  matched, so a quote finds itself again even when its text looks odd. The user may tidy the
+  visible quote freely, as above.
+- **Scans without a text layer:** page links only (引用此页 Reference this page). After OCR
+  (`ocr_pdf.py`) quotes work.
+
+**Saving and conflicts** (shared with the marks' design from task 3):
+- **States:**
+  - 未保存 (Unsaved): as soon as you type;
+  - 正在保存 (Saving): once a save is sent;
+  - 已保存 (Saved): only after the server answers that it wrote the file (atomic, fsync);
+  - 保存失败 (Save failed) with the reason and 重试 (Retry): tried again 3 times, 3 s apart,
+    then it stays until it works.
+- **Versions:**
+  - every save carries the version (SHA-256) the text was based on;
+  - the server writes only if the file still has that version, under the file's lock;
+  - only one save is in flight at a time, so an older save can't land after a newer one;
+  - text typed during a save is saved next.
+- **Outside changes:**
+  - when the tab gets the focus or becomes visible, and every 5 s while visible, the panel
+    asks for the file's version;
+  - a different version with nothing unsaved: reload, with a notice;
+  - with unsaved text: the conflict bar (workflow 5).
+- **Closing:**
+  - the browser's own warning while anything is unsaved or saving (`beforeunload`);
+  - nothing is sent while closing, so the warning is what protects the text;
+  - the local draft, written about 300 ms after each change and cleared after the server
+    confirms, covers a crash or forced close. On reopening, if the draft differs from the
+    file, it is offered: 恢复未保存的草稿 (Restore unsaved draft), showing both.
+- **Separate from reading:**
+  - saving notes never touches "Last read" or the reading log;
+  - notes can be written in Preview Mode without it starting to count as reading.
+
+**Regression set** (rerun at every milestone, in CI from M2):
+- `/read/<id>`: by id, after a rename, a removed document (410), the `find` and `preview`
+  parameters;
+- search highlighting: centred, next and previous, not found, only on other pages;
+- marks: save, delete a saved one, Undo/Redo after Esc, zero-delay close warnings, failed and
+  slow saves;
+- Preview Mode: no position or reading time; Start reading;
+- normal reading: position and reading log;
+- the bare-PDF fallback without PDF.js.
+
+**Main risks and alternatives.**
+- **PDF.js toolbar and layout with a narrower viewer:** handled in M3, with CSS only. The
+  alternative, an iframe for PDF.js beside the panel, is cleaner to lay out but breaks
+  `lookup.js` and every task 3 feature, which rely on being in PDF.js's page.
+- **Text anchors after a PDF.js upgrade:** layered fallbacks, and anchors keep `rects` and the
+  page. The alternative, coordinates only, breaks with every zoom and reflow: kept only as a
+  fallback.
+- **The same note open in VS Code:** version checks and the conflict bar. A file watcher
+  pushing changes was considered and isn't needed: checking on focus and every 5 s is enough
+  and simpler.
+- **Package size:** KaTeX's fonts (about 1 MB). Alternative: MathJax, which is larger.
+- **Browser tests in CI:** Playwright as a dev-only dependency, with the installed Edge. The
+  alternative is the task 3 scripts using the DevTools protocol directly: less to install, but
+  more code to keep.
+
+**Decisions (approved by the user 2026-11-07).**
+1. **Quotes stay conservative in the Markdown; details stay private.**
+   - By default the visible quote is short: about the first 15 words, then "…" and the source
+     link.
+   - Quoting a whole passage is an explicit choice: a setting, or editing the quote by hand.
+   - The full selected text, prefix and suffix, offsets, rectangles and fingerprint go into
+     `<library>/.myLibrary/references/<document id>.json`:
+     - not in git (`.myLibrary/` is ignored);
+     - included in 💾 folder backup;
+     - never in the public `notes/` folder.
+   - CLAUDE.md's "never paste book text into notes" stays true for anything the tool writes on
+     its own.
+2. **Links work from VS Code; the port is not identity.**
+   - Links are written as `http://127.0.0.1:<current port>/read/<id>?…`.
+   - The reader and server recognise any host and port with `/read/<uuid>`.
+   - If the port changes, a link still works inside the app, and the id never changes.
+3. **Typing notes is not reading time.**
+   - Keys and clicks in the notes panel don't count as reading activity for the reading log.
+   - Reading time still counts while the PDF side is in use.
+4. **Panel state is remembered.**
+   - The notes panel's open state and width are remembered.
+   - First-time users get it open by default.
 
 ---
 
@@ -1301,7 +1703,32 @@ vocabulary work without it.
 8. [ ] **Two workspaces** (Book study and Paper research) as different defaults over the same
    data, once the shared reader is mature.
 
-## 8. Not planned
+## 8. Desktop application (later: after tasks 4–6)
+
+The goal: install myLibrary on Windows, start it from a desktop icon, and use it in its own
+window, with no Python, Git or terminal. Quit cleanly, and keep all data local. The existing
+interface is kept; this milestone wraps it, it doesn't rewrite it.
+- **Starting point to compare then** (not decided):
+  - PyInstaller or similar for the backend;
+  - pywebview with Microsoft Edge WebView2 for the window;
+  - a Windows installer.
+- **Compare:** compatibility, size, startup time, offline use, security, updates and upkeep.
+- **Lifecycle:**
+  - the window starts and stops the local server;
+  - one instance at a time (the existing duplicate check);
+  - errors shown in the window, a log file, and a clean shutdown (`safe_io.critical`, jobs
+    stopping at safe points).
+- **Data:**
+  - the library and settings stay outside the installation, as today (`paths.LIBRARY`,
+    `%APPDATA%/myLibrary`);
+  - any change of the default data folder is an explicit, verified, reversible migration.
+- **Builds on the current zip package** (`scripts/build_package.py`, `paths.IS_PACKAGE`).
+- **Licensing, activation, auto-update and commercial distribution:** only once the desktop app
+  is stable.
+- **Until then:** no EXE, installer, window wrapper or licence code. New code follows
+  CLAUDE.md's packaging-friendly rules, so this milestone needs no rewrite.
+
+## 9. Not planned
 
 These stay out on purpose (see CLAUDE.md and DEVELOPMENT_SPEC.md):
 
@@ -1311,4 +1738,5 @@ These stay out on purpose (see CLAUDE.md and DEVELOPMENT_SPEC.md):
 - books or book text in git;
 - cloud hosting, accounts or subscriptions;
 - mandatory AI;
-- replacing the Python backend or the browser-based interface.
+- replacing the Python backend or the browser-based interface (Electron, React, Qt or a
+  native UI only with a specific reason and the user's approval).
