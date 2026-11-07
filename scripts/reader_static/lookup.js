@@ -141,13 +141,49 @@
     findNotice.timer = setTimeout(() => { findNotice.hidden = true; }, 6000);
   }
 
-  function showFound(term, page) {
-    const app = window.PDFViewerApplication;
-    if (!app || !term) {
-      if (app && page) app.page = page;
-      return;
+  // The arrival at a search result (/read/<id>?page=N&find=term) positions the reader once,
+  // unless the user moves first: their own page turn, scroll, click or key always wins over
+  // the arrival's positioning (B19). It watches for that from the moment the reader loads.
+  // Its outcome is in document.body.dataset.mlArrival (this tab only, never stored):
+  // "pending", then "centred" (the match brought to the middle), "left" (the user moved
+  // first; nothing more is positioned), "elsewhere" (the term isn't on the result's page) or
+  // "not-found".
+  function startArrival() {
+    const listening = new AbortController();
+    const arrival = {
+      ended: false,
+      found: false,  // the arrival's find has reported its result
+      keepPlace: false,  // the user moved before that: keep their place when it comes
+      timer: null,
+      end(outcome) {  // stop everything this arrival still had planned
+        if (arrival.ended) return;
+        arrival.ended = true;
+        clearTimeout(arrival.timer);
+        listening.abort();
+        document.body.dataset.mlArrival = outcome;
+      },
+    };
+    document.body.dataset.mlArrival = "pending";
+    const userMoved = (event) => {
+      if (!event.isTrusted) return;  // the user's own input only, never a script's events
+      if (event.type === "keydown" && ["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+      const finder = window.PDFViewerApplication?.findController;
+      // PDF.js scrolls once to the match its find selected, when that page's text is drawn
+      // (its _scrollMatches flag: a PDF.js 4.10 internal, to recheck when PDF.js is upgraded;
+      // tests: test_preview.py). Already selected: that pending scroll is withdrawn now
+      if (arrival.found && finder) finder._scrollMatches = false;
+      else arrival.keepPlace = true;
+      arrival.end("left");
+    };
+    for (const type of ["pointerdown", "wheel", "keydown", "touchstart"]) {
+      addEventListener(type, userMoved, { capture: true, passive: true, signal: listening.signal });
     }
-    app.page = page;  // PDF.js's find starts from the current page
+    return arrival;
+  }
+
+  function showFound(term, page, arrival) {
+    const app = window.PDFViewerApplication;
+    if (!arrival.ended) app.page = page;  // PDF.js's find starts from the current page
     const bar = app.findBar;
     if (bar) {
       bar.open();
@@ -156,45 +192,88 @@
       bar.caseSensitive.checked = false;
       bar.entireWord.checked = false;
     }
+    const viewer = app.pdfViewer?.container;
+    let ours = false;  // the find being sent is the arrival's own
     const onState = ({ state }) => {
       if (state === 3) return;  // PENDING: still reading pages
       app.eventBus.off("updatefindcontrolstate", onState);
+      app.eventBus.off("find", userFind);
+      arrival.found = true;
+      if (arrival.ended) {
+        // The user moved before the result came. Right after this event PDF.js turns to the
+        // match's page and asks to scroll to it; once it has, the user's place is put back
+        // and the scroll withdrawn (before the screen is drawn again)
+        if (arrival.keepPlace && viewer) {
+          const { scrollTop, scrollLeft } = viewer;
+          queueMicrotask(() => {
+            if (app.findController) app.findController._scrollMatches = false;
+            viewer.scrollTop = scrollTop;
+            viewer.scrollLeft = scrollLeft;
+          });
+        }
+        return;  // the highlights stay; nothing else moves
+      }
       const at = app.findController?.selected?.pageIdx;
       if (state === 1 || at == null) {  // NOT_FOUND (e.g. a scan without a text layer)
         app.page = page;
         notice(`在此文档中没有找到 “${term}”（本页由搜索得出）`,
           `“${term}” wasn't found as typed; this is the page the search found`);
+        arrival.end("not-found");
       } else if (at + 1 !== page) {  // only elsewhere: don't jump away from the result's page
         // PDF.js would scroll to its match once that page is drawn. It asks for that right
         // after this event, so the request is withdrawn just after (the arrows still work)
-        setTimeout(() => {
+        arrival.timer = setTimeout(() => {
+          if (arrival.ended) return;
           if (app.findController) app.findController._scrollMatches = false;
           app.page = page;
+          arrival.end("elsewhere");
         }, 0);
         notice(`本页没有完全一致的 “${term}”，可用查找栏的箭头看其他位置`,
           `No exact “${term}” on this page; the find bar's arrows go to other matches`);
       } else {
-        // PDF.js puts the match near the top; bring it to the middle once it's drawn
-        setTimeout(() => document.querySelector(".textLayer .highlight.selected")
-          ?.scrollIntoView({ block: "center" }), 300);
+        // PDF.js puts the match near the top; bring it to the middle once it's drawn, unless
+        // the reader is on another page by then
+        arrival.timer = setTimeout(() => {
+          if (arrival.ended) return;
+          if (app.page !== page) return arrival.end("left");
+          document.querySelector(".textLayer .highlight.selected")
+            ?.scrollIntoView({ block: "center" });
+          arrival.end("centred");
+        }, 300);
       }
     };
+    // A find of the user's own (typing, Enter, ▲▼) before the result came replaces the
+    // arrival's: its result is the user's, and the arrival leaves it alone
+    const userFind = () => {
+      if (ours) return;
+      app.eventBus.off("updatefindcontrolstate", onState);
+      app.eventBus.off("find", userFind);
+      arrival.keepPlace = false;
+      arrival.end("left");
+    };
     app.eventBus.on("updatefindcontrolstate", onState);
-    app.eventBus.dispatch("find", {
-      source: bar || app, type: "", query: term, caseSensitive: false, entireWord: false,
-      highlightAll: true, findPrevious: false, matchDiacritics: true,
-    });
+    app.eventBus.on("find", userFind);
+    ours = true;
+    try {
+      app.eventBus.dispatch("find", {
+        source: bar || app, type: "", query: term, caseSensitive: false, entireWord: false,
+        highlightAll: true, findPrevious: false, matchDiacritics: true,
+      });
+    } finally {
+      ours = false;
+    }
   }
 
-  // Opened from a search result (/read/<id>?page=N&find=term): highlight it once the pages are
-  // ready
+  // Opened from a search result: the arrival starts watching at once (a move before the find
+  // has even started counts too); the term is highlighted once the pages are ready
   async function findFromAddress() {
     const app = window.PDFViewerApplication;
     const term = new URLSearchParams(location.search).get("find");
     if (!app || !term) return;
+    const arrival = startArrival();
     await app.initializedPromise;
     const page = Number((location.hash.match(/page=(\d+)/) || [])[1]) || 1;
-    const go = () => setTimeout(() => showFound(term, page), 100);
+    const go = () => setTimeout(() => showFound(term, page, arrival), 100);
     if (app.pdfViewer?.pagesCount) go();
     else app.eventBus.on("pagesinit", go, { once: true });
   }

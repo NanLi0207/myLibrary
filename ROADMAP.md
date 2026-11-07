@@ -442,6 +442,9 @@ D12. They are kept below for the record. Still open: D5 (task 5).
   - `render()` replaces placeholders after inserting book data.
 - **B15 (S) The reading log over-counts.** Fast scrolling counts every page passed, and two
   windows both add time.
+  - Follow-up (from B19): a page PDF.js turns to by itself, such as a search result's find
+    before the user's place is restored, may be counted as viewed after Start reading.
+    Wanted: automatic navigation and its restoration don't count as pages the user viewed.
 - **B17 (S) A native fault in pdfium can occur during text extraction.** Seen once (an
   access violation while indexing). It isn't reproducible, so the cause is unconfirmed (see
   task 3). Indexing now survives it per document. If it recurs, run `book_search.page_texts`
@@ -1547,6 +1550,50 @@ ports) are green in CI (run 42418424532). Open item: whether the three symlink t
       - a safe port is used, and Edge opens it;
       - an occupied port is left for the next one, with the failed start ended;
       - the attempts are limited, and none is left running.
+  - **B19, found by CI after the link-security commit (run 42419985858), fixed:** the
+    reader could be pulled back to a search result after the user had left it.
+    - **Symptom:** `test_preview.py::test_start_reading_counts_from_the_current_page` timed
+      out waiting for page 4. The trace's frames show the reader on page 3 after Start
+      reading, then back on page 2, with the match centred.
+    - **Cause:** when a search result opens (`/read/<id>?…&find=`), `lookup.js` `showFound`
+      positions the reader on the result, and nothing cancelled that if the user moved
+      first. Three steps could undo a page turn or scroll:
+      - its own `app.page = page`, if the user turned the page in the first ~100 ms;
+      - PDF.js's find turning to the selected match's page as it reports its result (the
+        find controller's `#updatePage`);
+      - the centring 300 ms after that.
+
+      In CI the find result came late enough for the centring to land after the test's
+      page turn. Locally, a page turn straight after opening reproduced it 5 times out of 5.
+    - **Users:** opening a search result and turning the page or scrolling within about half
+      a second jumped back to the match. After Start reading, the position could then be
+      saved as the result's page.
+    - **Fix** (`lookup.js`: `startArrival`, `showFound`):
+      - The arrival watches the user's own input (pointer, wheel, keys, touch;
+        `isTrusted`) from the moment the reader loads. Once the user moves, it positions
+        nothing more.
+      - If the move came before PDF.js's find result, the user's exact place is put back
+        in a microtask right after PDF.js turns to the match, and PDF.js's pending scroll
+        to the match is withdrawn. If it came after, that pending scroll is withdrawn.
+      - A find of the user's own takes over from the arrival.
+      - PDF.js internal relied on: the find controller's `_scrollMatches` flag, as before
+        (recheck at a PDF.js upgrade).
+    - **The outcome** is in `document.body.dataset.mlArrival`: `pending`, then `centred`,
+      `left`, `elsewhere` or `not-found`. It's set fresh at each arrival, for this tab only,
+      and never stored.
+    - **Tests** (`test_preview.py`):
+      - the existing Start reading test now waits for the arrival's outcome, not the
+        highlight;
+      - new tests: a page turn at once, then Start reading (stays on page 3 and saves it);
+      - a scroll within the result's page is kept;
+      - with no move, the match is centred (within 10 % of the viewer's middle) and nothing
+        is recorded.
+      - On the old code the page-turn test fails on the jump itself ("pulled back"). The
+        three others fail there because the old code has no `data-ml-arrival` to wait on.
+    - **Remaining limitation (accepted 2026-11-08; follow-up under B15):** if the user moved
+      before PDF.js's find result came, PDF.js still turns to the match's page for an
+      instant before the user's place is restored. That page change can be counted among
+      the pages viewed after Start reading. The saved position is the user's real page.
 
 **M3. Split-screen layout.**
 - **Scope:** `reader_static/notes.js` and `notes.css`, injected by `reader.viewer_html` next to
