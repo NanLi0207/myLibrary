@@ -6,7 +6,8 @@ The package needs no Python, uv, git or command line on the buyer's computer:
   runtime/python/          a portable Python (copied from the one uv installed)
   runtime/site-packages/   only what the library needs (pyproject "dependencies", from uv.lock)
   scripts/                 the tool
-  .cache/reader/           the PDF viewer and the dictionary, so it works offline at once
+  .cache/reader/           the PDF viewer, the dictionary and the notes' preview (markdown-it),
+                           so it works offline at once
   launch.py, Start myLibrary.cmd, README.txt, LICENSE, notices and third-party licenses
   package.toml             marks it as the package: settings go to %APPDATA%/myLibrary, and the
                            Python features (chapter scripts) are off
@@ -81,9 +82,10 @@ def main() -> None:
         shutil.rmtree(root)
     root.mkdir(parents=True)
 
-    print("1/5 PDF viewer and dictionary")
+    print("1/5 PDF viewer, dictionary and notes preview")
     reader.setup()
     shutil.copytree(reader.PDFJS, root / ".cache" / "reader" / "pdfjs")
+    shutil.copytree(reader.MARKDOWN_IT, root / ".cache" / "reader" / "markdown-it")
     shutil.copy2(reader.DICT_DB, root / ".cache" / "reader" / "ecdict.db")
 
     print("2/5 Python")
@@ -106,6 +108,7 @@ def main() -> None:
     licenses.mkdir()
     shutil.copy2(APP / "package" / "licenses" / "ECDICT-LICENSE.txt", licenses)
     shutil.copy2(reader.PDFJS / "LICENSE", licenses / "PDF.js-LICENSE.txt")
+    shutil.copy2(reader.MARKDOWN_IT / "LICENSE", licenses / "markdown-it-LICENSE.txt")
     shutil.copy2(root / "runtime" / "python" / "LICENSE.txt", licenses / "Python-LICENSE.txt")
     (root / "package.toml").write_text(
         f'# The ready-to-use package of myLibrary (see scripts/paths.py)\nversion = "{version}"\n'

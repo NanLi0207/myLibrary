@@ -1020,7 +1020,9 @@ def start_setup(parts: list[str], download: bool = True) -> threading.Thread | N
     if not parts:
         return None
     if not download:
-        effect = "books open as plain PDFs" if "PDF viewer" in parts else "no dictionary lookups"
+        effects = {"PDF viewer": "books open as plain PDFs", "dictionary": "no dictionary lookups",
+                   "notes preview": "the notes' preview shows the plain text"}  # fmt: skip
+        effect = "; ".join(effects[p] for p in parts if p in effects)
         print(f"Not downloading {' + '.join(parts)} (--no-download): {effect}.")
         return None
     print(f"Setting up the reading view ({' + '.join(parts)}, one-time download ~72 MB);")

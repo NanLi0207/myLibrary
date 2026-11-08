@@ -10,6 +10,7 @@ must include their license texts and copyright notices.
 |---|---|---|
 | [PDF.js](https://github.com/mozilla/pdf.js) 4.10.38, Mozilla Foundation | The PDF viewer in the reading view | Apache-2.0 (the `LICENSE` file inside `.cache/reader/pdfjs/`) |
 | [ECDICT](https://github.com/skywind3000/ECDICT), Copyright (c) Linwei | The offline English–Chinese dictionary | MIT |
+| [markdown-it](https://github.com/markdown-it/markdown-it) 15.0.3, Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin | The notes' preview (its browser build, with its bundled dependencies) | MIT (the `LICENSE` file inside `.cache/reader/markdown-it/`) |
 
 ## Python packages (installed by `uv sync`)
 

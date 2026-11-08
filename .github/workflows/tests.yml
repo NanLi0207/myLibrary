@@ -43,6 +43,13 @@ jobs:
           key: pdfjs-4.10.38-32bdd9c5198b77dbaa8f02de81f34476888b3abdd64b9fb5f607f81f01487e6a
       - name: Install the PDF viewer (checksum verified)
         run: uv run --group browser scripts/reader.py --setup-viewer
+      - name: Cache the notes' preview (markdown-it, by version and checksum)
+        uses: actions/cache@v4
+        with:
+          path: .cache/reader/markdown-it
+          key: markdown-it-15.0.3-98a7453983ab0e268c17dbd5260bf7190ba46b4cca912327fc1c1a2578e4b56d
+      - name: Install the notes' preview (checksum verified)
+        run: uv run --group browser scripts/reader.py --setup-preview
       - name: Check Edge, the PDF viewer and the versions
         run: |
           $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
@@ -54,6 +61,9 @@ jobs:
           $viewer = uv run --group browser python -c "import sys; sys.path.insert(0, 'scripts'); import reader; print(reader.viewer_installed())"
           "PDF.js: $viewer"
           if ($viewer -ne "verified 4.10.38") { Write-Error "the PDF viewer isn't the checksum-verified PDF.js 4.10.38"; exit 1 }
+          $preview = uv run --group browser python -c "import sys; sys.path.insert(0, 'scripts'); import reader; print(reader.markdown_it_installed())"
+          "markdown-it: $preview"
+          if ($preview -ne "verified 15.0.3") { Write-Error "the notes' preview isn't the checksum-verified markdown-it 15.0.3"; exit 1 }
       - name: Browser tests
         # Its own limit, so a hang still leaves time to upload the diagnostics
         timeout-minutes: 15

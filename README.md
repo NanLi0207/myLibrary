@@ -260,6 +260,17 @@ Because it's in your notes, it's kept in git along with them.
     quote;
   - a chapter note not written yet is created when you first type in it and it's saved;
   - 🔒 makes the notes read-only (remembered).
+- **See them rendered:** **源码** (Source), **预览** (Preview) or **分屏** (Split: both, side
+  by side on a wide panel, one above the other on a narrow one); **Alt+P** switches between
+  Source and Preview, and the choice is remembered in this browser.
+  - The preview shows headings, lists, quotes, code and tables. It only *shows* the note:
+    the `.md` file you write stays exactly as you typed it, and switching views saves nothing.
+  - HTML written in a note is shown as text, never run. Web links open in a new tab, a link
+    to another note of the book (`[Ch 2](ch02-….md)`) opens it in the panel, `#heading`
+    jumps within the note; images aren't shown yet (their description is).
+  - It needs a small library (markdown-it), downloaded with the reading view; if it's
+    missing, the preview shows the plain text and how to set it up
+    (`uv run scripts/reader.py --setup-preview`).
 - **Nothing is lost or overwritten without asking:**
   - closing or reloading the tab with unsaved text asks first;
   - a **recovery draft** of unsaved text is kept in the browser and offered when you open the
@@ -763,7 +774,7 @@ to use another one.
 | `uv sync` | Create or update the Python environment (`--group optics` adds the optics packages) |
 | `uv add <package>` | Add a Python package |
 | `uv run pytest` | Run the tests (not the browser tests) |
-| `uv sync --group browser` then `uv run pytest tests/browser` | Run the browser tests: the reader in Microsoft Edge, each test on a temporary library (needs the PDF viewer: `--setup-viewer`); add `--headed` to watch, `--tracing retain-on-failure` for traces in `test-results/`, `--notes-closed` to start every reader with the notes panel closed |
+| `uv sync --group browser` then `uv run pytest tests/browser` | Run the browser tests: the reader in Microsoft Edge, each test on a temporary library (needs the PDF viewer and the notes' preview: `--setup-viewer`, `--setup-preview`); add `--headed` to watch, `--tracing retain-on-failure` for traces in `test-results/`, `--notes-closed` to start every reader with the notes panel closed |
 | `uv run ruff check . ; uv run ruff format .` | Lint and format the code |
 
 Your library's `catalog.csv` also opens in Excel, or search it from the terminal:

@@ -44,6 +44,7 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
     CI green (run 42514738383).
   - D17 is fixed: `aa4bf1c`.
   - D16 is fixed (glossary).
+  - M5 revised into M5a–M5d (2026-11-08); M5a implemented, awaiting review.
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
@@ -769,6 +770,10 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
   churn under `library/`. `notes_store` keeps each file's own form.
 - **B26 (C; audit) A `safe_io` docstring holds an invalid escape (`\)`).** Python 3.14 warns
   about it, and it is a SyntaxError under `-W error`.
+- **B27 (C; small, test only) The browser fixture's `Library.reading_log()` reads with a plain
+  `read_text`** a file the test server replaces atomically: the same race as the README read
+  that failed CI run 42517810946 (fixed in `b45e503` by reading through `safe_io.read_text`).
+  Not seen failing; doesn't block M5.
 - **B16 (S) Not yet confirmed.**
   - `pick_folder` decodes non-ASCII folder names in the ANSI code page.
   - Find online puts OpenAlex URLs into `href` with no scheme check.
@@ -2748,26 +2753,51 @@ directly):
     under the old one (they stay, unused, until they expire). A desktop app with a fixed
     port avoids this.
 
-**M5. Preview: Markdown, equations, links (mode B).**
-- **Scope:** an 编辑 / 预览 (Edit / Preview) switch, with Alt+P, plus a split preview. A
-  read-only view of M4's `NoteSession` text: it never changes the text, so what is saved is
-  always the source typed. The chosen mode is remembered per browser (see M4, *Editor modes*).
-  - **Rendering:** markdown-it with `html: false`, so raw HTML in a note is shown as text,
-    never run.
-  - **Equations:** KaTeX for `$…$`, `$$…$$`, `\(...\)` and `\[...\]` (the forms VS Code's
-    preview shows).
-  - **Links:**
-    - `/read/<id>` links are handled in the reader (M7);
-    - links to other notes switch the panel;
-    - other links open in a new tab.
-  - **Delivery:** both libraries are downloaded by `reader.py --setup` into `.cache/reader/`
-    like PDF.js. They are pinned, checked against SHA-256, and copied into the package with
-    their licences (MIT). Without them, the preview shows the plain text with a note.
-- **Tests:**
-  - browser: headings, lists, a code block, inline and display maths, a table, a link;
-    `<script>` in a note isn't run;
-  - Python: the setup checksum, and offline behaviour.
-- **Risks:** about 1 MB more in the package (mostly KaTeX fonts).
+**M5. Preview, maths, formatting and pasted images (mode B), in four phases.** Revised
+2026-11-08: M5a approved for implementation; M5b–M5d each need their own approval first.
+Throughout: the `.md` file stays the only authority; every view uses M4's `NoteSession`
+(autosave, conflicts, drafts, the leave warning) unchanged; PDF.js reading, marks, search and
+reading progress are not affected; dependencies are exact versions with committed SHA-256
+values, local, no CDN and no build step.
+
+- [ ] **M5a. Markdown preview** (approved; implemented, awaiting review, not committed):
+  - 源码 / 预览 / 分屏 (Source / Preview / Split) views of the note, Alt+P, the choice
+    remembered per browser. Split: side by side on a wide panel, stacked on a narrow one.
+  - Rendering with markdown-it (pinned, checksum-verified, served locally from
+    `.cache/reader/`, installed by `reader.py --setup` / `--setup-preview` and in CI):
+    headings, lists, blockquotes, code, tables. Raw HTML off (`html: false`): shown as text,
+    never run. Links: only http(s), `#heading`, notes of the panel and `/read/<id>`;
+    anything else is inert. Images aren't loaded yet (M5d).
+  - The preview only reads the session's text: switching views never saves or changes it.
+  - Dark mode (PDF.js's colours) and narrow panels (tables and code scroll inside).
+  - Without the library: the plain text, with how to set it up; Source works as before.
+  - Tests: Python (setup, checks, serving) and Edge (rendering, safety, views, no saving,
+    autosave/conflicts/drafts in every view, keys, links, dark mode, fallback).
+  - **Not yet verified: the package build.** `build_package.py` now copies
+    `.cache/reader/markdown-it/` and its licence, but no package has been built since.
+    Before an installable release: build it, check that it holds the verified
+    markdown-it build and `third_party_licenses/markdown-it-LICENSE.txt`, and that the
+    preview works offline in it.
+- [ ] **M5b. LaTeX maths** (KaTeX, pinned like markdown-it): inline and display, `$…$`,
+  `$$…$$`, `\(…\)`, `\[…\]`, with rules that leave dollar amounts and code alone; invalid
+  LaTeX shown as an error, never a crash; `trust: false`, size and expansion limits.
+- [ ] **M5c. Formatting toolbar and display preferences:**
+  - On a selection or at the caret, editing the Markdown source: headings H1–H6, bold,
+    italic, strikethrough, bulleted / numbered / task lists, blockquote, inline and fenced
+    code, link, image, table, inline and display equation; toggling off where practical.
+  - Keeping the selection, the caret, the browser's undo/redo (`insertText`), IME
+    composition, autosave and conflicts; Ctrl+B, Ctrl+I and similar only inside the note,
+    never taken from PDF.js.
+  - Display preferences (font family, size, line height, paragraph spacing, content
+    width), stored per browser, separate from the Markdown.
+  - No WYSIWYG editor or rich-text framework.
+- [ ] **M5d. Pasted images and screenshots:**
+  - Ctrl+V of a Windows screenshot or copied image: saved as a managed local asset beside
+    the note (contained path, collision-safe name, atomic write, size limit, type checked
+    from the bytes), and a relative Markdown image link inserted.
+  - The preview shows local note images through a contained route; nothing is uploaded.
+  - An asset is never deleted because a later save of the note met a conflict.
+  - Later, not M5: a screenshot turned into editable LaTeX or a Markdown table.
 
 **M6. Quote to note (PDF → note).**
 - **Scope:** 引用到笔记 (Quote to note) in the selection bubble, and Alt+Q.

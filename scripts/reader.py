@@ -23,6 +23,7 @@ import re
 import shutil
 import sqlite3
 import sys
+import tarfile
 import tomllib
 import urllib.request
 import uuid
@@ -56,6 +57,20 @@ PDFJS_SIZE = 6_066_797
 PDFJS_MARKER = ".myLibrary-pdfjs.txt"  # in an installed viewer: its version and zip checksum
 ECDICT_URL = "https://raw.githubusercontent.com/skywind3000/ECDICT/master/ecdict.csv"
 
+# The notes' preview (task 4 M5a): markdown-it, its self-contained browser build. The npm
+# package, checked before it's installed: taken 2026-11-08 from the npm registry, whose own
+# integrity value (SHA-512) it matched. Only the two files below are taken from it.
+MARKDOWN_IT = CACHE / "markdown-it"
+MARKDOWN_IT_VERSION = "15.0.3"
+MARKDOWN_IT_URL = f"https://registry.npmjs.org/markdown-it/-/markdown-it-{MARKDOWN_IT_VERSION}.tgz"
+MARKDOWN_IT_SHA256 = "98a7453983ab0e268c17dbd5260bf7190ba46b4cca912327fc1c1a2578e4b56d"
+MARKDOWN_IT_SIZE = 587_613
+MARKDOWN_IT_FILES = {  # in the package -> installed as
+    "package/dist/browser/markdown-it.umd.min.js": "markdown-it.min.js",
+    "package/LICENSE": "LICENSE",
+}
+MARKDOWN_IT_MARKER = ".myLibrary-markdown-it.txt"
+
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".mjs": "text/javascript; charset=utf-8",
@@ -86,6 +101,8 @@ def missing() -> list[str]:
         parts.append("PDF viewer")
     if not DICT_DB.exists():
         parts.append("dictionary")
+    if not markdown_it_installed():
+        parts.append("notes preview")
     return parts
 
 
@@ -187,9 +204,74 @@ def setup_viewer() -> None:
     print(f"  PDF viewer ready (PDF.js {PDFJS_VERSION}, checksum verified)")
 
 
+def install_markdown_it(package_path: Path) -> None:
+    """Install markdown-it's browser build from its npm package, after checking the package's
+    size and SHA-256. Only the named files are read from it (never extracted as a whole, so no
+    name in it can reach outside the folder); the new copy is put beside the old one and only
+    then swapped in, so a wrong download leaves a working preview as it was."""
+    data = package_path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if len(data) != MARKDOWN_IT_SIZE or digest != MARKDOWN_IT_SHA256:
+        raise ValueError(
+            f"the markdown-it download isn't the expected file ({len(data):,} bytes, SHA-256 "
+            f"{digest[:16]}…; expected {MARKDOWN_IT_SIZE:,} bytes, {MARKDOWN_IT_SHA256[:16]}…)"
+        )
+    new = CACHE / f"markdown-it.new-{uuid.uuid4().hex[:8]}"
+    old = CACHE / f"markdown-it.old-{uuid.uuid4().hex[:8]}"
+    try:
+        new.mkdir(parents=True)
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as package:
+            for member_name, installed_name in MARKDOWN_IT_FILES.items():
+                member = package.getmember(member_name)  # KeyError if it isn't there
+                if not member.isfile() or member.size > 5_000_000:
+                    raise ValueError(f"the markdown-it package has an unexpected {member_name}")
+                (new / installed_name).write_bytes(package.extractfile(member).read())
+        (new / MARKDOWN_IT_MARKER).write_text(
+            f"{MARKDOWN_IT_VERSION}\n{MARKDOWN_IT_SHA256}\n", encoding="utf-8"
+        )
+        if MARKDOWN_IT.exists():
+            MARKDOWN_IT.replace(old)
+        new.replace(MARKDOWN_IT)
+    except BaseException:
+        if old.exists() and not MARKDOWN_IT.exists():
+            old.replace(MARKDOWN_IT)  # put the working copy back
+        raise
+    finally:
+        shutil.rmtree(new, ignore_errors=True)
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def markdown_it_installed() -> str:
+    """How the preview library is installed: "verified <version>" when it is the pinned one,
+    "" when it isn't there (or isn't the one checked)."""
+    marker = MARKDOWN_IT / MARKDOWN_IT_MARKER
+    if not (MARKDOWN_IT / "markdown-it.min.js").is_file() or not marker.is_file():
+        return ""
+    lines = marker.read_text(encoding="utf-8").split()
+    if lines[:2] != [MARKDOWN_IT_VERSION, MARKDOWN_IT_SHA256]:
+        return ""
+    return f"verified {MARKDOWN_IT_VERSION}"
+
+
+def setup_preview() -> None:
+    """Download and install markdown-it for the notes' preview (pinned, checksum checked)."""
+    if markdown_it_installed():
+        print(f"  notes preview already installed ({markdown_it_installed()})")
+        return
+    CACHE.mkdir(parents=True, exist_ok=True)
+    package_path = CACHE / f"markdown-it-{MARKDOWN_IT_VERSION}.tgz"
+    try:
+        _download(MARKDOWN_IT_URL, package_path)
+        install_markdown_it(package_path)
+    finally:
+        package_path.unlink(missing_ok=True)
+    print(f"  notes preview ready (markdown-it {MARKDOWN_IT_VERSION}, checksum verified)")
+
+
 def setup() -> None:
     CACHE.mkdir(parents=True, exist_ok=True)
     setup_viewer()
+    setup_preview()
     if not DICT_DB.exists():
         csv_path = CACHE / "ecdict.csv"
         if not csv_path.exists():
@@ -819,22 +901,33 @@ def save_marks(file: str, data: bytes, *, base: str, unconfirmed=()) -> dict:
 
 def viewer_html(token: str) -> bytes:
     """PDF.js's viewer page, with the lookup popup and the notes panel added (notes.js runs
-    after lookup.js, whose helpers it uses)."""
+    after lookup.js, whose helpers it uses, and after preview.js and markdown-it, when the
+    latter is installed: without it, the preview shows the plain text)."""
     html = (PDFJS / "web" / "viewer.html").read_text(encoding="utf-8-sig")
+    library = (
+        '<script src="/vendor/markdown-it/markdown-it.min.js" defer></script>\n'
+        if markdown_it_installed()
+        else ""
+    )
     extra = (
         '<link rel="stylesheet" href="/reader/lookup.css">\n'
         '<link rel="stylesheet" href="/reader/notes.css">\n'
         f"<script>window.MYLIBRARY_TOKEN = {token!r};</script>\n"
         '<script src="/reader/lookup.js" defer></script>\n'
         '<script src="/reader/note_session.js" defer></script>\n'
+        f"{library}"
+        '<script src="/reader/preview.js" defer></script>\n'
         '<script src="/reader/notes.js" defer></script>\n'
     )
     return html.replace("</head>", extra + "</head>", 1).encode()
 
 
 def static_file(url_path: str) -> tuple[bytes, str] | None:
-    """/pdfjs/... and /reader/... files; None for anything outside those folders."""
-    for prefix, folder in (("/pdfjs/", PDFJS), ("/reader/", STATIC)):
+    """/pdfjs/..., /reader/... and /vendor/markdown-it/... files; None for anything outside
+    those folders."""
+    for prefix, folder in (
+        ("/pdfjs/", PDFJS), ("/reader/", STATIC), ("/vendor/markdown-it/", MARKDOWN_IT)
+    ):  # fmt: skip
         if url_path.startswith(prefix):
             base = folder.resolve()
             path = (base / url_path[len(prefix) :]).resolve()
@@ -853,12 +946,20 @@ def main() -> None:
         action="store_true",
         help="download and install only the PDF viewer (PDF.js), checksum verified",
     )
+    parser.add_argument(
+        "--setup-preview",
+        action="store_true",
+        help="download and install only the notes' preview (markdown-it), checksum verified",
+    )
     parser.add_argument("word", nargs="*", help="look up a word or phrase")
     args = parser.parse_args()
     if sys.stdout.encoding.lower() != "utf-8":
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     if args.setup_viewer:
         setup_viewer()
+        return
+    if args.setup_preview:
+        setup_preview()
         return
     if args.setup or not args.word:
         setup() if missing() else print("Reading view is set up.")

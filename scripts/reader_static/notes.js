@@ -10,10 +10,13 @@
 // - Layout by the window's width: beside the PDF from 1100 px, over the PDF (a drawer) from
 //   760 px, the whole window below that. Beside the PDF it is remembered (open or not, its
 //   width as a share of the window); in narrower windows it starts closed.
-// - State for tests (and nothing else) on <body>: data-ml-notes (open/closed),
-//   data-ml-notes-mode (side/drawer/full), data-ml-note-key, data-ml-note-state
+// - Views (M5a): 源码 / 预览 / 分屏 (Source / Preview / Split), Alt+P, remembered in this
+//   browser. The preview (preview.js) is drawn from the session's text only: it never edits
+//   or saves, so switching views writes nothing.
+// - State on <body>, for tests and for the read-only and loading logic: data-ml-notes
+//   (open/closed), data-ml-notes-mode (side/drawer/full), data-ml-note-key, data-ml-note-state
 //   (loading/shown/empty/missing/none/error), data-ml-save-state (clean/dirty/saving/failed/
-//   offline/conflict/draft), data-ml-draft (kept/failed/none).
+//   offline/conflict/draft), data-ml-draft (kept/failed/none), data-ml-note-view.
 (() => {
   "use strict";
   const reader = window.myLibraryReader;
@@ -30,6 +33,7 @@
     width: "myLibrary.notes.width",
     last: `myLibrary.notes.last.${docId}`,
     readOnly: "myLibrary.notes.readonly",
+    view: "myLibrary.notes.view",
   };
   const load = (key) => {
     try {
@@ -146,7 +150,27 @@
   text.id = "mlNoteText";
   text.spellcheck = false;
   text.setAttribute("aria-label", "笔记 Note (Markdown)");
-  panel.append(divider, head, status, bar, compare, text);
+  // M5a: the same text rendered (read-only), instead of the source or beside it
+  const VIEWS = [["source", "源码", "Source"], ["preview", "预览", "Preview"], ["split", "分屏", "Split"]];
+  const viewSwitch = el("div", "ml-view-switch");
+  viewSwitch.setAttribute("role", "group");
+  viewSwitch.setAttribute("aria-label", "显示 View (Alt+P)");
+  const viewButtons = new Map(VIEWS.map(([name, zh, en]) => {
+    const b = biEl("button", "ml-small", zh, en);
+    b.type = "button";
+    b.dataset.view = name;
+    b.title = `${zh} ${en}${name === "split" ? "" : " (Alt+P)"}`;
+    viewSwitch.append(b);
+    return [name, b];
+  }));
+  const preview = el("div", "ml-note-preview");
+  preview.id = "mlNotePreview";
+  preview.tabIndex = 0;  // its own scroll keys; plain keys stay in the panel (below)
+  preview.setAttribute("role", "document");
+  preview.setAttribute("aria-label", "笔记预览 Note preview");
+  const views = el("div", "ml-note-views");
+  views.append(text, preview);
+  panel.append(divider, head, viewSwitch, status, bar, compare, views);
   body.append(panel);
 
   // 📝 on PDF.js's toolbar, at its right end
@@ -261,6 +285,14 @@
     event.stopPropagation();
     setOpen(!open, true);
   }, true);
+  // Alt+P while the notes are open: Source ↔ Preview (from Split: Preview)
+  addEventListener("keydown", (event) => {
+    if (event.code !== "KeyP" || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+      || !open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setView(view === "source" ? "preview" : "source");
+  }, true);
 
   // In the panel, plain keys (Space, PageDown, arrows, Home, n, p, …) are the panel's: PDF.js
   // would otherwise turn its pages. Ctrl and Alt shortcuts go on (Ctrl+F still finds in the
@@ -320,6 +352,95 @@
     const note = session();
     return note && note.loaded && text.dataset.key === note.key ? note : null;
   };
+
+  // --- views: source, preview, split (M5a) ------------------------------------------------------
+
+  const markdown = window.myLibraryPreview;
+  let view = VIEWS.some(([name]) => name === load(KEYS.view)) ? load(KEYS.view) : "source";
+  let previewTimer = null;
+
+  function setView(next, remember = true) {
+    const focusWasIn = text.contains(document.activeElement) ? "text"
+      : preview.contains(document.activeElement) ? "preview" : "";
+    view = next;
+    if (remember) store(KEYS.view, next);
+    views.dataset.view = next;
+    body.dataset.mlNoteView = next;
+    for (const [name, b] of viewButtons) b.setAttribute("aria-pressed", String(name === next));
+    text.hidden = next === "preview";
+    preview.hidden = next === "source";
+    drawPreview();
+    // The focus stays in the notes (never left to PDF.js, whose keys would turn pages)
+    if (focusWasIn === "text" && text.hidden) preview.focus();
+    if (focusWasIn === "preview" && preview.hidden) text.focus();
+  }
+  for (const [name, b] of viewButtons) b.addEventListener("click", () => setView(name));
+
+  // The note whose text is in the box, rendered (only ever read: nothing here edits or saves);
+  // nothing while another note loads (D13)
+  function drawPreview() {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+    if (view === "source") return;
+    const note = typing();
+    if (!note) {
+      preview.replaceChildren();
+      return;
+    }
+    const { scrollTop } = preview;
+    if (markdown?.available) {
+      preview.innerHTML = markdown.html(note.text);  // markdown-it, html: false (preview.js)
+    } else {
+      const plain = el("pre", "ml-preview-plain");
+      plain.textContent = note.text;
+      preview.replaceChildren(biEl("div", "ml-muted ml-preview-setup",
+        "预览需要先安装：uv run scripts/reader.py --setup-preview",
+        "The preview needs setting up: uv run scripts/reader.py --setup-preview"), plain);
+    }
+    preview.scrollTop = scrollTop;
+  }
+  // While typing in Split: a moment after the last key; otherwise at once
+  function schedulePreview(now) {
+    if (view === "source") return;
+    if (now || view === "preview") return drawPreview();
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(drawPreview, 200);
+  }
+  // Split: the preview follows the source's scrolling (proportionally)
+  text.addEventListener("scroll", () => {
+    if (view !== "split") return;
+    const share = text.scrollTop / Math.max(1, text.scrollHeight - text.clientHeight);
+    preview.scrollTop = share * (preview.scrollHeight - preview.clientHeight);
+  });
+  // Links in the preview: http(s) open in a new tab (preview.js marks them); a #heading
+  // scrolls the preview (never PDF.js's own #page=…); another note of this document opens in
+  // the panel; /read/<id> opens in a new tab; anything else does nothing
+  preview.addEventListener("click", (event) => {
+    const link = event.target.closest?.("a[href]");
+    if (!link || !preview.contains(link)) return;
+    const href = link.getAttribute("href");
+    if (markdown?.isWeb(href)) return;
+    event.preventDefault();
+    if (href.startsWith("#")) {
+      let fragment = href.slice(1);
+      try { fragment = decodeURIComponent(fragment); } catch { /* as written */ }
+      const target = document.getElementById(markdown.headingId(fragment));
+      if (target && preview.contains(target)) target.scrollIntoView({ block: "start" });
+      return;
+    }
+    if (/^\/read\/[0-9a-f-]{36}([?#]|$)/.test(href)) {
+      window.open(href, "_blank", "noopener");
+      return;
+    }
+    let name = href.split(/[?#]/)[0].replace(/^\.\//, "");
+    try { name = decodeURIComponent(name); } catch { /* as written */ }
+    const entry = entries.find((e) => e.key === `file:${name}`);
+    if (entry) {
+      show(entry.key);
+    } else {
+      say(biEl("span", "ml-muted", `不是这份文档的笔记：${name}`, `Not a note of this document: ${name}`));
+    }
+  });
 
   function sessionFor(key) {
     if (!sessions.has(key)) {
@@ -443,6 +564,7 @@
     if (text.dataset.key !== key) {
       text.value = "";
       delete text.dataset.key;
+      drawPreview();  // (nothing: no note's text is in the box now)
     }
     setState("loading", biEl("span", "ml-muted", "载入中…", "Loading…"));
     let answer;
@@ -519,6 +641,7 @@
       say(biEl("span", "ml-muted", "已从磁盘更新（在别处修改过）", "Updated from disk (changed elsewhere)"));
     }
     renderBar(note);
+    schedulePreview(fresh);
   }
 
   function button(zh, en, onclick, id) {
@@ -757,5 +880,6 @@
   setInterval(check, 5000);
 
   apply(false);
+  setView(view, false);
   if (open) loadList();
 })();
