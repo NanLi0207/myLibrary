@@ -33,7 +33,8 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   API) is done (`9acaf52`). M2 (browser tests in CI) is done (`6b19d78`, with follow-ups
   `3730d23` and `7ff8325`; CI green); its link-security tests are now required in CI.
   M3 (split screen, notes read-only) is done (`73fbc72`, CI green). M4 (editing in the
-  panel, Markdown source) is implemented and awaits review.
+  panel, Markdown source) is done (`268a7cd`, CI green, manual acceptance passed). Next: a
+  code-quality audit before M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
@@ -2044,9 +2045,13 @@ refused; the editor stubbed); `viewer_html` injects `notes.js` and `notes.css`.
   - The container-query copy of PDF.js's toolbar rules is to recheck at a PDF.js upgrade
     (tests: the toolbar stays one row at 1400 / 1200 / 1100 px).
 
-**M4. Editing and saving: Markdown source (mode A)**: plan approved 2026-11-08 (D1 (a), D2–D7
-as recommended, with the refinements under *Decisions*); implemented 2026-11-08, awaiting
-review (see *Results* at the end of M4). Not committed.
+**M4. Editing and saving: Markdown source (mode A)**: done 2026-11-08, committed `268a7cd`
+(`268a7cdbff7b52604fc232c40b760e4879c5ef0f`).
+- GitHub CI fully passed (run 42489504683): lint, format, Python tests with the mandatory
+  symlink tests, the full Edge suite, and the panel-closed run.
+- The user's manual acceptance passed.
+- Plan approved 2026-11-08 (D1 (a), D2–D7 as recommended, with the refinements under
+  *Decisions*). See *Results* at the end of M4; its remaining limitations stay listed there.
 
 *Goal:* write the notes in the panel instead of VS Code, with zero silent data loss.
 - **Storage is unchanged:** the same `.md` files and the same M1 store (`/api/notes/save`,
