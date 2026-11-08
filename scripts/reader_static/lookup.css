@@ -289,3 +289,9 @@
   border-color: #c2410c;
   color: #c2410c;
 }
+/* A marks conflict (D5): where the copy is kept, selectable whole */
+.ml-saved .ml-path {
+  user-select: all;
+  word-break: break-all;
+  color: var(--ml-fg);
+}

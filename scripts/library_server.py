@@ -720,6 +720,29 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(HTTPStatus.OK, pdf.read_bytes(), "application/pdf")
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
 
+    def _save_marks(self, file: str, data: bytes):
+        """/api/save-marks (D5): the body is the tab's whole PDF; X-PDF-Version the version
+        its marks were made on, X-PDF-Unconfirmed its saves that got no answer (comma-
+        separated). 409 when the PDF changed elsewhere: nothing written to it, the tab's PDF
+        kept ("kept"). X-Marks-Action: keep-copy keeps one more copy only. 500 when a copy or
+        a write couldn't be checked: never reported as saved."""
+        try:
+            if self.headers.get("X-Marks-Action", "save") == "keep-copy":
+                return self._json(HTTPStatus.OK, reading_view.keep_marks_copy(file, data))
+            unconfirmed = self.headers.get("X-PDF-Unconfirmed", "").split(",")
+            answer = reading_view.save_marks(
+                file, data, base=self.headers.get("X-PDF-Version", ""),
+                unconfirmed=unconfirmed[: reading_view.MAX_UNCONFIRMED],
+            )  # fmt: skip
+            return self._json(HTTPStatus.OK, answer)
+        except reading_view.MarksConflict as conflict:
+            return self._json(HTTPStatus.CONFLICT, {
+                "conflict": True, "kept": conflict.kept, "current": conflict.current,
+                "error": str(conflict),
+            })  # fmt: skip
+        except reading_view.MarksNotKept as e:
+            return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
+
     def _notes(self, doc_id: str, body: dict):
         """/api/notes/list {id}, /api/notes/get {id, key}, /api/notes/version {id, key},
         /api/notes/open {id, key}, /api/notes/keep-copy {id, key, text} (into
@@ -791,7 +814,7 @@ class Handler(BaseHTTPRequestHandler):
                 if length > library_jobs.MAX_UPLOAD:
                     return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too big"})
                 data = self._body(length)
-                return self._json(HTTPStatus.OK, reading_view.save_marks(row["file"], data))
+                return self._save_marks(row["file"], data)
             body = json.loads(self._body(length) or b"{}")
             if self.path == "/api/books":  # the page refreshes itself after reading
                 return self._json(HTTPStatus.OK, {"books": library_page.books(self.pdf_base)})

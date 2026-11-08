@@ -118,6 +118,11 @@ def lib(tmp_path, monkeypatch):
             "refreshed": refreshed}  # fmt: skip
 
 
+def loaded(lib) -> str:
+    """The version of the PDF a tab would have loaded now (D5: every save names it)."""
+    return reader._version(lib["pdf"])
+
+
 def in_thread(work) -> tuple[threading.Thread, dict]:
     """Run `work` in a thread; its result or exception lands in the dict."""
     outcome = {}
@@ -165,7 +170,7 @@ def test_marks_saved_while_ocr_runs_are_kept(lib):
     running, ocr_outcome = in_thread(lambda: ocr_pdf.make_searchable(pdf))
     assert ocr.inside.wait(WAIT)  # OCR is reading page 1 of its snapshot
     mine = marked(original)
-    saving, saved = in_thread(lambda: reader.save_marks(FILE, mine))
+    saving, saved = in_thread(lambda: reader.save_marks(FILE, mine, base=loaded(lib)))
     saving.join(WAIT)  # never held up by the OCR
     assert not saving.is_alive() and saved["result"]["saved"] is True
     ocr.release.set()
@@ -195,7 +200,7 @@ def test_marks_saved_while_ocr_writes_its_result_are_kept(lib, monkeypatch):
     running, ocr_outcome = in_thread(lambda: ocr_pdf.make_searchable(pdf))
     assert writing.wait(WAIT)
     mine = marked(pdf.read_bytes())
-    assert reader.save_marks(FILE, mine)["saved"] is True
+    assert reader.save_marks(FILE, mine, base=loaded(lib))["saved"] is True
     go_on.set()
     running.join(WAIT)
     assert isinstance(ocr_outcome.get("error"), ocr_pdf.PdfChanged), ocr_outcome
@@ -208,7 +213,7 @@ def test_the_ocr_job_reports_the_change_instead_of_success(lib):
     job = library_jobs.start_ocr(lib["doc"])
     assert ocr.inside.wait(WAIT)
     mine = marked(lib["pdf"].read_bytes())
-    reader.save_marks(FILE, mine)
+    reader.save_marks(FILE, mine, base=loaded(lib))
     ocr.release.set()
     finished = wait_job(job)
     assert finished["status"] == "error", finished
@@ -249,7 +254,7 @@ def test_a_marks_save_and_a_replacement_never_interleave(lib, monkeypatch):
 
     monkeypatch.setattr(reader.safe_io, "write_bytes", slow_write)
     mine = marked(original)
-    saving, saved = in_thread(lambda: reader.save_marks(FILE, mine))
+    saving, saved = in_thread(lambda: reader.save_marks(FILE, mine, base=loaded(lib)))
     assert writing.wait(WAIT)  # marks are being written, under the PDF's lock
     keep = lib["root"] / "archive" / "books" / pdf.name
     replacing, replaced = in_thread(lambda: ocr_pdf.replace_pdf(pdf, rebuilt, keep, source=source))
@@ -309,7 +314,7 @@ def test_new_bookmarks_never_replace_a_pdf_marked_meanwhile(lib, monkeypatch):
 
     class MarksMeanwhile(PdfWriter):
         def write(self, stream):  # the copy is being written when marks are saved
-            reader.save_marks(FILE, mine)
+            reader.save_marks(FILE, mine, base=loaded(lib))
             return super().write(stream)
 
     monkeypatch.setattr(add_bookmarks, "PdfWriter", MarksMeanwhile)
@@ -333,7 +338,7 @@ def test_a_better_copy_never_replaces_a_pdf_marked_meanwhile(lib, monkeypatch):
         checks.append(path)
         answer = has_marks(path)
         if len(checks) == 1:
-            reader.save_marks(FILE, mine)  # just after handle_repeat looked
+            reader.save_marks(FILE, mine, base=loaded(lib))  # just after handle_repeat looked
         return answer
 
     monkeypatch.setattr(add_book, "has_marks", marks_arrive_after_the_first_check)

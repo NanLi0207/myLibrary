@@ -26,7 +26,7 @@ import tomllib
 import urllib.request
 import uuid
 import zipfile
-from datetime import date
+from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -667,19 +667,95 @@ def save_word(doc_id: str, title: str, text: str, context: str, page: int | None
 # --- your marks in the PDF -----------------------------------------------------------------
 
 
-def save_marks(file: str, data: bytes) -> dict:
-    """Write the PDF with your highlights, drawings and notes (PDF.js's saveDocument: the
-    original plus your marks) over the library's copy. The first time, the untouched original
-    is kept in archive/before-marks/. Refused if it isn't a whole PDF with the same pages."""
+VERSION_RE = re.compile(r"[0-9a-f]{64}")  # a PDF's version: the SHA-256 of its bytes
+MAX_UNCONFIRMED = 8  # a tab's saves that got no answer, named with its next save
+
+
+class MarksConflict(Exception):
+    """D5: the library's PDF isn't the version the marks were made on (another tab saved, OCR
+    replaced it). Nothing was written to it; the tab's PDF is kept in `kept` (a path in the
+    library), verified. `current` is the version on disk now."""
+
+    def __init__(self, kept: str, current: str):
+        super().__init__(
+            "the PDF was changed elsewhere (another tab, or OCR), so your marks weren't "
+            f"written into it; they are kept in {kept}"
+        )
+        self.kept, self.current = kept, current
+
+
+class MarksNotKept(Exception):
+    """The marks couldn't be written, or what was written couldn't be checked: never reported
+    as saved (the tab keeps them as unsaved)."""
+
+
+def _version(path: Path) -> str:
+    with open(path, "rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def _whole_pdf(data: bytes) -> int:
+    """The number of pages of a whole, readable PDF (ValueError otherwise)."""
     from pypdf import PdfReader
 
-    path = LIBRARY / file
     if not data.startswith(b"%PDF-") or b"%%EOF" not in data[-2048:]:
         raise ValueError("that isn't a whole PDF")
     try:
-        new_pages = len(PdfReader(io.BytesIO(data)).pages)
+        return len(PdfReader(io.BytesIO(data)).pages)
     except Exception as e:
         raise ValueError(f"the marked PDF can't be read ({e})") from None
+
+
+def _keep_conflict_copy(file: str, data: bytes) -> str:
+    """The tab's PDF in archive/marks-conflicts/<its folder>/<name>.<time>.<random>.pdf: a new
+    name each time (never over another copy), written whole (safe_io: atomic, flushed to disk
+    as far as the system allows), then read back and compared. Called under the PDF's lock.
+    Returns its path in the library; MarksNotKept if it couldn't be kept."""
+    relative = Path(file)
+    folder = LIBRARY / "archive" / "marks-conflicts" / relative.parent
+    while True:  # (the PDF's lock is held: no other copy of this PDF is being named now)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        copy = folder / f"{relative.stem}.{stamp}.{uuid.uuid4().hex[:8]}{relative.suffix}"
+        if not safe_io.exists(copy):
+            break
+    try:
+        safe_io.write_bytes(copy, data)
+        same = safe_io.read_bytes(copy) == data
+    except OSError as e:
+        raise MarksNotKept(
+            f"your marks couldn't be kept ({e.strerror or e}): they are only in the tab"
+        ) from None
+    if not same:
+        raise MarksNotKept("the copy of your marks couldn't be checked: they are only in the tab")
+    return copy.relative_to(LIBRARY).as_posix()
+
+
+def keep_marks_copy(file: str, data: bytes) -> dict:
+    """After a conflict: one more copy of the tab's PDF (marks made since), never written into
+    the library's PDF."""
+    _whole_pdf(data)
+    path = LIBRARY / file
+    with safe_io.lock_for(path), safe_io.critical():
+        return {"kept": _keep_conflict_copy(file, data)}
+
+
+def save_marks(file: str, data: bytes, *, base: str, unconfirmed=()) -> dict:
+    """Write the PDF with your highlights, drawings and notes (PDF.js's saveDocument: the
+    PDF the tab loaded plus all its marks) over the library's copy, if the library's PDF is
+    still `base`: the version the marks were made on. `unconfirmed`: versions of the tab's own
+    earlier saves that got no answer; if one of them is the PDF now, it was the tab's own write
+    and this save follows on it.
+
+    Otherwise nothing is written to the PDF, the tab's PDF is kept (MarksConflict). The first
+    time, the untouched original is kept in archive/before-marks/. Refused if it isn't a whole
+    PDF with the same pages. Returns the new version, read back and checked."""
+    if not isinstance(base, str) or not VERSION_RE.fullmatch(base):
+        raise ValueError("a save of marks needs the version of the PDF they were made on")
+    own = {v for v in unconfirmed if isinstance(v, str) and VERSION_RE.fullmatch(v)}
+    new_pages = _whole_pdf(data)
+    from pypdf import PdfReader
+
+    path = LIBRARY / file
     original = LIBRARY / "archive" / "before-marks" / file
     # Checked and written in one step under the PDF's lock, which every app writer that
     # replaces the PDF also takes (OCR, bookmarks, a better copy: D15): none of them can swap
@@ -687,6 +763,9 @@ def save_marks(file: str, data: bytes) -> dict:
     with safe_io.lock_for(path), safe_io.critical():  # quitting never cuts this off
         if not path.is_file():
             raise ValueError("the PDF isn't in the library any more")
+        current = _version(path)
+        if current != base and current not in own:  # changed elsewhere: theirs stays
+            raise MarksConflict(_keep_conflict_copy(file, data), current)
         try:
             old_pages = len(PdfReader(path).pages)
         except Exception as e:
@@ -704,7 +783,15 @@ def save_marks(file: str, data: bytes) -> dict:
             raise ValueError(
                 "the PDF is open in another program; close it and mark again"
             ) from None
-    return {"saved": True, "bytes": len(data)}
+        try:
+            written = safe_io.read_bytes(path) == data
+        except OSError:
+            written = False
+        if not written:
+            raise MarksNotKept(
+                "the PDF was written but couldn't be checked: your marks stay unsaved in the tab"
+            )
+    return {"saved": True, "bytes": len(data), "version": hashlib.sha256(data).hexdigest()}
 
 
 # --- serving the viewer -------------------------------------------------------------------

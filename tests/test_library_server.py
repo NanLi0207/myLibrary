@@ -156,6 +156,70 @@ def test_marks_cut_short_are_refused(library, monkeypatch):
         server.shutdown()
 
 
+def test_marks_saves_name_their_version_over_http(library, monkeypatch):
+    """D5 at the server: X-PDF-Version is required and checked; a stale one gives 409 with
+    where the tab's PDF is kept; X-PDF-Unconfirmed names the tab's own unanswered save;
+    X-Marks-Action: keep-copy only keeps a copy."""
+    import hashlib
+
+    from pypdf import PdfWriter
+
+    monkeypatch.setattr(library_server.reading_view, "LIBRARY", library)
+
+    def pdf(note: str) -> bytes:
+        writer = PdfWriter()
+        writer.add_blank_page(200, 200)
+        writer.add_metadata({"/Subject": note})
+        buffer = io.BytesIO()
+        writer.write(buffer)
+        return buffer.getvalue()
+
+    def sha(data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
+
+    book = library / "books" / f"{NAME}.pdf"
+    book.parent.mkdir()
+    loaded = pdf("as loaded")
+    book.write_bytes(loaded)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), library_server.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def save(data: bytes, **headers):
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/save-marks", data=data, method="POST",
+            headers={"X-Library-Token": library_server.TOKEN, "X-Document-Id": doc(library),
+                     "Content-Type": "application/pdf", **headers},
+        )  # fmt: skip
+        try:
+            with urllib.request.urlopen(request, timeout=10) as answer:
+                return answer.status, json.load(answer)
+        except urllib.error.HTTPError as e:
+            return e.code, json.load(e)
+
+    try:
+        assert save(pdf("no version"))[0] == 400
+        assert save(pdf("bad version"), **{"X-PDF-Version": "../etc"})[0] == 400
+        first = pdf("first tab")
+        status, answer = save(first, **{"X-PDF-Version": sha(loaded)})
+        assert status == 200 and answer["version"] == sha(first) and book.read_bytes() == first
+        stale = pdf("second tab")
+        status, answer = save(stale, **{"X-PDF-Version": sha(loaded)})
+        assert status == 409 and answer["conflict"] and answer["current"] == sha(first)
+        assert (library / answer["kept"]).read_bytes() == stale and book.read_bytes() == first
+        assert str(library) not in answer["error"]  # its place in the library only
+        # The first tab's next save, its last answer lost: its own write, so it follows on it
+        later = pdf("first tab, later")
+        own = f"{sha(b'x')},{sha(first)}"
+        status, answer = save(later, **{"X-PDF-Version": sha(loaded), "X-PDF-Unconfirmed": own})
+        assert status == 200 and book.read_bytes() == later
+        status, answer = save(pdf("more"), **{"X-PDF-Version": sha(loaded),
+                                              "X-Marks-Action": "keep-copy"})  # fmt: skip
+        assert status == 200 and (library / answer["kept"]).exists()
+        assert book.read_bytes() == later  # a copy only
+    finally:
+        server.shutdown()
+
+
 def test_missing_pdf_is_flagged_and_read_still_works(library, monkeypatch):
     opened = []
     monkeypatch.setattr(library_server.webbrowser, "open", opened.append)

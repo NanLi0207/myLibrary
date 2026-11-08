@@ -338,6 +338,15 @@ reader too. The PDF as it was before your first mark is kept in `archive/before-
 in other programs (e.g. Acrobat) while marking it here: Windows won't let a file that's open
 elsewhere be replaced.
 
+Your marks are saved only onto the version of the PDF you are looking at. If the PDF was changed
+elsewhere since this tab opened it (marks saved from another tab, or OCR), nothing is written
+over it: the status says **标注冲突** (Marks conflict), and your marked PDF is kept, checked, in
+`archive/marks-conflicts/` (its place in your library is shown, with **复制路径** (Copy path);
+Clear archive never deletes these). **重新载入** (Reload) then shows the current PDF, to mark
+again; if you marked more since, **再存一份副本** (Keep another copy) first. Until your latest
+marks are in such a copy, leaving the tab asks first. Marks from two PDFs aren't merged
+automatically.
+
 ### Your vocabulary list
 
 **加入生词本** (Save word) adds a row to `notes/<book>/vocabulary.md`:

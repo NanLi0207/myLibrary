@@ -386,7 +386,8 @@ def _check_catalog_repeats() -> list[dict]:
 # (never followed: it may lead outside the archive). archive/ can hold things from older
 # versions of this tool too. If in doubt, a file is kept.
 DOCUMENTS = {".pdf", ".djvu", ".epub"}
-OWN_FOLDERS = {"notes", "notes-conflicts", "examples"}  # documents in these are yours
+OWN_FOLDERS = {"notes", "notes-conflicts", "marks-conflicts", "examples"}  # yours
+# (marks-conflicts: a tab's marked PDF kept after a conflict, D5: never deleted here)
 TEMPLATE_NAME = re.compile(r"ch\d{2,}-[a-z0-9-]*\.md|notes\.md")
 
 

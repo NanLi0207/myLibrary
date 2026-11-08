@@ -805,7 +805,18 @@
   // - While marks are unsaved or a save is on its way, the browser asks before the tab is
   //   closed, reloaded or left; nothing is sent while closing (a whole PDF can't be).
   // - A save sends the marks as they are when it starts; changes made meanwhile are saved
-  //   next, so the last state is the one that stays.
+  //   next, so the last state is the one that stays. One save at a time.
+  // - Versions (D5): a save names the version of the PDF its marks were made on: the SHA-256
+  //   of the bytes this tab loaded, then of what it last saved (the server's answer). The
+  //   server writes only over that version. If the PDF changed elsewhere (another tab saved,
+  //   OCR replaced it), nothing is written to it: the tab's PDF is kept, checked, in
+  //   archive/marks-conflicts/ and the status says 标注冲突 (Marks conflict) with where. The
+  //   marks stay here, unsaved: nothing more is saved by itself; 再存一份副本 (Keep another
+  //   copy) keeps marks made since; 重新载入 (Reload) shows the current PDF, and only once
+  //   the latest marks are in a copy (until then leaving is warned about, as for any unsaved
+  //   marks).
+  // - A save that got no answer may have been written: its version is sent with the next save
+  //   (X-PDF-Unconfirmed), and if that's the PDF now, it was this tab's own: no conflict.
   async function keepMarks() {
     const app = window.PDFViewerApplication;
     if (!docId || !token || !app) return;
@@ -816,15 +827,15 @@
     document.body.append(status);
     let hideTimer = null;
     let state = "";
-    const show = (next, zh, en, action = null) => {
+    const show = (next, zh, en, ...actions) => {
       clearTimeout(hideTimer);
       status.hidden = false;
-      if (next === state && next !== "failed") return;  // keep its button usable
+      if (next === state && next !== "failed" && next !== "conflict") return;  // keep its button usable
       state = next;
       status.dataset.state = next;
       status.replaceChildren(bi(zh, en));
-      if (action) status.append(" ", action);
-      status.classList.toggle("ml-problem", next === "failed");
+      for (const action of actions) status.append(" ", action);
+      status.classList.toggle("ml-problem", next === "failed" || next === "conflict");
       if (next === "saved") hideTimer = setTimeout(() => { status.hidden = true; state = ""; }, 2500);
     };
     const button = (zh, en, onclick) => {
@@ -832,39 +843,119 @@
       b.onclick = onclick;
       return b;
     };
+    const hex = (buffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const sha256 = async (bytes) => hex(await crypto.subtle.digest("SHA-256", bytes));
     let savedHash = "";   // the marks the server last wrote ("": the PDF as opened)
     let lastHash = null;  // the marks at the last check
     let changedAt = 0;    // when they last changed
     let saving = false;
     let failures = 0;
     let failedAt = 0;
+    let version = null;   // promise: the version this tab's marks are on (as loaded, then saved)
+    let unconfirmed = []; // versions of saves that got no answer since the last confirmed one
+    let conflict = null;  // after a 409: {kept: where the copy is, marks: the marks it holds}
+    let leaving = false;  // Reload after a conflict, with the latest marks in a copy
     app.eventBus.on("documentloaded", () => {
       savedHash = "";
       lastHash = null;
       failures = 0;
+      unconfirmed = [];
+      conflict = null;
       status.hidden = true;
       state = "";
+      // The exact bytes PDF.js loaded (the server sends the whole file, never cached)
+      version = app.pdfDocument.getData().then(sha256);
+      version.catch(() => {});  // (a save says so, if it comes to that)
     });
     const current = () => app.pdfDocument?.annotationStorage.serializable.hash ?? savedHash;
     const unsaved = () => current() !== savedHash;
 
+    async function send(data, base, action) {
+      const response = await fetch("/api/save-marks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/pdf", "X-Library-Token": token, "X-Document-Id": docId,
+          "X-PDF-Version": base, "X-PDF-Unconfirmed": unconfirmed.join(","),
+          "X-Marks-Action": action,
+        },
+        body: data,
+      });
+      const answer = await response.json().catch(() => ({}));
+      return { response, answer };
+    }
+
+    function showConflict(problem = "") {
+      const latest = current() === conflict.marks;  // the copy holds the marks shown now
+      status.dataset.latest = latest ? "1" : "0";
+      const where = el("code", "ml-path");
+      where.textContent = conflict.kept;
+      const copyPath = button("复制路径", "Copy path", () => navigator.clipboard?.writeText(conflict.kept));
+      const actions = [where, copyPath];
+      if (latest) {
+        actions.push(button("重新载入", "Reload", () => {
+          if (current() !== conflict.marks) return showConflict();  // marked meanwhile
+          leaving = true;
+          app.pdfDocument?.annotationStorage.resetModified();  // they're in the checked copy
+          location.reload();
+        }));
+      } else {
+        actions.push(bi("之后的标注还不在副本里", "Marks made since aren't in the copy yet"),
+          button("再存一份副本", "Keep another copy", keepCopy));
+      }
+      if (problem) actions.push(biEl("span", "ml-error", "副本没保存", problem));
+      show("conflict",
+        "标注冲突：这份 PDF 在别处被修改了（另一个标签页或 OCR），你的标注没有写入它，已另存在资料库的",
+        "Marks conflict: this PDF was changed elsewhere (another tab, or OCR), so your marks "
+        + "weren't written into it; they are kept in your library's", ...actions);
+    }
+
+    async function keepCopy() {
+      const doc = app.pdfDocument;
+      if (!doc || saving || !conflict) return;
+      saving = true;
+      const marks = current();
+      try {
+        const data = await doc.saveDocument();
+        const { response, answer } = await send(data, await version, "keep-copy");
+        if (!response.ok || !answer.kept) throw new Error(answer.error || response.statusText);
+        if (doc !== app.pdfDocument) return;
+        conflict = { kept: answer.kept, marks };
+        showConflict();
+      } catch (error) {
+        showConflict(error.message);
+      } finally {
+        saving = false;
+      }
+    }
+
     async function save() {
       const doc = app.pdfDocument;
-      if (!doc || saving) return;
+      if (!doc || saving || conflict) return;
       const hash = current();
       if (hash === savedHash) return;
       saving = true;
       show("saving", "正在保存标注…", "Saving your marks…");
+      let sent = null;
       try {
+        const base = await version;
         const data = await doc.saveDocument();  // the PDF with the marks as they are now: `hash`
-        const response = await fetch("/api/save-marks", {
-          method: "POST",
-          headers: { "Content-Type": "application/pdf", "X-Library-Token": token, "X-Document-Id": docId },
-          body: data,
-        });
-        const answer = await response.json().catch(() => ({}));
-        if (!response.ok || !answer.saved) throw new Error(answer.error || response.statusText);
+        sent = await sha256(data);
+        const { response, answer } = await send(data, base, "save");
         if (doc !== app.pdfDocument) return;  // another PDF was opened meanwhile
+        if (response.status === 409 && answer.conflict) {  // changed elsewhere: ours is kept
+          sent = null;
+          unconfirmed = [];
+          conflict = { kept: answer.kept, marks: hash };
+          failures = 0;
+          showConflict();
+          return;
+        }
+        if (!response.ok || !answer.saved || !answer.version) {
+          throw new Error(answer.error || response.statusText);
+        }
+        sent = null;
+        unconfirmed = [];
+        version = Promise.resolve(answer.version);  // what the next save builds on
         savedHash = hash;
         failures = 0;
         if (current() === hash) {
@@ -872,6 +963,9 @@
           show("saved", "标注已保存", "Marks saved");
         }
       } catch (error) {
+        if (sent) {  // sent, but no proper answer: perhaps written; the next save says so
+          unconfirmed = [...unconfirmed, sent].slice(-8);
+        }
         failures++;
         failedAt = Date.now();
         show("failed", "标注没保存", `Marks not saved: ${error.message}`,
@@ -884,6 +978,13 @@
     setInterval(() => {
       if (!app.pdfDocument || saving) return;
       const hash = current();
+      if (conflict) {  // nothing saved by itself: say whether the copy has the latest marks
+        if ((hash === conflict.marks) !== (status.dataset.latest === "1")) {
+          status.dataset.latest = hash === conflict.marks ? "1" : "0";
+          showConflict();
+        }
+        return;
+      }
       if (hash === savedHash) {  // all saved (also after undoing back to it)
         lastHash = null;
         if (app._annotationStorageModified) app.pdfDocument.annotationStorage.resetModified();
@@ -904,7 +1005,8 @@
     }, 250);
 
     addEventListener("beforeunload", (event) => {
-      if (!saving && !unsaved()) return;  // all saved: leave freely
+      if (leaving && conflict && current() === conflict.marks) return;  // Reload: they're kept
+      if (!saving && !unsaved() && !conflict) return;  // all saved: leave freely
       event.preventDefault();
       event.returnValue = "";  // the browser's own "Leave site? Changes may not be saved"
     });

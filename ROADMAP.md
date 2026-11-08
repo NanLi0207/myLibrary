@@ -39,9 +39,9 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   - D13 and D14 are fixed: `8f029a7` and `edb4dbe`, CI green (run 42497560951).
   - D19 is fixed: `8154293`, CI green (run 42502216237).
   - D15 is fixed: `0bb1ad7`, CI green (run 42505838611).
-  - D20 is fixed, awaiting review; not committed.
-  - Next, before M5: versioned saving of marks (D5 and the stale-tab case in D15), plan
-    first.
+  - D20 is fixed: `d7b9fc5`, CI green (run 42510546751).
+  - D5 (versioned saving of marks, also the stale-tab case in D15) is fixed, awaiting
+    review; not committed.
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
@@ -111,7 +111,8 @@ partial, not integrated, or missing. **Size** is the implementation effort: S, M
   on the toolbar, with Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z, also while reading (`undoRedo`).
 - **Limitations:**
   - Marks can't be listed, searched, filtered, tagged or exported, and aren't linked to notes.
-  - Saving rewrites the whole PDF, and two tabs overwrite each other (D5).
+  - Saving rewrites the whole PDF. Two tabs no longer overwrite each other (D5, fixed): a
+    stale save is kept as a conflict copy instead.
   - Every save changes the file stamp, so `book_search` re-indexes the whole book.
 - **Proposal:**
   - Keep marks in the PDF, since PDF annotations are portable to other readers.
@@ -345,7 +346,7 @@ These are referenced by ID from the tasks.
 
 Fixed in v0.3 task 1, with regression tests in `tests/test_data_safety.py`: D1, D2, D3, D4,
 D9, D10, D11. Fixed in task 2, with tests in `tests/test_names_and_repeats.py`: D6, D7, D8,
-D12. They are kept below for the record. Still open: D5 (task 5).
+D12. They are kept below for the record. D5 is fixed (before M5; see its entry).
 
 - **D1 (C, fixed) `catalog.csv` loses rows under concurrent writes.**
   - It is rewritten in place with no lock (`catalog._write`, `upsert`, `set_field`).
@@ -368,10 +369,60 @@ D12. They are kept below for the record. Still open: D5 (task 5).
   - `local.toml`.
 - **D4 (C, fixed) Quit can stop a job mid-write.** Quit (`/api/quit`) and the library-change restart
   (`restart_later`, `os._exit`) don't wait for running jobs, and job threads are daemons.
-- **D5 (C) Marks from two tabs overwrite each other.**
-  - `save_marks` accepts any whole PDF with the same page count; there is no version check.
-  - After 3 failed saves, `keepMarks` stops trying for the session.
-  - Recorded as a strict expected failure: `tests/browser/test_two_tabs.py`.
+- **D5 (C, fixed before M5) Marks from two tabs overwrote each other.**
+  - The problem:
+    - `save_marks` accepted any whole PDF with the same page count, with no version check.
+    - Each tab saves the PDF as *it* loaded it plus its own marks, so a second tab's save
+      dropped the first tab's marks (the old strict expected failure: the PDF ended with
+      only the second tab's mark).
+    - A tab opened before OCR replaced the PDF wrote its scan over the OCR'd file (D15's
+      remaining case).
+  - The fix: optimistic concurrency, as for notes.
+    - **The tab's version.** On loading, `lookup.js keepMarks` hashes the exact bytes PDF.js
+      loaded (`pdfDocument.getData()`, SHA-256; the server sends the whole file, never
+      cached).
+    - **Every save names it** (`X-PDF-Version`). One save at a time; marks changed during a
+      save are saved next. After each save, the version is the one the server returns.
+    - **Under the PDF's lock** (the one OCR, bookmarks and the better-copy path take since
+      D15), `reader.save_marks` writes only if the PDF is still that version. It then reads
+      the file back and checks it before answering with the new version.
+    - **Otherwise (409)** nothing is written to the PDF. The tab's PDF is kept in
+      `archive/marks-conflicts/<folder>/<name>.<time>.<random>.pdf`:
+      - a new name each time, written atomically, read back and compared before the 409
+        is sent;
+      - Clear archive never deletes these (`library_jobs.OWN_FOLDERS`).
+    - **The tab after a conflict:**
+      - it shows 标注冲突 (Marks conflict) with the copy's place in the library, and
+        复制路径 (Copy path);
+      - its marks stay unsaved, nothing more is saved by itself, and PDF.js's modified
+        state isn't cleared;
+      - 再存一份副本 (Keep another copy, `X-Marks-Action: keep-copy`, a copy only) keeps
+        marks made after the copy;
+      - 重新载入 (Reload) is offered only while the latest marks are in a checked copy;
+        until then leaving is warned about.
+    - **A copy that can't be written or checked** is a 500 ("only in the tab"): never
+      success. The tab keeps the marks unsaved, with Retry.
+    - **A save whose answer was lost** (but was written): the tab sends the versions of its
+      unanswered saves (`X-PDF-Unconfirmed`). If the PDF is one of them, it was the tab's own
+      write and the save follows on it: no false conflict, no copy.
+  - Tests:
+    - `tests/test_marks.py`: versions, chains of saves, conflicts, unique and checked
+      copies, failing or unverified copies and writes, Clear archive.
+    - `tests/test_library_server.py`: the headers and the 409 over HTTP.
+    - `tests/browser/test_two_tabs.py` (no longer an expected failure):
+      - two tabs, with the whole recovery (copy byte-identical and readable, warning,
+        Reload, marking again: both marks kept);
+      - marks after a conflict needing a new copy;
+      - a PDF replaced under an open tab;
+      - three saves in a row building on each other;
+      - marks made while a save is unanswered;
+      - a lost answer;
+      - a copy that couldn't be kept.
+  - Limits:
+    - Marks from two versions aren't merged; the user re-marks after Reload, using the copy.
+    - Durability is what the file system gives after an fsync'd atomic replace.
+    - Programs outside myLibrary that change the PDF are caught by the version check
+      before a save, not during it (see D15).
 - **D6 (C, fixed in task 2) Different documents can get the same slug.**
   - Slugs keep ASCII only (`book_meta.surname`, `add_book.short_title`), so two Chinese-titled
     items from the same year both become `unknown-<year>-untitled`.
@@ -483,18 +534,9 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
   - Tests: `tests/test_pdf_replacement.py`. 7 of its 10 tests fail on the old code. The other
     3 (normal OCR, OCR failure, Quit during OCR) are behaviour that must stay.
   - Still open:
-    - **The other way round:** a tab opened before OCR finished still holds the scan. Marks
-      saved from it afterwards are written over the OCR'd PDF. The marks are kept, but the
-      new text layer is lost (the scan is still in `archive/books/`).
-      - A real data-consistency risk. The likely fix is optimistic concurrency for saving
-        marks, as the notes panel already does for notes:
-        - the reader records the PDF version it loaded;
-        - every save sends that version;
-        - the server compares it with the current PDF under the PDF's lock;
-        - a changed file means the stale write is refused;
-        - the user's unsaved marks stay recoverable: a conflict never discards them
-          silently.
-      - Not part of D15. Decide separately, before or after M5.
+    - **The other way round** (a tab opened before OCR finished writing its marks over
+      the OCR'd PDF): fixed by D5's versioned saves. The tab's save is a conflict, and its
+      PDF is kept in `archive/marks-conflicts/`.
     - **Other programs and processes** don't share these locks: a PDF editor, or
       `add_book.py` / `ocr_pdf.py` run while the server runs.
       - The SHA-256 check still catches any change made before the check.
@@ -1226,7 +1268,8 @@ request: familiar Undo and Redo, as in a word processor.
   - "标注已保存 (Marks saved)" appears only once the server has written the file.
 - **Limits:**
   - The history lasts as long as the tab: reopening starts a new one, as asked.
-  - It covers this tab only. Two tabs of the same PDF still overwrite each other (D5).
+  - It covers this tab only. Two tabs of the same PDF no longer overwrite each other (D5,
+    fixed): the stale one gets a conflict copy.
   - It relies on PDF.js internals: the `editingaction` and `annotationeditorstateschanged`
     events, the `#editorModeButtons` toolbar group, and the empty hash `""`. Recheck them
     after a PDF.js upgrade.
@@ -1507,8 +1550,8 @@ ports) are green in CI (run 42418424532). Open item: whether the three symlink t
                        saved, reopened
     test_saving.py     zero-delay close, navigate and reload: warned, then saved after Stay;
                        Save now; slow and failed saves; rapid changes, the final state on disk
-    test_two_tabs.py   D5 as a strict xfail: two tabs overwrite each other's marks (a record of
-                       the known bug; it starts failing once D5 is fixed)
+    test_two_tabs.py   D5 (fixed): versioned saves; a stale tab's marks kept as a conflict copy
+                       (was a strict xfail recording the bug until D5 was fixed)
   ```
 - **Reliable tests:**
   - **Waits** are on observable states: PDF.js loaded, text layer drawn, the save status, the
@@ -1532,7 +1575,8 @@ ports) are green in CI (run 42418424532). Open item: whether the three symlink t
   - **Missing PDF.js:** stays a Python test (`/read` gives the bare PDF, and the PDF is
     served). Edge's own PDF viewer isn't scriptable reliably, so there is no browser test.
   - **Marks:** within one tab, a change made during a slow save is saved next and the final
-    state wins (`test_saving.py`). Across tabs, D5 stays a known issue (`test_two_tabs.py`).
+    state wins (`test_saving.py`). Across tabs, saves are versioned and a stale one is kept
+    as a conflict copy (D5, fixed; `test_two_tabs.py`).
 - **CI:** a second job, `browser` (windows-latest, `timeout-minutes: 20`), runs beside the
   existing `test` job:
   1. checkout, setup-uv, `uv sync --group browser`;
@@ -2729,9 +2773,9 @@ directly):
 
 ### Task 5. Structured annotations, search and note linking *(2.2, D5)*
 
-- [ ] **Marks that can't overwrite each other:**
-  - `save_marks` checks the stamp of the PDF the viewer loaded and refuses a stale one.
-  - Retry with backoff instead of giving up.
+- [x] **Marks that can't overwrite each other:** done as D5 (versioned saves, before M5).
+- [ ] **Saving marks, the rest:**
+  - Retry with backoff instead of giving up after 3 tries.
   - After a save, update `book_search`'s stamp instead of re-indexing.
 - [ ] **Marks linked to notes:** quotes from passages move to task 4 (M6–M7); task 5 adds
   linking a PDF mark to a note, using the same references file once `/NM` is known to be
