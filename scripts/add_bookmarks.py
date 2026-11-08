@@ -16,14 +16,17 @@ original is kept in archive/books/.
 """
 
 import argparse
+import hashlib
+import io
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from statistics import median
 
 import paths
+import safe_io
 from book_toc import contents_pages, read_toc
-from ocr_pdf import ask, replace_pdf
+from ocr_pdf import PdfChanged, ask, replace_pdf
 from pypdf import PdfReader, PdfWriter
 
 LIBRARY = paths.LIBRARY
@@ -111,8 +114,12 @@ def plan_bookmarks(pdf: Path) -> list[Mark]:
 
 
 def write_bookmarks(pdf: Path, marks: list[Mark]) -> None:
-    """Rewrite `pdf` with these bookmarks; the first original is kept in archive/books/."""
-    writer = PdfWriter(clone_from=pdf)
+    """Rewrite `pdf` with these bookmarks; the first original is kept in archive/books/.
+    ocr_pdf.PdfChanged if the PDF changed (marks saved) meanwhile: then it stays as it is."""
+    with safe_io.lock_for(pdf):  # read whole, never half-way through a marks save
+        data = pdf.read_bytes()
+    source = hashlib.sha256(data).hexdigest()  # (ocr_pdf.fingerprint of what was read)
+    writer = PdfWriter(clone_from=io.BytesIO(data))
     for mark in marks:
         parent = writer.add_outline_item(mark.title, mark.page)
         for child in mark.children:
@@ -120,9 +127,12 @@ def write_bookmarks(pdf: Path, marks: list[Mark]) -> None:
     writer.page_mode = "/UseOutlines"  # open with the bookmarks panel showing
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     tmp = OUTPUT_DIR / pdf.name
-    with tmp.open("wb") as f:
-        writer.write(f)
-    replace_pdf(pdf, tmp, ARCHIVE_BOOKS / f"{pdf.stem}-before-bookmarks.pdf")
+    try:
+        with tmp.open("wb") as f:
+            writer.write(f)
+        replace_pdf(pdf, tmp, ARCHIVE_BOOKS / f"{pdf.stem}-before-bookmarks.pdf", source=source)
+    finally:  # (after a replacement, tmp is the PDF already)
+        tmp.unlink(missing_ok=True)
 
 
 def describe(marks: list[Mark]) -> str:
@@ -160,7 +170,11 @@ def main() -> None:
         print(f"  -> {describe(marks)}")
         if args.dry_run or not (args.yes or ask("  Add these bookmarks? [Y/n] ")):
             continue
-        write_bookmarks(pdf, marks)
+        try:
+            write_bookmarks(pdf, marks)
+        except PdfChanged as e:
+            print(f"  ! {e}; run this again to add the bookmarks to it")
+            continue
         add_book.forget_chapter_pages(pdf.stem)  # Read now uses the bookmarks
         print("  -> bookmarks added")
     if not args.dry_run:

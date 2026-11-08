@@ -674,19 +674,25 @@ def save_marks(file: str, data: bytes) -> dict:
     from pypdf import PdfReader
 
     path = LIBRARY / file
-    if not path.is_file():
-        raise ValueError("the PDF isn't in the library any more")
     if not data.startswith(b"%PDF-") or b"%%EOF" not in data[-2048:]:
         raise ValueError("that isn't a whole PDF")
     try:
         new_pages = len(PdfReader(io.BytesIO(data)).pages)
-        old_pages = len(PdfReader(path).pages)
     except Exception as e:
         raise ValueError(f"the marked PDF can't be read ({e})") from None
-    if new_pages != old_pages:
-        raise ValueError(f"the marked PDF has {new_pages} pages, the book {old_pages}")
     original = LIBRARY / "archive" / "before-marks" / file
+    # Checked and written in one step under the PDF's lock, which every app writer that
+    # replaces the PDF also takes (OCR, bookmarks, a better copy: D15): none of them can swap
+    # the PDF between the check and the write
     with safe_io.lock_for(path), safe_io.critical():  # quitting never cuts this off
+        if not path.is_file():
+            raise ValueError("the PDF isn't in the library any more")
+        try:
+            old_pages = len(PdfReader(path).pages)
+        except Exception as e:
+            raise ValueError(f"the library's PDF can't be read ({e})") from None
+        if new_pages != old_pages:
+            raise ValueError(f"the marked PDF has {new_pages} pages, the book {old_pages}")
         if not original.exists():  # copied whole or not at all: it's kept only once
             original.parent.mkdir(parents=True, exist_ok=True)
             part = original.with_name(original.name + ".part")

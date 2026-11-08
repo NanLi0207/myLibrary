@@ -37,7 +37,8 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   - The code-quality audit after M4 is done (2026-11-08).
   - Its data-safety findings come before M5: D13–D20, B21–B24, B26.
   - D13 and D14 are fixed: `8f029a7` and `edb4dbe`, CI green (run 42497560951).
-  - D19 is fixed, awaiting review; not committed.
+  - D19 is fixed: `8154293`, CI green (run 42502216237).
+  - D15 is fixed, awaiting review; not committed. Next: a D20 plan, for review first.
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
@@ -439,12 +440,64 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
     and `…_never_goes_through_links`.
   - Still open: B13. Documents themselves (pre-marks and pre-OCR originals) are still
     deleted, by design.
-- **D15 (C) Marks can be lost to a concurrent PDF replacement.**
-  - `reader.save_marks` holds only `safe_io.lock_for(pdf)`.
-  - OCR (`ocr_pdf.replace_pdf`), `add_book.replace_pdf` and `rename_document` swap or move
-    the PDF without that lock.
-  - Marks saved during an OCR run are left only in the `archive/books/` copy, and the reader
-    was told they were saved.
+- **D15 (C, fixed; audit) Marks could be lost to a concurrent PDF replacement.**
+  - The problem:
+    - OCR (`ocr_pdf.make_searchable`) and new bookmarks (`add_bookmarks.write_bookmarks`)
+      rebuild the PDF from the file as it was when they started, then `ocr_pdf.replace_pdf`
+      put the result in its place. No lock was held and nothing checked whether the PDF had
+      changed meanwhile.
+    - `reader.save_marks` holds `safe_io.lock_for(pdf)`, but it checked the file and its
+      pages before taking the lock.
+    - What happened on Windows:
+      - while the OCR engine held the live PDF open, a marks save failed ("open in another
+        program");
+      - after the engine let go, while the result was being written, a save succeeded and
+        was then silently replaced. Reproduced: OCR reported success, and 0 highlights were
+        left in the library's PDF; they survived only in `archive/books/`.
+      - A failed or stopped OCR also left the PDF held open: the engine's document was
+        closed only on success.
+    - `add_book.replace_pdf` (a better copy of a repeat) checked for marks in `handle_repeat`
+      well before the swap, outside the lock, so marks saved in between went to the archive
+      with the old PDF.
+  - The fix:
+    - OCR copies the PDF under its lock and works on that copy (same name and size: the page
+      cache still applies), so the live PDF is never held open.
+    - It records the copy's SHA-256.
+    - `replace_pdf` now requires `source=`. Under the PDF's lock it compares the PDF's
+      current SHA-256 with `source`; if they differ, `PdfChanged` is raised and nothing is
+      replaced.
+    - The OCR job then reports "OCR not applied: the PDF changed while OCR was running …",
+      not success, and does not refresh chapters. The command-line tools print the same.
+    - Bookmarks read the PDF once under its lock and pass that content's SHA-256.
+    - `save_marks` checks the file and its pages under the lock it writes under.
+    - `add_book.replace_pdf` takes the PDF's lock and checks for marks again there. With
+      marks it raises `PdfMarked`, and `handle_repeat` archives the copy instead and says
+      why.
+    - The OCR engine's document is always closed, and temporary files are removed.
+  - The lock is never held during OCR itself: only for the copy, and for the check plus the
+    swap.
+  - Tests: `tests/test_pdf_replacement.py`. 7 of its 10 tests fail on the old code. The other
+    3 (normal OCR, OCR failure, Quit during OCR) are behaviour that must stay.
+  - Still open:
+    - **The other way round:** a tab opened before OCR finished still holds the scan. Marks
+      saved from it afterwards are written over the OCR'd PDF. The marks are kept, but the
+      new text layer is lost (the scan is still in `archive/books/`).
+      - A real data-consistency risk. The likely fix is optimistic concurrency for saving
+        marks, as the notes panel already does for notes:
+        - the reader records the PDF version it loaded;
+        - every save sends that version;
+        - the server compares it with the current PDF under the PDF's lock;
+        - a changed file means the stale write is refused;
+        - the user's unsaved marks stay recoverable: a conflict never discards them
+          silently.
+      - Not part of D15. Decide separately, before or after M5.
+    - **Other programs and processes** don't share these locks: a PDF editor, or
+      `add_book.py` / `ocr_pdf.py` run while the server runs.
+      - The SHA-256 check still catches any change made before the check.
+      - A change landing between the check and the swap isn't prevented, though Windows
+        refuses to move a file another program holds open.
+    - `remove_book` and `rename_document` move the PDF without its lock. A marks save at
+      that moment can recreate the file at the old name.
 - **D16 (C) Glossary terms are appended without a lock or an atomic write.**
   `reader.add_glossary_term` checks for duplicates outside any lock, then uses
   `open(path, "a")`. Two clicks can add a term twice, and a crash can leave a partial row.
@@ -457,8 +510,8 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
   - It also snapshots the README without its lock.
   - It has no production caller yet (tests only), so it must be fixed before any rename
     feature.
-- **D19 (C, fixed; audit) A hand-edited catalog `notes` value could point outside the
-  library.**
+- **D19 (C, fixed in `8154293`, CI green; audit) A hand-edited catalog `notes` value could
+  point outside the library.**
   - The problem:
     - `library_page.readme_of`, `reader.save_word` and `add_book.notes_dir_of` used
       `LIBRARY / row["notes"]` unchecked; only `notes_store.notes_dir` refused absolute paths
@@ -560,7 +613,8 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
 - **B21 (C; audit) Slug-keyed leftovers in OCR.**
   - `add_book.check_remaining_scans` tests `pdf.stem in catalog.load(...)`, which is always
     False with id keys. So command-line OCR never refreshes a scan's chapters.
-  - `library_jobs._ocr` calls `forget_chapter_pages(pdf.stem)`, which removes nothing.
+  - `library_jobs._ocr` calls `forget_chapter_pages(pdf.stem)`, which removes nothing. So
+    does `add_bookmarks.main` (found during D15).
 - **B22 (C; audit) Requests without a full timeout.**
   - `note_session.js` `request()` clears its timer before reading the response body, so a
     stalled body leaves "Saving…" for good.

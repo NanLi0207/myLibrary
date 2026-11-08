@@ -54,7 +54,7 @@ import subjects
 import thesis_meta
 from book_meta import Meta, ascii_words, identify, isbn13, surname
 from book_toc import STOP_WORDS, Chapter, read_toc
-from ocr_pdf import ask, make_searchable, needs_ocr, ocr_minutes
+from ocr_pdf import PdfChanged, ask, make_searchable, needs_ocr, ocr_minutes
 from pypdf import PdfReader
 
 LIBRARY = paths.LIBRARY
@@ -682,6 +682,10 @@ def fill_details(doc_id: str, meta: Meta) -> list[str]:
     return list(fill)
 
 
+class PdfMarked(ValueError):
+    """The library's PDF has the user's marks (by now): it is never replaced."""
+
+
 def replace_pdf(doc_id: str, path: Path, meta: Meta) -> Path:
     """A new copy of something already in the library that offers more (e.g. searchable text,
     or a DOI): it takes the old PDF's place under the same name, so your notes and progress stay
@@ -697,7 +701,11 @@ def replace_pdf(doc_id: str, path: Path, meta: Meta) -> Path:
     if path.resolve() == pdf.resolve():
         raise ValueError("that is the library's own PDF; nothing was replaced")
     _library_item(path, folders_ok=("books", "papers", "theses"))
-    with FILING, safe_io.critical():
+    # Under the PDF's lock, as reader.save_marks writes it: marks saved since the caller
+    # looked (handle_repeat) are seen here, and none can be saved halfway through the swap
+    with FILING, safe_io.lock_for(pdf), safe_io.critical():
+        if pdf.exists() and has_marks(pdf):
+            raise PdfMarked(f"{pdf.name} has your marks; nothing was replaced")
         old = move_to_archive(pdf) if pdf.exists() else None
         try:
             path.rename(pdf)
@@ -1073,9 +1081,14 @@ def handle_repeat(
     if better:
         if dry_run:
             return True, f"this copy has {better}: would replace its PDF"
-        old = replace_pdf(doc_id, path, meta)
-        return True, (f"this copy has {better}, so it replaces the PDF (your notes stay; the "
-                      f"old PDF is in archive/{old.parent.name}/)")  # fmt: skip
+        try:
+            old = replace_pdf(doc_id, path, meta)
+        except PdfMarked:  # marks saved after the check above: the PDF stays, with them
+            marked = (f"this copy has {better}, but the library's PDF got your marks meanwhile, "
+                      "so it stays; ")  # fmt: skip
+        else:
+            return True, (f"this copy has {better}, so it replaces the PDF (your notes stay; "
+                          f"the old PDF is in archive/{old.parent.name}/)")  # fmt: skip
     if dry_run:
         return False, f"{marked}would be moved to archive/"
     added = fill_details(doc_id, meta)
@@ -1202,7 +1215,11 @@ def offer_ocr(path: Path, args: argparse.Namespace) -> None:
     if args.ocr or ask(
         f"  Scanned PDF without text. Add a text layer with OCR (~{minutes:.0f} min)? [Y/n] "
     ):
-        keep = make_searchable(path)
+        try:
+            keep = make_searchable(path)
+        except PdfChanged as e:
+            print(f"  ! {e}; run OCR again to add the text layer to it")
+            return
         print(f"  -> text layer added; the original scan is in {keep.relative_to(BOOKS.parent)}")
 
 
@@ -1223,7 +1240,11 @@ def check_remaining_scans(args: argparse.Namespace) -> None:
         question = f"  {pdf.name} ({about}): make it searchable now? [y/N] "
         if not (args.ocr or ask(question, default=False)):
             continue
-        keep = make_searchable(pdf)
+        try:
+            keep = make_searchable(pdf)
+        except PdfChanged as e:
+            print(f"  ! {e}; run OCR again to add the text layer to it")
+            continue
         print(f"  -> text layer added; the original scan is in {keep.relative_to(BOOKS.parent)}")
         if pdf.stem in catalog.load(CATALOG):
             refresh_chapters(pdf, dry_run=False)  # chapters and pages from the new text

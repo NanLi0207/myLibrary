@@ -377,7 +377,7 @@ def test_an_interrupted_ocr_swap_keeps_the_book(library, monkeypatch):
 
     monkeypatch.setattr(Path, "replace", failing_replace)
     with pytest.raises(SystemExit):  # ocr_pdf's message for a locked file
-        ocr_pdf.replace_pdf(pdf, new, keep)
+        ocr_pdf.replace_pdf(pdf, new, keep, source=ocr_pdf.fingerprint(pdf))  # (unchanged PDF)
     assert pdf.read_bytes() == b"%PDF original" and not keep.exists()
 
 

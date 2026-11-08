@@ -12,7 +12,9 @@ About 1.5 s per page. Progress is cached (.cache/ocr/), so an interrupted run re
 """
 
 import argparse
+import hashlib
 import io
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -97,6 +99,19 @@ def add_text_layer(src: Path, dst: Path, progress=None) -> None:
 
     writer = PdfWriter(clone_from=src)  # keeps bookmarks and metadata
     document = pdfium.PdfDocument(src)
+    try:  # closed also when OCR fails or is stopped: the file isn't held open afterwards
+        skipped = _ocr_pages(src, writer, document, progress)
+    finally:
+        document.close()
+    if skipped:
+        print(f"  ! {skipped} rotated pages were left without text")
+    writer.compress_identical_objects()
+    with dst.open("wb") as f:
+        writer.write(f)
+
+
+def _ocr_pages(src: Path, writer: PdfWriter, document, progress) -> int:
+    """Add the OCR text to each of `writer`'s pages; the number of (rotated) pages skipped."""
     total, started, skipped = len(writer.pages), time.time(), 0
     for i, page in enumerate(writer.pages):
         if page.rotation:
@@ -115,20 +130,37 @@ def add_text_layer(src: Path, dst: Path, progress=None) -> None:
             left = (time.time() - started) / (i + 1) * (total - i - 1)
             print(f"\r  OCR page {i + 1}/{total}, ~{left / 60:.0f} min left   ", end="", flush=True)
     print()
-    document.close()
-    if skipped:
-        print(f"  ! {skipped} rotated pages were left without text")
-    writer.compress_identical_objects()
-    with dst.open("wb") as f:
-        writer.write(f)
+    return skipped
 
 
-def replace_pdf(pdf: Path, new: Path, keep: Path) -> None:
-    """Put `new` in place of `pdf`. The old file moves to `keep`, unless `keep` already
-    holds an earlier original (then the old file, itself a derived copy, is dropped)."""
+class PdfChanged(Exception):
+    """The PDF changed (e.g. marks were saved) while its new copy was being made from it: the
+    copy lacks those changes, so it doesn't replace the PDF."""
+
+
+def fingerprint(path: Path) -> str:
+    """The file's content (SHA-256): what the PDF is, whatever its time stamps say."""
+    with open(path, "rb") as f:
+        return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def replace_pdf(pdf: Path, new: Path, keep: Path, *, source: str) -> None:
+    """Put `new` (a copy made from the PDF whose fingerprint was `source`) in place of `pdf`.
+    The old file moves to `keep`, unless `keep` already holds an earlier original (then the old
+    file, itself a derived copy, is dropped).
+
+    Under the PDF's lock (as reader.save_marks writes it): if the PDF is no longer `source`
+    (marks saved meanwhile), PdfChanged and nothing is replaced: `new` would take them away."""
     keep.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with safe_io.critical():  # two steps that belong together: quitting waits for both
+        # One step for the app's own writers (marks wait, or are waited for), and quitting
+        # waits for both moves
+        with safe_io.lock_for(pdf), safe_io.critical():
+            if fingerprint(pdf) != source:
+                raise PdfChanged(
+                    f"{pdf.name} changed while its new copy was being made (marks saved "
+                    "meanwhile?), so it was left as it is, with them"
+                )
             kept = False
             if not keep.exists():
                 pdf.rename(keep)
@@ -148,15 +180,32 @@ def replace_pdf(pdf: Path, new: Path, keep: Path) -> None:
 
 
 def make_searchable(pdf: Path, progress=None) -> Path:
-    """OCR `pdf` in place. The untouched original goes to archive/books/; returns its path."""
+    """OCR `pdf` in place. The untouched original goes to archive/books/; returns its path.
+    PdfChanged if the PDF changed (marks saved) while OCR ran: then it stays as it is."""
     keep = ARCHIVE_BOOKS / pdf.name
     if keep.exists():
         keep = keep.with_name(f"{keep.stem}-scan-{int(time.time())}{keep.suffix}")
     # Built outside books/, so a half-finished file is never mistaken for a new book
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     tmp = OUTPUT_DIR / pdf.name
-    add_text_layer(pdf, tmp, progress)
-    replace_pdf(pdf, tmp, keep)
+    # OCR reads its own copy of the PDF, taken under the PDF's lock (never half-way through a
+    # marks save), so the PDF itself is never held open and marks can be saved meanwhile. The
+    # copy's content is what the result is made from: the result replaces the PDF only if the
+    # PDF is still exactly that (replace_pdf). Same name and size: the page cache still applies
+    snapshot = OUTPUT_DIR / "source" / pdf.name
+    snapshot.parent.mkdir(exist_ok=True)
+    try:
+        with safe_io.lock_for(pdf):
+            shutil.copyfile(pdf, snapshot)
+        source = fingerprint(snapshot)
+        add_text_layer(snapshot, tmp, progress)
+        replace_pdf(pdf, tmp, keep, source=source)
+    finally:  # (after a replacement, tmp is the PDF already)
+        for leftover in (snapshot, tmp):
+            try:
+                leftover.unlink(missing_ok=True)
+            except OSError:  # never in place of the real outcome; the next run overwrites it
+                pass
     return keep
 
 
@@ -192,7 +241,10 @@ def main() -> None:
     ):
         print("Nothing changed.")
         return
-    keep = make_searchable(pdf)
+    try:
+        keep = make_searchable(pdf)
+    except PdfChanged as e:
+        sys.exit(f"  ! {e}. Run OCR again to add the text layer to it.")
     print(f"  -> {pdf.name} is now searchable; the original scan is in {paths.display(keep)}")
 
     # A book already in the library: re-read its chapters from the new text layer

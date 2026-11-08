@@ -559,5 +559,9 @@ def _ocr(job: dict, pdf: Path) -> None:
     except Stopped:
         _finish(job, "error", f"OCR stopped because {STOPPED}; the book is unchanged. Start OCR "
                 "again: the pages already read are remembered")  # fmt: skip
+    except ocr_pdf.PdfChanged:  # D15: its result would have taken the marks away
+        _finish(job, "error", "OCR not applied: the PDF changed while OCR was running (your "
+                "marks were saved meanwhile), so it was left as it is, with your marks. Start "
+                "OCR again to add the text layer to it")  # fmt: skip
     except (Exception, SystemExit) as e:  # SystemExit: the PDF is open elsewhere (ocr_pdf)
         _finish(job, "error", f"OCR failed: {str(e).strip(' !')}")
