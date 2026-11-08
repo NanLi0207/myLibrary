@@ -68,8 +68,8 @@ def _inside(path: Path, folder: Path) -> bool:
     folder that points out of it isn't: such a file is never listed, read or written. A link on
     the folder itself (a notes folder kept on OneDrive through a junction) is the user's own
     arrangement, and its files count as the folder's."""
-    try:
-        return path.resolve().is_relative_to(folder.resolve())
+    try:  # (safe_io.real_path: links are followed also in paths longer than Windows' limit)
+        return safe_io.real_path(path).is_relative_to(safe_io.real_path(folder))
     except OSError, RuntimeError:  # a link loop, or a link that can't be followed
         return False
 
@@ -101,8 +101,10 @@ def path_of(library: Path, row: dict, key: str, *, creating: bool = False) -> Pa
     path = folder / name
     if not _inside(path, folder):  # a link or junction pointing out
         raise NoteError(f"not a note: {key[:80]!r}")
-    if path.exists():
-        if not path.is_file():
+    # (safe_io's checks also see files whose whole path is longer than Windows' usual limit:
+    # a plain exists() would call such a note missing, and a "new" note could be written over it)
+    if safe_io.exists(path):
+        if not safe_io.is_file(path):
             raise NoteError(f"not a note: {key[:80]!r}")
         return path
     if creating and (kind == "topic" or name in {c["note"] for c in _linked(folder)}):
@@ -191,7 +193,7 @@ def _encode(text: str, eol: str, bom: bool) -> bytes:
 
 
 def _current(path: Path) -> bytes | None:
-    return safe_io.read_bytes(path) if path.exists() else None
+    return safe_io.read_bytes(path) if safe_io.exists(path) else None
 
 
 def _result(key: str, path: Path, data: bytes | None) -> dict:
@@ -208,17 +210,56 @@ def read(library: Path, row: dict, key: str) -> dict:
         return _result(key, path, _current(path))
 
 
-def _keep_conflicting(library: Path, path: Path, data: bytes) -> Path:
-    """Copy the version on disk to archive/notes-conflicts/<its place under notes/> before it's
-    replaced by the text the user chose to keep."""
+def version_info(library: Path, row: dict, key: str) -> dict:
+    """{key, version, exists, bytes}: the note on disk now, without its text (the notes panel
+    checks this every few seconds for changes made elsewhere)."""
+    path = path_of(library, row, key, creating=True)
+    with safe_io.lock_for(path):
+        data = _current(path)
+    return {
+        "key": key,
+        "version": version_of(data),
+        "exists": data is not None,
+        "bytes": 0 if data is None else len(data),
+    }
+
+
+def _archive_path(library: Path, path: Path, tag: str = "") -> Path:
+    """archive/notes-conflicts/<the note's place under notes/>/<name>.<time><tag>.md"""
     try:
         place = path.parent.resolve().relative_to((library / "notes").resolve())
     except ValueError:
         place = Path(path.parent.name)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    copy = library / "archive" / "notes-conflicts" / place / f"{path.stem}.{stamp}{path.suffix}"
+    return (
+        library / "archive" / "notes-conflicts" / place / f"{path.stem}.{stamp}{tag}{path.suffix}"
+    )
+
+
+def _keep_conflicting(library: Path, path: Path, data: bytes) -> Path:
+    """Copy the version on disk to archive/notes-conflicts/<its place under notes/> before it's
+    replaced by the text the user chose to keep."""
+    copy = _archive_path(library, path)
     safe_io.write_bytes(copy, data)
     return copy
+
+
+def keep_copy(library: Path, row: dict, key: str, text: str) -> str:
+    """Keep the user's own text of a note in archive/notes-conflicts/ (…<time>.mine.md), never
+    in notes/: their side of a conflict, before the editor takes the disk version instead.
+    Written in the note's own form (line endings, BOM). Returns its path in the library."""
+    if not isinstance(text, str):
+        raise NoteError("no text to keep")
+    path = path_of(library, row, key, creating=True)
+    with safe_io.lock_for(path):
+        data = _current(path)
+    eol, bom = (os.linesep, False) if data is None else _decode(data, path)[1:]
+    kept = _encode(text, eol, bom)
+    if len(kept) > MAX_BYTES:
+        raise NoteError("the note is too large to keep here")
+    copy = _archive_path(library, path, ".mine")
+    safe_io.write_bytes(copy, kept)
+    return copy.relative_to(library).as_posix()
 
 
 def save(

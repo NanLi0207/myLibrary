@@ -711,6 +711,7 @@ def viewer_html(token: str) -> bytes:
         '<link rel="stylesheet" href="/reader/notes.css">\n'
         f"<script>window.MYLIBRARY_TOKEN = {token!r};</script>\n"
         '<script src="/reader/lookup.js" defer></script>\n'
+        '<script src="/reader/note_session.js" defer></script>\n'
         '<script src="/reader/notes.js" defer></script>\n'
     )
     return html.replace("</head>", extra + "</head>", 1).encode()

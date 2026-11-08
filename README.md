@@ -96,14 +96,14 @@ word lookup.
 
 ## 2. A typical study session
 
-1. **Open the library** and click **Continue · p. N** on the book you're reading. This opens:
-   - the book, in the reading view, at the page where you stopped;
-   - in your editor (see Settings), the **notes** file for that chapter
-     (`notes/<book>/chNN-*.md`), and the chapter's Python script if you've made one.
+1. **Open the library** and click **Continue · p. N** on the book you're reading. This opens
+   the book in the reading view at the page where you stopped, with that chapter's **notes**
+   (`notes/<book>/chNN-*.md`) in the 📝 panel beside it, and the chapter's Python script in
+   your editor if you've made one.
 2. **Read.** Double-click any word you don't know, or drag over a phrase (see
    [section 5](#5-looking-up-words-and-terms-查词-look-up)). Save useful words with **加入生词本** (Save word).
-3. **Take notes** in your own words in the chapter notes file: key ideas, equations,
-   questions.
+3. **Take notes** in your own words in the panel (or in your editor with ↗): key ideas,
+   equations, questions. They're saved as you type.
 4. **Check it in Python** (optional): click **Script** on the chapter and recompute a worked
    example, re-derive a result or plot something (see [section 7](#7-notes-and-chapter-scripts)).
 5. **Stop whenever you like.** Your page is saved automatically; just close the tab.
@@ -179,7 +179,7 @@ saved locally). From the terminal: `uv run scripts/backup.py`.
 
 | On a card | What it does |
 |---|---|
-| **Continue · p. N** | Opens the book at the page you last read, plus that chapter's notes (and script, if any) |
+| **Continue · p. N** | Opens the book at the page you last read, with that chapter's notes in the 📝 panel (and its script in your editor, if any) |
 | **Start reading** / **Continue** (no page saved yet) | Opens the first chapter you haven't ticked |
 | **PDF** | Opens the book in the reading view at its first page (notes not opened) |
 | **Notes** | Opens the book's notes in your editor (see Settings) |
@@ -250,8 +250,30 @@ Because it's in your notes, it's kept in git along with them.
 **📝 笔记 (Notes) beside the book.**
 - The book's own Markdown notes open on the right of the PDF: the chapter you're reading, the
   README, or any other note in its folder (the menu at the top of the panel).
-- In this version they're read-only. ↗ opens the note in your editor (VS Code, or what you
-  chose in ⚙ Settings).
+- **Write in them there,** as Markdown (the same `.md` files VS Code opens):
+  - they're saved 1.5 s after you stop typing, or at once with **保存** (Save) or **Ctrl+S**
+    (while the cursor is in the notes; in the book, Ctrl+S is PDF.js's "save the PDF");
+  - the header always says where things stand: 已保存 (Saved), only once the file is
+    written; 未保存 (Unsaved); 正在保存 (Saving); 保存失败 (Save failed, retried by itself;
+    重试 Retry tries now); 服务器未连接 (Server not reachable);
+  - Ctrl+Z / Ctrl+Y undo and redo your typing; Tab indents, and Enter continues a list or
+    quote;
+  - a chapter note not written yet is created when you first type in it and it's saved;
+  - 🔒 makes the notes read-only (remembered).
+- **Nothing is lost or overwritten without asking:**
+  - closing or reloading the tab with unsaved text asks first;
+  - a **recovery draft** of unsaved text is kept in the browser and offered when you open the
+    note again: 恢复 (Restore), 丢弃 (Discard) or 对比 (Compare);
+  - if the note was changed elsewhere (VS Code, another tab) while you had unsaved text, you
+    choose: 保留我的版本 (Keep mine; the other version is first copied to
+    `archive/notes-conflicts/`), 载入磁盘版本 (Use the disk version; yours is first copied
+    there), or 对比 (Compare). With nothing unsaved, the newer version simply appears.
+- **If you restart myLibrary** while a book is open, reload its tab (F5) before writing on:
+  the open page can't save to the new server (it says 需要重新载入, Reload needed). Your text
+  is kept as a recovery draft and offered after the reload.
+- **Read** and **Continue** on the library page no longer also open the notes in VS Code (they
+  used to): they're in the panel, and two editors on one note is how conflicts start. ↗ opens
+  the note in your editor (VS Code, or what you chose in ⚙ Settings) when you want it.
 - 📝 on the toolbar or **Alt+N** shows or hides them. Drag the line between the PDF and the
   notes to make either wider (or ←/→ on it); double-click it to hide the notes.
 - Their width and whether they're open are remembered in this browser.
@@ -259,7 +281,11 @@ Because it's in your notes, it's kept in git along with them.
   760 px they fill the window.
 - Keys typed in the notes stay there (Space or PageDown scroll the note, not the book). Esc
   goes back to the book.
-- Viewing notes never changes them, your place or your reading time.
+- Writing notes never counts as reading time, and never moves your place.
+- **About recovery drafts:** they're plain text in this browser's profile on this PC, kept only
+  until the note is saved, and deleted after 30 days. Anyone using your Windows account and
+  browser could read them, as they could your notes. They belong to the address the server was
+  on: started on another port, myLibrary doesn't see the old drafts.
 
 ## 5. Looking up words and terms (查词, look-up)
 
@@ -446,7 +472,7 @@ pages in your books that discuss the term most (book and page only), ready for y
 For technical books, recomputing a worked example is one of the best ways to check that you
 understood it. Click **Script** next to a chapter on the library page: the first time, it creates
 a short, plain Python script for that chapter from a template, and opens it in VS Code. After
-that, **Read** and **Continue** open it together with the chapter's notes.
+that, **Read** and **Continue** open it too (the chapter's notes are in the reader's 📝 panel).
 
 Write your calculation in `main()`, then run it with VS Code's **Run** button (▶), or:
 
@@ -560,7 +586,7 @@ README has the details and one checkbox, *Read the paper*. A paper's **keywords*
 first page's "Keywords:" line, else OpenAlex) and shown as small tags on its card, above the
 shelf tags. On the library page a paper shows its
 journal, **Mark as read** instead of Chapters, and a **DOI** link; **Read** / **Continue** open it
-at page 1 (or where you stopped) with `notes.md`.
+at page 1 (or where you stopped) with `notes.md` in the 📝 panel.
 
 ### Theses
 

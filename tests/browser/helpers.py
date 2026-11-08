@@ -236,3 +236,53 @@ def page_width_changes(page: Page, before: float) -> None:
         "w => Math.abs(document.querySelector('.page').getBoundingClientRect().width - w) > 10",
         arg=before,
     )
+
+
+# --- editing notes (task 4 M4) -----------------------------------------------------------------
+
+EDITOR = "#mlNoteText"
+
+
+def save_state(page: Page) -> str:
+    return page.evaluate("() => document.body.dataset.mlSaveState || ''")
+
+
+def wait_save_state(page: Page, *states: str, timeout: float = 15_000) -> str:
+    """Wait until the note on screen is in one of `states` (data-ml-save-state); which one."""
+    page.wait_for_function(
+        "s => s.includes(document.body.dataset.mlSaveState)", arg=list(states), timeout=timeout
+    )
+    return save_state(page)
+
+
+def editor_text(page: Page) -> str:
+    return page.evaluate(f"() => document.querySelector('{EDITOR}').value")
+
+
+def type_at_end(page: Page, text: str) -> None:
+    """Click into the note, go to its very end, type (as the user would)."""
+    page.locator(EDITOR).click()
+    page.keyboard.press("Control+End")
+    page.keyboard.type(text)
+
+
+def record_save_states(page: Page) -> None:
+    """From now on, every save state the note goes through: window.__states."""
+    page.evaluate(
+        """() => {
+          window.__states = [document.body.dataset.mlSaveState];
+          new MutationObserver(() => {
+            const s = document.body.dataset.mlSaveState;
+            if (window.__states.at(-1) !== s) window.__states.push(s);
+          }).observe(document.body, {attributes: true, attributeFilter: ['data-ml-save-state']});
+        }"""
+    )
+
+
+def drafts_in_browser(page: Page) -> dict[str, str]:
+    """The recovery drafts this browser keeps: {storage key: text}."""
+    return page.evaluate(
+        """() => Object.fromEntries(Object.keys(localStorage)
+            .filter(k => k.startsWith('myLibrary.draft.'))
+            .map(k => [k, JSON.parse(localStorage.getItem(k)).text]))"""
+    )

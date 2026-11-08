@@ -1,16 +1,19 @@
-// 📝 Notes beside the PDF (task 4 M3): the document's Markdown notes in a panel to the right of
-// PDF.js, read-only in this version (writing in the panel comes with M4). Served with
-// lookup.js by reader.viewer_html; uses lookup.js's token and requests (myLibraryReader).
+// 📝 Notes beside the PDF (task 4 M3, M4): the document's Markdown notes in a panel to the
+// right of PDF.js, edited as Markdown source (mode A). Served with lookup.js and
+// note_session.js by reader.viewer_html; uses lookup.js's token and requests (myLibraryReader)
+// and note_session.js's NoteSession (the text, its saving, conflicts, recovery drafts).
 //
 // - The notes are found by the document's id and a note key ("file:README.md",
-//   "file:ch02-….md"), never by a path: /api/notes/list, /api/notes/get, /api/notes/open.
-// - Nothing here writes anything: no note, no reading position, no reading time.
+//   "file:ch02-….md"), never by a path: /api/notes/list|get|version|save|keep-copy|open.
+// - Opening or viewing a note writes nothing; only typed text is saved. Never reading
+//   position or reading time.
 // - Layout by the window's width: beside the PDF from 1100 px, over the PDF (a drawer) from
 //   760 px, the whole window below that. Beside the PDF it is remembered (open or not, its
 //   width as a share of the window); in narrower windows it starts closed.
 // - State for tests (and nothing else) on <body>: data-ml-notes (open/closed),
 //   data-ml-notes-mode (side/drawer/full), data-ml-note-key, data-ml-note-state
-//   (loading/shown/empty/missing/none/error).
+//   (loading/shown/empty/missing/none/error), data-ml-save-state (clean/dirty/saving/failed/
+//   offline/conflict/draft), data-ml-draft (kept/failed/none).
 (() => {
   "use strict";
   const reader = window.myLibraryReader;
@@ -26,6 +29,7 @@
     open: "myLibrary.notes.open",
     width: "myLibrary.notes.width",
     last: `myLibrary.notes.last.${docId}`,
+    readOnly: "myLibrary.notes.readonly",
   };
   const load = (key) => {
     try {
@@ -107,15 +111,42 @@
   closeButton.type = "button";
   closeButton.title = "收起笔记 Hide the notes (Alt+N)";
   closeButton.setAttribute("aria-label", closeButton.title);
-  head.append(menu, editButton, closeButton);
+  // Saving (task 4 M4): the state, 保存 (Save), 🔒 (read-only)
+  const saveState = el("span", "ml-save-state");
+  saveState.id = "mlSaveState";
+  saveState.setAttribute("role", "status");
+  const saveButton = biEl("button", "ml-small", "保存", "Save");
+  saveButton.id = "mlNoteSave";
+  saveButton.type = "button";
+  saveButton.title = "保存 Save now (Ctrl+S)";
+  const lockButton = el("button", null, "🔒");
+  lockButton.id = "mlNoteLock";
+  lockButton.type = "button";
+  lockButton.title = "只读 Read-only (no typing in the note)";
+  lockButton.setAttribute("aria-label", lockButton.title);
+  head.append(menu, saveState, saveButton, lockButton, editButton, closeButton);
   const status = el("div", "ml-notes-status");
   status.id = "mlNotesStatus";
   status.setAttribute("role", "status");
-  const text = el("pre", "ml-note-text");  // the note as plain text (textContent): never HTML
+  // A bar for what needs a decision: a conflict, a draft to restore, a failed save
+  const bar = el("div", "ml-note-bar");
+  bar.id = "mlNoteBar";
+  bar.hidden = true;
+  // Compare: the other version, read-only, above yours
+  const compare = el("div", "ml-compare");
+  compare.hidden = true;
+  const compareLabel = el("div", "ml-compare-label");
+  const compareText = el("textarea", "ml-compare-text");
+  compareText.id = "mlCompareText";
+  compareText.readOnly = true;
+  compareText.spellcheck = false;
+  compare.append(compareLabel, compareText);
+  // The note: its Markdown source, as plain text (a textarea's value: never HTML)
+  const text = el("textarea", "ml-note-text");
   text.id = "mlNoteText";
-  text.tabIndex = 0;
-  text.setAttribute("aria-label", "笔记内容（只读）Note (read-only)");
-  panel.append(divider, head, status, text);
+  text.spellcheck = false;
+  text.setAttribute("aria-label", "笔记 Note (Markdown)");
+  panel.append(divider, head, status, bar, compare, text);
   body.append(panel);
 
   // 📝 on PDF.js's toolbar, at its right end
@@ -243,17 +274,56 @@
       else setOpen(false, true);
       return;
     }
+    // Ctrl+S in the panel saves the note (never PDF.js's "save the PDF", decision D4)
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      event.stopPropagation();
+      saveNow();
+      return;
+    }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     event.stopPropagation();
   });
 
   // --- the notes ----------------------------------------------------------------------------
 
+  const { NoteSession, drafts } = window.myLibraryNoteSession;
   let entries = [];
   let listed = false;
   let current = null;
   let asked = 0;  // the latest request: an earlier answer arriving late is ignored
+  let busy = false;  // a conflict choice or a draft choice is on its way
+  let comparing = false;
+  const sessions = new Map();  // key -> NoteSession, for this tab: unsaved text is never dropped
   const openedAt = Number((location.hash.match(/page=(\d+)/) || [])[1]) || null;
+  let readOnly = load(KEYS.readOnly) === "1";  // 🔒, remembered (decision D3: editable by default)
+  drafts.expire();
+
+  // Other tabs of this browser on the same note: told at once when one saves (the 409 check
+  // is still the real protection; this only makes it visible sooner)
+  let channel = null;
+  try {
+    channel = new BroadcastChannel("myLibrary-notes");
+    channel.onmessage = ({ data }) => {
+      const session = data?.docId === docId ? sessions.get(data.key) : null;
+      if (session && data.version !== session.base) session.checkDisk();
+    };
+  } catch {
+    channel = null;
+  }
+
+  const session = () => (current ? sessions.get(current) : null);
+
+  function sessionFor(key) {
+    if (!sessions.has(key)) {
+      sessions.set(key, new NoteSession({
+        token: reader.token, docId, key,
+        onChange: (changed) => { if (changed.key === current) render(changed); },
+        onSaved: (saved) => channel?.postMessage({ docId, key: saved.key, version: saved.base }),
+      }));
+    }
+    return sessions.get(key);
+  }
 
   function setState(state, ...nodes) {
     body.dataset.mlNoteState = state;
@@ -329,57 +399,236 @@
     buildMenu();
     menu.disabled = !entries.length;
     if (!entries.length) {
-      text.textContent = "";
-      editButton.disabled = true;
+      text.value = "";
+      text.readOnly = true;
+      editButton.disabled = saveButton.disabled = true;
       setState("none", biEl("span", "ml-muted", "这份文档还没有笔记", "No notes for this document yet"));
       return;
     }
     show(firstKey(), { chosen: false });
   }
 
-  // `chosen`: by the user (remembered for this document); `quiet`: a refresh of the same note
-  async function show(key, { chosen = true, quiet = false } = {}) {
+  // Show a note. Leaving one with unsaved text saves it first; if that save fails or meets a
+  // conflict, the note stays on screen with its text (never discarded by switching)
+  async function show(key, { chosen = true } = {}) {
+    const leaving = session();
+    if (leaving && key !== current && leaving.unconfirmed) {
+      menu.value = current;
+      const state = await leaving.flush();
+      if (state !== "clean") {
+        say(biEl("span", "ml-error", "这条笔记还没保存好，请先处理",
+          "This note isn't saved yet: deal with it first"));
+        return;
+      }
+    }
     const mine = ++asked;
     current = key;
     menu.value = key;
+    comparing = false;
     body.dataset.mlNoteKey = key;
     if (chosen) store(KEYS.last, key);
-    const entry = entries.find((item) => item.key === key);
-    editButton.disabled = !entry?.exists;
-    if (!quiet) setState("loading", biEl("span", "ml-muted", "载入中…", "Loading…"));
-    let note;
+    const note = sessionFor(key);
+    if (note.loaded && note.unconfirmed) return render(note, { fresh: true });  // as left here
+    setState("loading", biEl("span", "ml-muted", "载入中…", "Loading…"));
+    let answer;
     try {
-      note = await post("/api/notes/get", { id: docId, key });
+      answer = await post("/api/notes/get", { id: docId, key });
     } catch (error) {
       if (mine === asked) failed(error, () => show(key, { chosen: false }));
       return;
     }
     if (mine !== asked) return;  // another note was chosen meanwhile: the last choice wins
-    editButton.disabled = !note.exists;
-    if (text.textContent !== note.text) {
-      text.textContent = note.text;
-      if (!quiet) text.scrollTop = 0;
-    }
-    if (!note.exists) {
-      setState("missing",
-        biEl("div", "ml-muted", "这一章还没有笔记", "No notes for this chapter yet"),
-        biEl("div", "ml-muted", "在这里书写将在之后的版本提供",
-          "Writing in this panel comes in a later version"));
-    } else if (!note.text.trim()) {
-      setState("empty", biEl("span", "ml-muted", "这条笔记还是空的", "This note is empty"));
-    } else {
-      setState("shown");
-    }
+    if (note.loaded && note.unconfirmed) return render(note, { fresh: true });
+    note.load(answer);  // renders (onChange)
+    render(note, { fresh: true });
   }
 
   menu.addEventListener("change", () => show(menu.value));
 
+  // --- showing a session --------------------------------------------------------------------
+
+  const STATES = {
+    clean: ["已保存", "Saved"],
+    dirty: ["未保存", "Unsaved"],
+    saving: ["正在保存…", "Saving…"],
+    failed: ["保存失败", "Save failed"],
+    offline: ["服务器未连接", "Server not reachable"],
+    restarted: ["需要重新载入", "Reload needed"],
+    conflict: ["有冲突", "Conflict"],
+    draft: ["有未保存的草稿", "Unsaved draft"],
+  };
+
+  function render(note, { fresh = false } = {}) {
+    if (note.key !== current) return;
+    if (text.dataset.key !== note.key) {  // another note than the one in the box: from its top
+      fresh = true;
+      text.dataset.key = note.key;
+    }
+    // The text: replaced only when it came from elsewhere (loaded, the disk version taken, a
+    // draft restored), never while the user's own typing is what's in the box
+    if (text.value !== note.text) {
+      const { selectionStart, selectionEnd, scrollTop } = text;
+      text.value = note.text;
+      if (fresh) {
+        text.scrollTop = 0;
+      } else {
+        text.setSelectionRange(selectionStart, selectionEnd);
+        text.scrollTop = scrollTop;
+      }
+    }
+    const state = note.state;
+    body.dataset.mlSaveState = state;
+    body.dataset.mlDraft = note.draftState;
+    saveState.dataset.state = state;
+    saveState.replaceChildren(bi(...STATES[state]));
+    saveState.title = note.failure?.message || "";
+    saveButton.disabled = !["dirty", "failed", "offline"].includes(state);  // not "restarted"
+    editButton.disabled = !note.exists;
+    lockButton.setAttribute("aria-pressed", String(readOnly));
+    lockButton.textContent = readOnly ? "🔒" : "🔓";
+    text.readOnly = readOnly || busy || state === "draft";
+    // The state line (as in M3) and its hint
+    if (!note.exists && !note.text) {
+      setState("missing",
+        biEl("div", "ml-muted", "这一章还没有笔记", "No notes for this chapter yet"),
+        biEl("div", "ml-muted", "直接输入即可开始；保存时才会创建文件",
+          "Just type to start it: the file is created when it's saved"));
+    } else if (!note.text.trim()) {
+      setState("empty", biEl("span", "ml-muted", "这条笔记还是空的", "This note is empty"));
+    } else if (["loading", "missing", "empty", "error", "none"].includes(body.dataset.mlNoteState)
+      || fresh) {
+      setState("shown");
+    }
+    if (note.notice === "updated") {
+      note.notice = "";
+      say(biEl("span", "ml-muted", "已从磁盘更新（在别处修改过）", "Updated from disk (changed elsewhere)"));
+    }
+    renderBar(note);
+  }
+
+  function button(zh, en, onclick, id) {
+    const b = biEl("button", "ml-small", zh, en);
+    b.type = "button";
+    if (id) b.id = id;
+    b.addEventListener("click", onclick);
+    return b;
+  }
+
+  function renderBar(note) {
+    const parts = [];
+    const state = note.state;
+    if (state === "conflict") {
+      parts.push(
+        biEl("div", "ml-error", "这条笔记在别处被修改了（例如 VS Code 或另一个标签页）",
+          "This note was changed elsewhere (VS Code, another tab). Your text is kept here and as a draft."),
+        button("保留我的版本", "Keep mine", () => resolve("mine"), "mlKeepMine"),
+        button("载入磁盘版本", "Use the disk version", () => resolve("disk"), "mlUseDisk"),
+        button(comparing ? "隐藏对比" : "对比", comparing ? "Hide compare" : "Compare",
+          () => { comparing = !comparing; renderBar(note); }, "mlCompare"),
+      );
+    } else if (state === "draft") {
+      const when = new Date(note.recovered.draft.time || 0).toLocaleString();
+      parts.push(
+        biEl("div", null, `发现未保存的草稿（${when}）`, `An unsaved draft was found (${when})`),
+        button("恢复", "Restore", () => chooseDraft("restore"), "mlRestoreDraft"),
+        button("丢弃", "Discard", () => chooseDraft("discard"), "mlDiscardDraft"),
+        button(comparing ? "隐藏对比" : "对比", comparing ? "Hide compare" : "Compare",
+          () => { comparing = !comparing; renderBar(note); }, "mlCompare"),
+      );
+    } else if (state === "restarted") {
+      parts.push(biEl("div", "ml-error",
+        "服务器重新启动过：请重新载入此页面后继续保存。你的文字保留在浏览器的恢复草稿里，载入后会提供恢复",
+        "The server was restarted: reload this page to go on saving. Your text is kept as a recovery draft and offered after the reload"));
+    } else if (state === "failed" || state === "offline") {
+      parts.push(
+        biEl("div", "ml-error", state === "offline" ? "服务器未连接：文字仍在这里，会自动重试"
+          : "保存失败：文字仍在这里，会自动重试",
+        `${note.failure.message}: your text is kept here and retried`),
+        button("重试", "Retry", () => note.retryNow(), "mlRetry"),
+      );
+    }
+    if (note.draftState === "failed") {
+      parts.push(biEl("div", "ml-error", "浏览器无法保存恢复草稿：如果浏览器崩溃，未保存的文字会丢失",
+        "The browser can't keep a recovery draft: unsaved text would be lost if the browser crashed"));
+    }
+    bar.replaceChildren(...parts);
+    bar.hidden = !parts.length;
+    bar.dataset.kind = parts.length ? state : "";
+    // Compare: the other side, read-only (a conflict: the disk version; a draft: the draft)
+    const other = state === "conflict" ? note.conflict.text
+      : state === "draft" ? note.recovered.draft.text : null;
+    compare.hidden = !(comparing && other !== null);
+    if (!compare.hidden) {
+      compareLabel.replaceChildren(state === "conflict"
+        ? bi("磁盘上的版本（只读）", "The version on disk (read-only)")
+        : bi("草稿（只读）", "The draft (read-only)"));
+      if (compareText.value !== other) compareText.value = other;
+    }
+  }
+
+  async function resolve(choice) {
+    const note = session();
+    if (!note || busy) return;
+    busy = true;
+    render(note);
+    const done = choice === "mine" ? await note.keepMine() : await note.useDisk();
+    busy = false;
+    comparing = false;
+    render(note);
+    if (done.ok) {
+      say(biEl("span", "ml-muted",
+        choice === "mine" ? `已保存你的版本；磁盘上的旧版本保存在 ${done.kept || "（无）"}`
+          : `已载入磁盘版本；你的版本保存在 ${done.kept}`,
+        choice === "mine" ? `Your version is saved; the other one is kept in ${done.kept || "(none)"}`
+          : `The disk version is loaded; yours is kept in ${done.kept}`), 12000);
+    } else if (done.again) {
+      say(biEl("span", "ml-error", "磁盘上的版本又变了，请再看一次", "The disk version changed again: please look again"));
+    } else {  // the conflict stays open: nothing was resolved, nothing was lost
+      say(biEl("span", "ml-error",
+        "没能完成，冲突仍未解决。没有任何内容丢失：你的文字仍在这里和恢复草稿中，磁盘上的笔记没有改动",
+        "Couldn't complete it, so the conflict is still open. Nothing was lost: your text is "
+        + `still here and in the recovery draft, and the note on disk is unchanged (${done.message || "no answer"})`),
+      15000);
+    }
+  }
+
+  async function chooseDraft(choice) {
+    const note = session();
+    if (!note || busy) return;
+    if (choice === "discard") {
+      note.discardDraft();
+      return;
+    }
+    busy = true;
+    render(note);
+    const done = await note.restoreDraft();
+    busy = false;
+    comparing = false;
+    render(note);
+    if (!done.ok) say(biEl("span", "ml-error", "草稿没能恢复，它仍然保留着", `The draft wasn't restored (it's still kept): ${done.message || ""}`));
+    else if (done.conflict) say(biEl("span", "ml-error", "草稿之后文件又被修改了：请选择保留哪一个", "The file changed after the draft: choose which to keep"));
+  }
+
+  function saveNow() {
+    const note = session();
+    if (!note) return;
+    if (note.failure) note.retryNow();
+    else note.flush();
+  }
+  saveButton.addEventListener("click", saveNow);
+
+  lockButton.addEventListener("click", () => {
+    readOnly = !readOnly;
+    store(KEYS.readOnly, readOnly ? "1" : "0");
+    if (session()) render(session());
+  });
+
   // A short message under the header (it goes after a few seconds)
-  function say(node) {
+  function say(node, ms = 4000) {
     const line = el("div");
     line.append(node);
     status.append(line);
-    setTimeout(() => line.remove(), 4000);
+    setTimeout(() => line.remove(), ms);
   }
   editButton.addEventListener("click", async () => {
     if (!current) return;
@@ -393,13 +642,96 @@
     }
   });
 
-  // Back in the tab (perhaps after editing the note in VS Code): the note as it is now
-  const refresh = () => {
-    if (open && current && document.visibilityState === "visible"
-      && body.dataset.mlNoteState !== "loading") show(current, { chosen: false, quiet: true });
+  // --- typing ---------------------------------------------------------------------------
+
+  text.addEventListener("input", () => session()?.edit(text.value));
+  // Chinese input: nothing is saved while a word is being composed
+  text.addEventListener("compositionstart", () => session()?.setComposing(true));
+  text.addEventListener("compositionend", () => {
+    session()?.edit(text.value);
+    session()?.setComposing(false);
+  });
+
+  // Markdown helpers (decision D7), through insertText so the browser's own Undo still undoes
+  // them: Tab / Shift+Tab indent or outdent the line(s); Enter continues a list or a quote,
+  // and ends it on an empty item. Never during IME composition
+  const insert = (value) => document.execCommand("insertText", false, value);
+  const lineStartAt = (value, at) => value.lastIndexOf("\n", at - 1) + 1;
+
+  function indent(outdent) {
+    const { value, selectionStart: start, selectionEnd: end } = text;
+    if (!outdent && start === end) return insert("  ");
+    const from = lineStartAt(value, start);
+    const last = end > start && value[end - 1] === "\n" ? end - 1 : end;
+    let to = value.indexOf("\n", last);
+    if (to === -1) to = value.length;
+    const block = value.slice(from, to);
+    const changed = block.split("\n")
+      .map((line) => (outdent ? line.replace(/^( {1,2}|\t)/, "") : `  ${line}`)).join("\n");
+    if (changed === block) return true;
+    text.setSelectionRange(from, to);
+    insert(changed);
+    text.setSelectionRange(from, from + changed.length);
+    return true;
+  }
+
+  function continueBlock() {
+    const { value, selectionStart: start, selectionEnd: end } = text;
+    if (start !== end) return false;
+    const from = lineStartAt(value, start);
+    const line = value.slice(from, start);
+    const rest = value.slice(start, value.indexOf("\n", start) === -1 ? value.length : value.indexOf("\n", start));
+    const item = line.match(/^(\s*)(?:([-*+])|(\d+)([.)]))(\s+)(\[[ xX]\]\s+)?/);
+    const quote = line.match(/^(\s*(?:>\s?)+)/);
+    const marker = item ? item[0] : quote ? quote[1] : null;
+    if (!marker) return false;
+    if (line === marker && !rest.trim()) {  // an empty item or quote line: the list ends here
+      text.setSelectionRange(from, start);
+      insert("");
+      return true;
+    }
+    if (item) {
+      const next = item[2] || `${Number(item[3]) + 1}${item[4]}`;
+      insert(`\n${item[1]}${next}${item[5]}${item[6] ? "[ ] " : ""}`);
+    } else {
+      insert(`\n${quote[1]}`);
+    }
+    return true;
+  }
+
+  text.addEventListener("keydown", (event) => {
+    if (text.readOnly || event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      indent(event.shiftKey);
+    } else if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.altKey
+      && !event.metaKey && continueBlock()) {
+      event.preventDefault();
+    }
+  });
+
+  // --- leaving, and changes made elsewhere ------------------------------------------------
+
+  // The browser asks before the tab is closed, reloaded or left while any note has text the
+  // server hasn't confirmed; the recovery draft keeps it too (decision D1)
+  addEventListener("beforeunload", (event) => {
+    if (![...sessions.values()].some((note) => note.unconfirmed)) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+  addEventListener("pagehide", () => sessions.forEach((note) => note.leaving()));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") sessions.forEach((note) => note.queueDraft(true));
+  });
+
+  // The note on screen is checked for changes made elsewhere when the tab comes back, and
+  // every 5 s while the panel shows it (decision D6)
+  const check = () => {
+    if (open && document.visibilityState === "visible") session()?.checkDisk();
   };
-  addEventListener("focus", refresh);
-  document.addEventListener("visibilitychange", refresh);
+  addEventListener("focus", check);
+  document.addEventListener("visibilitychange", check);
+  setInterval(check, 5000);
 
   apply(false);
   if (open) loadList();

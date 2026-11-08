@@ -213,16 +213,24 @@ def test_continue_opens_last_page_and_its_chapter(chapter_pages, monkeypatch):
     library_server.save_position(slug, 33)
     message = library_server.open_chapter(slug, None, "http://x", resume=True)
     assert opened[0].endswith(f"{NAME}.pdf&id={slug}#page=33")  # the reader knows the id
-    assert [f.name for f in files] == ["ch02-aberrations.md"]  # no script made for this chapter
+    # The notes are in the reader's panel: no external editor as well (task 4 M4, D5)
+    assert files == []
     assert message.startswith("Continuing at page 33 (Ch 2: Aberrations)")
+    assert "📝 panel" in message
 
-    # Once the chapter has a script ("Script" button), Continue opens it too
-    files.clear()
+    # Once the chapter has a script ("Script" button), Continue opens it (only it)
     assert "examples/" in library_server.open_script(slug, 2)
     assert [f.name for f in files] == ["ch02_aberrations.py"]
     files.clear()
     library_server.open_chapter(slug, None, "http://x", resume=True)
+    assert [f.name for f in files] == ["ch02_aberrations.py"]
+
+    # Without the reading view (a plain PDF, no panel) the notes still open in the editor
+    files.clear()
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: False)
+    library_server.open_chapter(slug, None, "http://x", resume=True)
     assert [f.name for f in files] == ["ch02-aberrations.md", "ch02_aberrations.py"]
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: True)
 
     # A chapter's Read button still opens that chapter's first page
     opened.clear()
@@ -311,3 +319,22 @@ def test_without_the_dictionary_books_still_open_in_the_reader(library, monkeypa
             assert b"/reader/lookup.js" in page.read()
     finally:
         server.shutdown()
+
+
+def test_an_unexpected_errors_message_shows_no_folders():
+    """A 500's message for the page: absolute paths cut to the file's name (the full path and
+    the traceback stay in the server's log); a helpful message stays as it is."""
+    long = r"\\?\C:\Users\me\OneDrive\Documents\myLibrary\archive\notes-conflicts\ch01.x.md.tmp"
+    cases = {
+        f"[WinError 3] The system cannot find the path specified: '{long}'":
+            "[WinError 3] The system cannot find the path specified: 'ch01.x.md.tmp'",
+        r"[Errno 2] No such file or directory: 'C:\Users\me\library\notes\ch01-basics.md'":
+            "[Errno 2] No such file or directory: 'ch01-basics.md'",
+        r"cannot open \\server\share\library\catalog.csv": "cannot open catalog.csv",
+        "catalog.csv is open in another program (Excel, a PDF viewer…) that doesn't let it be "
+        "used; close it and try again":
+            "catalog.csv is open in another program (Excel, a PDF viewer…) that doesn't let it "
+            "be used; close it and try again",
+    }  # fmt: skip
+    for message, shown in cases.items():
+        assert library_server.shown_error(OSError(message)) == shown

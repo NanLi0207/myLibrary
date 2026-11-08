@@ -28,6 +28,7 @@ import urllib.request
 from pathlib import Path
 
 import catalog
+import owned_processes
 import paths
 import pytest
 import reader
@@ -52,6 +53,44 @@ def pytest_configure(config):
         return  # pytest-playwright isn't installed: tests/conftest.py says what to do
     if not config.option.browser_channel:  # Edge unless --browser-channel says otherwise
         config.option.browser_channel = "msedge"
+
+
+@pytest.fixture(autouse=True)
+def where_a_stuck_test_waits(request):
+    """pytest ends a test that runs longer than faulthandler_timeout (pyproject.toml), printing
+    every thread's stack. A browser test's own code runs in a greenlet those stacks don't show,
+    so a few seconds earlier its own lines are printed here: the test, and where it waits."""
+    limit = float(request.config.getini("faulthandler_timeout") or 0)
+    if not limit:
+        yield
+        return
+
+    def where():
+        import gc
+        import traceback
+
+        import greenlet
+
+        lines = [f"\n=== still running after {limit - 5:.0f} s: {request.node.nodeid} ===\n"]
+        for g in gc.get_objects():
+            if isinstance(g, greenlet.greenlet) and g.gr_frame is not None:
+                stack = traceback.format_stack(g.gr_frame)
+                lines += [line for line in stack if "site-packages" not in line]
+        # To the real stderr, as pytest's own stack dump: the test's captured output is lost
+        # when the process is ended (pytest's copy of it, else the original)
+        try:
+            from _pytest.faulthandler import fault_handler_stderr_fd_key
+
+            fd = request.config.stash[fault_handler_stderr_fd_key]
+        except ImportError, KeyError:
+            fd = sys.__stderr__.fileno()
+        os.write(fd, "".join(lines).encode("utf-8", "replace"))
+
+    timer = threading.Timer(max(1.0, limit - 5), where)
+    timer.daemon = True
+    timer.start()
+    yield
+    timer.cancel()
 
 
 def pytest_collection_modifyitems(items):
@@ -244,6 +283,7 @@ class Server:
         self, library: Library, home: Path, wait_for_index: bool, ports=None, settings: str = ""
     ):
         self.library = library
+        self.settings = settings
         self.home = home
         self.log_path = home / "server.log"
         settings_file = home / "settings.toml"
@@ -294,7 +334,8 @@ class Server:
         self.lines.append(header)
         command = [sys.executable, "-u", str(SERVER), "--library", str(self.library.root),
                    "--port", str(port), "--no-browser", "--no-download"]  # fmt: skip
-        self.process = subprocess.Popen(
+        # owned by this test run: ended with it however it ends (owned_processes)
+        self.process = owned_processes.start(
             command,
             cwd=self.home,  # not the tool's folder: nothing may depend on where it's started
             env=self.env,
@@ -381,6 +422,15 @@ def server_factory(library, tmp_path, request, output_path):
         started.append(server)
         return server
 
+    def restart(old: Server) -> Server:
+        """Stop a server and start a new one for the same library on the same port (as when the
+        user restarts myLibrary): an open reader page keeps its address, not its access token."""
+        old.stop()
+        server = Server(library, old.home, False, ports=[old.port] * 5, settings=old.settings)
+        started.append(server)
+        return server
+
+    start.restart = restart
     yield start
     for server in started:
         server.stop()

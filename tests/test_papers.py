@@ -115,16 +115,22 @@ def test_paper_notes_progress_and_continue(library, monkeypatch):
     assert (item["number"], item["note"], item["done"]) == (1, "notes.md", False)
     assert library_server.tick(doc, 1, True)[0]["done"] is True
 
-    # Read / Continue: page 1 (or the page you were on) and notes.md
+    # Read / Continue: page 1 (or the page you were on). notes.md is in the reader's panel; it
+    # opens in the editor too only without the reading view (task 4 M4, D5)
     opened, files = [], []
     monkeypatch.setattr(library_server.webbrowser, "open", opened.append)
     monkeypatch.setattr(library_server, "open_in_editor", lambda *f: files.extend(f) or True)
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: False)
     library_server.open_chapter(doc, None, "http://x")
     assert opened[-1].endswith("#page=1") and files[0].name == "notes.md"
     library_server.save_position(doc, 3)
     assert "Last read: page 3, " in (notes / "README.md").read_text(encoding="utf-8")
     library_server.open_chapter(doc, None, "http://x", resume=True)
     assert opened[-1].endswith("#page=3") and files[-1].name == "notes.md"
+    files.clear()
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: True)
+    library_server.open_chapter(doc, None, "http://x")
+    assert files == []  # in the reader's panel
 
 
 def test_bibtex():

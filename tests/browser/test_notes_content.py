@@ -26,7 +26,7 @@ CH1 = (
 )
 CH1_SHOWN = CH1.removeprefix(BOM).replace("\r\n", "\n")  # as the panel shows it
 VOCABULARY = "# Vocabulary\n\n- vignetting 渐晕\n"
-TEXT = "() => document.getElementById('mlNoteText').textContent"
+TEXT = "() => document.getElementById('mlNoteText').value"  # a textarea (M4)
 KEY = "() => document.body.dataset.mlNoteKey"
 
 
@@ -121,7 +121,7 @@ def test_switching_quickly_the_last_choice_wins(library, server_factory, reader_
     choose(reader_page, "file:ch01-basics.md")
     reader_page.wait_for_function("() => document.body.dataset.mlNoteState === 'loading'")
     choose(reader_page, "file:vocabulary.md")
-    reader_page.wait_for_function("t => document.getElementById('mlNoteText').textContent === t",
+    reader_page.wait_for_function("t => document.getElementById('mlNoteText').value === t",
                                   arg=VOCABULARY)  # fmt: skip
     held[0].continue_()  # chapter 1's answer comes now, late
     answers(reader_page, 3)
@@ -197,13 +197,17 @@ def test_viewing_notes_writes_nothing(library, server_factory, reader_page):
             arg=key,
         )
     reader_page.locator("#mlNoteText").focus()
-    for key in ("PageDown", "End", "Home", "a", "Control+a", "Control+c"):
+    for key in ("PageDown", "End", "Home", "Control+a", "Control+c"):  # no typing
         reader_page.keyboard.press(key)
-    reader_page.evaluate("() => dispatchEvent(new Event('focus'))")  # back to the tab: a refresh
-    answers(reader_page, 7)
+    reader_page.evaluate("() => dispatchEvent(new Event('focus'))")  # back to the tab: a check
+    reader_page.wait_for_function(
+        "() => performance.getEntriesByType('resource')"
+        ".some(e => e.name.endsWith('/api/notes/version'))"
+    )
     assert not leave(reader_page, "close")
     assert library.note_files(doc) == before
-    assert {url.rsplit("/api/", 1)[1] for url in sent} <= {"notes/list", "notes/get"}
+    allowed = {"notes/list", "notes/get", "notes/version"}  # reading and checking only
+    assert {url.rsplit("/api/", 1)[1] for url in sent} <= allowed
     assert library.reading_log() == {}
     assert "Last read" not in library.readme(doc)
 

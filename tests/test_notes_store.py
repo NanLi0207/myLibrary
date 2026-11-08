@@ -608,3 +608,111 @@ def test_an_editor_rewriting_the_file_in_place_is_noticed(lib):
     with pytest.raises(Conflict):
         notes_store.save(library, row, "file:ch01-basics.md", "mine\n", note["version"])
     assert path.read_bytes() == b"# Chapter 1: BASICS\n\n- my idea\n"
+
+
+# --- for the editor (task 4 M4) ---------------------------------------------------------------
+
+
+def test_the_version_check_matches_reading_and_sends_no_text(server):
+    library, row, post = server
+    for key in ("file:README.md", "file:ch01-basics.md", "file:ch02-aberrations.md"):
+        status, info = post("/api/notes/version", {"id": row["id"], "key": key})
+        _, note = post("/api/notes/get", {"id": row["id"], "key": key})
+        assert status == 200 and "text" not in info
+        assert (info["version"], info["exists"]) == (note["version"], note["exists"])
+    assert info == {"key": "file:ch02-aberrations.md", "version": None, "exists": False, "bytes": 0}
+    assert post("/api/notes/version", {"id": row["id"], "key": "file:../x.md"})[0] == 400
+
+
+def test_keep_copy_writes_only_into_the_conflicts_archive(server):
+    """The user's side of a conflict: kept under archive/notes-conflicts/ in the note's own
+    form (CRLF here), the note itself untouched; refused for anything but a note."""
+    library, row, post = server
+    before = {p.name: p.read_bytes() for p in (library / "notes" / NAME).iterdir()}
+    status, answer = post(
+        "/api/notes/keep-copy", {"id": row["id"], "key": "file:README.md", "text": "mine\n光阑\n"}
+    )
+    assert status == 200 and answer["kept"].startswith(f"archive/notes-conflicts/{NAME}/README.")
+    assert answer["kept"].endswith(".mine.md")
+    assert (library / answer["kept"]).read_bytes() == "mine\r\n光阑\r\n".encode()  # README is CRLF
+    assert {p.name: p.read_bytes() for p in (library / "notes" / NAME).iterdir()} == before
+
+    # a chapter not written yet: kept too (the user may have typed it)
+    body = {"id": row["id"], "key": "file:ch02-aberrations.md", "text": "x"}
+    status, answer = post("/api/notes/keep-copy", body)
+    assert status == 200 and not (library / "notes" / NAME / "ch02-aberrations.md").exists()
+
+    refused = [
+        {"key": "file:../../catalog.csv", "text": "x"},  # not a note
+        {"key": "file:README.md"},  # no text
+        {"key": "file:README.md", "text": 5},
+    ]
+    for body in refused:
+        assert post("/api/notes/keep-copy", {"id": row["id"]} | body)[0] == 400
+
+
+def test_two_saves_at_once_one_wins_the_other_is_a_conflict(lib):
+    """Two editors (tabs, threads) saving from the same version at the same moment: exactly one
+    is written; the other gets the conflict and writes nothing."""
+    library, row = lib
+    version = notes_store.read(library, row, "file:ch01-basics.md")["version"]
+    start = threading.Barrier(2)
+    outcomes = {}
+
+    def save(name):
+        start.wait()
+        try:
+            text = name + "\n"
+            outcomes[name] = notes_store.save(library, row, "file:ch01-basics.md", text, version)
+        except Conflict:
+            outcomes[name] = "conflict"
+
+    threads = [threading.Thread(target=save, args=(n,)) for n in ("first", "second")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    kinds = sorted(o if o == "conflict" else "saved" for o in outcomes.values())
+    assert kinds == ["conflict", "saved"]
+    winner = next(n for n, o in outcomes.items() if o != "conflict")
+    assert raw(library, "ch01-basics.md") == (winner + "\n").encode()
+
+
+def test_a_chapter_note_is_created_only_by_a_save(lib):
+    library, row = lib
+    path = library / "notes" / NAME / "ch02-aberrations.md"
+    notes_store.read(library, row, "file:ch02-aberrations.md")
+    notes_store.version_info(library, row, "file:ch02-aberrations.md")
+    assert not path.exists()  # reading and checking create nothing
+    with pytest.raises(Conflict):  # a save that assumes it exists
+        notes_store.save(library, row, "file:ch02-aberrations.md", "x", "0" * 64)
+    assert not path.exists()
+    saved = notes_store.save(library, row, "file:ch02-aberrations.md", "# Ch 2\n", None)
+    assert saved["saved"] and path.read_bytes().replace(b"\r\n", b"\n") == b"# Ch 2\n"
+    with pytest.raises(NoteError):  # a name the README doesn't link: never created
+        notes_store.save(library, row, "file:random.md", "x", None)
+
+
+def test_technical_markdown_round_trips_byte_for_byte(lib):
+    library, row = lib
+    text = r"""# 像差 Aberrations
+
+| Seidel | 符号 | $W$ |
+|---|---|---|
+| spherical | $S_I$ | $W_{040} \rho^4$ |
+
+$$\frac{1}{f} = (n-1)\left(\frac{1}{R_1} - \frac{1}{R_2}\right)$$
+
+```python
+print("θ = π/4")
+```
+
+[Shannon p. 41](http://127.0.0.1:8765/read/x?page=41)
+<details><summary>raw HTML</summary>kept as typed</details>
+"""
+    assert "\\frac" in text and "\r" not in text  # LaTeX as typed: backslashes, no escapes
+    note = notes_store.read(library, row, "file:ch01-basics.md")
+    saved = notes_store.save(library, row, "file:ch01-basics.md", text, note["version"])
+    assert raw(library, "ch01-basics.md") == text.encode("utf-8")  # an LF file stays LF
+    again = notes_store.read(library, row, "file:ch01-basics.md")
+    assert again["text"] == text and again["version"] == saved["version"]

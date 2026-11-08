@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 import webbrowser
@@ -429,6 +430,15 @@ def _read_cache() -> dict:
     return safe_io.load_json(CACHE, {}, cache=True)
 
 
+_ABSOLUTE_PATH = re.compile(r"(?:\\\\\?\\(?:UNC\\)?)?(?:[A-Za-z]:|\\\\[^\\'\"\s]+)[\\/][^'\"\n]*")
+
+
+def shown_error(error: Exception) -> str:
+    """An unexpected error's message for the page: its text, with every absolute path cut to
+    the file's name (the full path and the traceback are in the server's log)."""
+    return _ABSOLUTE_PATH.sub(lambda m: Path(m[0].rstrip("\\/")).name or "a file", str(error))
+
+
 def notes_with_pages(doc_id: str, row: dict) -> list[dict]:
     """The notes panel's list (notes_store.entries), each chapter with its start `page` when
     the chapter-pages cache already knows it. Never starts the (slow) chapter search: without
@@ -483,8 +493,9 @@ def save_position(doc_id: str, page: int) -> dict:
 
 
 def open_chapter(doc_id: str, number: int | None, base_url: str, resume: bool = False) -> str:
-    """Open a chapter (PDF at its first page, notes, and its script if there is one); with
-    resume, open the page you last read and the chapter it belongs to."""
+    """Open a chapter (PDF at its first page, and its script if there is one; its notes are in
+    the reader's panel); with resume, open the page you last read and the chapter it belongs
+    to."""
     row = catalog.load(CATALOG)[doc_id]
     readme = library_page.readme_of(row)
     chapters = library_page.chapters(doc_id, readme)
@@ -511,17 +522,28 @@ def open_chapter(doc_id: str, number: int | None, base_url: str, resume: bool = 
     else:
         opened.append(f"no PDF ({row['file']} is missing)")
 
+    # The notes are written in the reader's 📝 panel (task 4 M4, decision D5): they open in
+    # the external editor only without the reading view (a plain PDF has no panel) or with ↗.
+    # Two editors on one note is how conflicts start
     note = notes_dir / chapter["note"] if chapter and chapter["note"] else notes_dir / "README.md"
     if not note.exists():
         note = notes_dir / "README.md"
-    files = [note]
+    in_reader = reading_view.viewer_ready() and (LIBRARY / row["file"]).exists()
+    files = [] if in_reader else [note]
     script = script_for(row, chapter) if chapter and python_features() else None
     if script:
         files.append(script)
-    if open_in_editor(*files):
-        opened.append(f"notes and script {script.name}" if script else "notes")
+    if not files:
+        opened.append("notes in the reader's 📝 panel")
+    elif open_in_editor(*files):
+        what = "notes" if not in_reader else ""
+        opened.append(
+            " and ".join(x for x in (what, f"script {script.name}" if script else "") if x)
+        )
+        if in_reader:
+            opened.append("notes in the reader's 📝 panel")
     else:
-        opened.append("no notes: the editor couldn't be started (see Settings)")
+        opened.append("the editor couldn't be started (see Settings)")
 
     what = chapter["title"] if chapter else row["title"]
     if last:
@@ -690,14 +712,23 @@ class Handler(BaseHTTPRequestHandler):
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
 
     def _notes(self, doc_id: str, body: dict):
-        """/api/notes/list {id}, /api/notes/get {id, key}, /api/notes/open {id, key},
-        /api/notes/save {id, key, text, base[, overwrite]}. A save based on an old version
-        answers 409 with the note as it is now, and writes nothing (notes_store.save)."""
+        """/api/notes/list {id}, /api/notes/get {id, key}, /api/notes/version {id, key},
+        /api/notes/open {id, key}, /api/notes/keep-copy {id, key, text} (into
+        archive/notes-conflicts/ only), /api/notes/save {id, key, text, base[, overwrite]}. A
+        save based on an old version answers 409 with the note as it is now, and writes
+        nothing (notes_store.save)."""
         row = catalog.load(CATALOG)[doc_id]
         if self.path == "/api/notes/list":
             return self._json(HTTPStatus.OK, {"notes": notes_with_pages(doc_id, row)})
         if self.path == "/api/notes/get":
             return self._json(HTTPStatus.OK, notes_store.read(LIBRARY, row, body.get("key")))
+        if self.path == "/api/notes/version":
+            return self._json(
+                HTTPStatus.OK, notes_store.version_info(LIBRARY, row, body.get("key"))
+            )
+        if self.path == "/api/notes/keep-copy":
+            kept = notes_store.keep_copy(LIBRARY, row, body.get("key"), body.get("text"))
+            return self._json(HTTPStatus.OK, {"kept": kept})
         if self.path == "/api/notes/open":
             # An existing note only (path_of without creating: the same containment checks);
             # the editor from the settings, started without a shell. Nothing is written
@@ -892,7 +923,8 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:  # something the page sent that can't be done
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
         except Exception as e:
-            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(e)})
+            traceback.print_exc()  # an unexpected error: where it happened, in the server's log
+            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": shown_error(e)})
 
 
 def restart_later(server) -> None:

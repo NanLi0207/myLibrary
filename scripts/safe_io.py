@@ -117,6 +117,60 @@ def lock_for(path: Path) -> threading.RLock:
         return _locks.setdefault(key, threading.RLock())
 
 
+# --- long paths on Windows -------------------------------------------------------------------
+
+# Windows refuses paths over MAX_PATH (260 characters; 248 for creating a folder) unless long
+# paths are switched on for the whole system (off by default). A library in a deep folder can
+# reach that, the more so for the temporary file next to a file being written (14 characters
+# longer) or an archive copy with a time in its name. The extended-length form of a path
+# (\\?\C:\... or \\?\UNC\server\share\...) has no such limit, with no setting to change.
+_LONG = 248
+
+
+def _os_path(path) -> Path:
+    """The path to hand to the operating system for `path`. Only at the I/O call itself:
+    paths are built, checked (containment, links), locked and shown as they are; nothing
+    stored ever has the prefix.
+
+    - Windows, an absolute path of 248+ characters: the extended-length form. Such a path
+      isn't normalised by Windows, so it's normalised first ("/" and "." handled, no ".."
+      expected: callers have validated their paths).
+    - Already in that form, short, relative, or not Windows: unchanged."""
+    if os.name != "nt":
+        return Path(path)
+    text = os.fspath(path)
+    if text.startswith(("\\\\?\\", "//?/")) or len(text) < _LONG or not os.path.isabs(text):
+        return Path(path)
+    full = os.path.normpath(text)
+    if full.startswith("\\\\"):  # a network (UNC) path: \\server\share\... -> \\?\UNC\server\...
+        return Path("\\\\?\\UNC\\" + full[2:])
+    return Path("\\\\?\\" + full)
+
+
+def exists(path) -> bool:
+    """Path.exists, also for paths too long for Windows' usual limit (where a plain exists()
+    says False for a file that is there)."""
+    return _os_path(path).exists()
+
+
+def is_file(path) -> bool:
+    """Path.is_file, also for paths too long for Windows' usual limit."""
+    return _os_path(path).is_file()
+
+
+def real_path(path) -> Path:
+    """Path.resolve(): the real location, links and junctions followed, also for paths too
+    long for Windows' usual limit (where Windows can't open the path to follow its links, so a
+    plain resolve() might return it unfollowed). Returned in the ordinary form (no \\?\), so
+    it compares with other resolved paths."""
+    real = os.path.realpath(_os_path(path))
+    if real.startswith("\\\\?\\UNC\\"):
+        real = "\\\\" + real[len("\\\\?\\UNC\\") :]
+    elif real.startswith("\\\\?\\"):
+        real = real[len("\\\\?\\") :]
+    return Path(real)
+
+
 # --- writing -------------------------------------------------------------------------------------
 
 # Windows: while one thread swaps a file in, another one opening it for reading (and a virus
@@ -139,36 +193,38 @@ def _retry(action, path: Path):
 
 
 def _swap(tmp: Path, path: Path) -> None:
-    _retry(lambda: os.replace(tmp, path), path)
+    _retry(lambda: os.replace(_os_path(tmp), _os_path(path)), path)
 
 
 def read_bytes(path: Path) -> bytes:
     """Path.read_bytes, waiting out a moment when another thread is swapping the file in."""
-    return _retry(Path(path).read_bytes, Path(path))
+    return _retry(_os_path(path).read_bytes, Path(path))
 
 
 def read_text(path: Path, encoding: str = "utf-8") -> str:
     """Path.read_text (same newline handling), waiting out a swap in progress (read_bytes)."""
-    return _retry(lambda: Path(path).read_text(encoding=encoding), Path(path))
+    return _retry(lambda: _os_path(path).read_text(encoding=encoding), Path(path))
 
 
 def write_bytes(path: Path, data: bytes, *, backup: bool = False) -> None:
     """Replace `path` with `data`, whole or not at all. backup=True first keeps the current
-    version as <name>.bak (for files whose history matters: the reading log, review progress)."""
+    version as <name>.bak (for files whose history matters: the reading log, review progress).
+    Every step (the folder, the temporary file, the backup, the swap, cleaning up) also works
+    for paths longer than Windows' usual limit (_os_path)."""
     path = Path(path)
     with critical():
-        path.parent.mkdir(parents=True, exist_ok=True)
+        _os_path(path.parent).mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
         try:
-            with open(tmp, "wb") as f:
+            with open(_os_path(tmp), "wb") as f:
                 f.write(data)
                 f.flush()
                 os.fsync(f.fileno())
-            if backup and path.exists():
+            if backup and exists(path):
                 _keep_previous(path)
             _swap(tmp, path)
         finally:
-            tmp.unlink(missing_ok=True)
+            _os_path(tmp).unlink(missing_ok=True)
 
 
 def write_text(
@@ -188,10 +244,10 @@ def _keep_previous(path: Path) -> None:
     bak = path.with_name(path.name + ".bak")
     tmp = bak.with_name(f".{bak.name}.{uuid.uuid4().hex[:8]}.tmp")
     try:
-        shutil.copy2(path, tmp)
+        shutil.copy2(_os_path(path), _os_path(tmp))
         _swap(tmp, bak)
     finally:
-        tmp.unlink(missing_ok=True)
+        _os_path(tmp).unlink(missing_ok=True)
 
 
 def update_text(path: Path, change, *, encoding: str = "utf-8") -> str:
@@ -218,7 +274,7 @@ def _keep_damaged(path: Path) -> Path | None:
     data = read_bytes(path)
     for earlier in path.parent.glob(f"{path.name}.damaged-*"):
         try:
-            if earlier.read_bytes() == data:
+            if read_bytes(earlier) == data:
                 return earlier
         except OSError:
             continue
@@ -242,7 +298,7 @@ def load_json(path: Path, default, *, cache: bool = False):
 
 def _load(path: Path, default, cache: bool):
     """(data, whether it came from the file itself in good order)."""
-    if not path.exists():
+    if not exists(path):
         return default, True
     try:
         return _parse(path), True

@@ -32,7 +32,8 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
 - **Next:** task 4, plan approved 2026-11-07 (task 4 and section 5). M1 (notes store and
   API) is done (`9acaf52`). M2 (browser tests in CI) is done (`6b19d78`, with follow-ups
   `3730d23` and `7ff8325`; CI green); its link-security tests are now required in CI.
-  M3 (split screen, notes read-only) is implemented and awaits review.
+  M3 (split screen, notes read-only) is done (`73fbc72`, CI green). M4 (editing in the
+  panel, Markdown source) is implemented and awaits review.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
@@ -1596,9 +1597,9 @@ ports) are green in CI (run 42418424532). Open item: whether the three symlink t
       instant before the user's place is restored. That page change can be counted among
       the pages viewed after Start reading. The saved position is the user's real page.
 
-**M3. Split-screen layout, notes read-only**: plan approved 2026-11-07 (with the refinements
-under *Decisions*); implemented 2026-11-08, awaiting review (see *Results* at the end of M3).
-Not committed.
+**M3. Split-screen layout, notes read-only**: done 2026-11-08, committed `73fbc72`; CI green
+(run 42431574686), and the user's manual check passed. Plan approved 2026-11-07, with the
+refinements under *Decisions*; see *Results* at the end of M3.
 
 *What M3 is:* the PDF on the left, the document's Markdown notes on the right, read-only. No
 editing, saving, Markdown rendering, quotes or links: those are M4–M7. Nothing in M3 writes a
@@ -2043,39 +2044,390 @@ refused; the editor stubbed); `viewer_html` injects `notes.js` and `notes.css`.
   - The container-query copy of PDF.js's toolbar rules is to recheck at a PDF.js upgrade
     (tests: the toolbar stays one row at 1400 / 1200 / 1100 px).
 
-**M4. Editing and saving.**
-- **Scope:** a `<textarea>` editor (no dependency) with:
-  - Tab and Shift+Tab indenting a line or selection;
-  - Enter continuing a list or quote;
-  - the browser's own Undo/Redo inside the text.
+**M4. Editing and saving: Markdown source (mode A)**: plan approved 2026-11-08 (D1 (a), D2–D7
+as recommended, with the refinements under *Decisions*); implemented 2026-11-08, awaiting
+review (see *Results* at the end of M4). Not committed.
 
-  Saving (section 5, *Saving and conflicts*):
-  - status 未保存 (Unsaved) · 正在保存 (Saving) · 已保存 (Saved) · 保存失败 (Save failed) with
-    重试 (Retry);
-  - autosave 1.5 s after typing stops; Ctrl+S saves now;
-  - a close warning while unsaved or saving;
-  - a local draft (`localStorage`) until the server confirms;
-  - the conflict bar when the file changed on disk;
-  - switching notes saves first.
-  - "Open in VS Code" stays (`open_in_editor`).
-- **Tests:**
-  - Python: the API under concurrent saves; a 409 leaves the file untouched; an overwrite
-    after a conflict archives the disk version first.
-  - Browser:
-    - type, then close, reload or navigate at once: warned, or saved;
-    - a slow and a failing server: the states shown, Retry;
-    - a change in VS Code meanwhile (simulated by writing the file): the conflict bar, and
-      both texts kept;
-    - switching notes with unsaved text;
-    - a crash before saving (the tab killed): the draft is offered on reopening;
-    - rapid typing: the final text is on disk.
-- **Risks:**
-  - VS Code open on the same file with unsaved edits (L14): VS Code detects the newer file
-    when it saves;
-  - Ctrl+S and Alt shortcuts must not collide with PDF.js, the browser or the IME.
+*Goal:* write the notes in the panel instead of VS Code, with zero silent data loss.
+- **Storage is unchanged:** the same `.md` files and the same M1 store (`/api/notes/save`,
+  SHA-256 versions, the file's lock, atomic writes, 409, `archive/notes-conflicts/`). The
+  files stay as VS Code reads them: line endings, BOM and final newline are kept by
+  `notes_store`.
+- **Reliability over looks:** a plain `<textarea>` (no editor library); no rendering (M5),
+  no visual editor (later).
 
-**M5. Preview: Markdown, equations, links.**
-- **Scope:** an 编辑 / 预览 (Edit / Preview) switch, with Alt+P.
+*Editor modes, now and later (the architecture M4 sets up):*
+- **Three modes, one file:**
+  - **A, Markdown source:** M4.
+  - **B, Markdown with live preview:** M5.
+  - **C, visual (WYSIWYG):** later, once B is stable.
+
+  The `.md` file is the only authority: no DOCX, no second format, no hidden copy.
+- **One note session per open note** (`NoteSession`, below) holds the text, its base version
+  and the saving. Every mode is only a *view* of that session's text: `getText()`,
+  `setText()`, and an "edited" signal. Saving, conflicts, drafts and close protection
+  belong to the session, so modes B and C reuse them unchanged.
+- **Mode B** renders the session's text read-only beside or instead of the source. It never
+  writes back: the text you save is always the source you typed.
+- **Mode C** may only change the text through edits the user makes. On entering it, the
+  note is converted to the editor's model and back, and the result must equal the file
+  byte for byte. If it doesn't (an unsupported table, raw HTML, a LaTeX form, front matter,
+  a footnote extension…), mode C is refused for that note with the reason, or those parts
+  are kept as protected raw blocks. It never rewrites what it can't represent.
+- **The chosen mode** is a per-browser preference; a note that can't be shown in it opens in
+  the source mode.
+
+*The panel while editing (mode A):*
+```
+┌ [Ch 2: Aberrations ▾]   ● 已保存 Saved   [保存 Save]  🔒  ↗  ✕ ┐
+│ (conflict / offline bar, only when needed)                     │
+│ ┌────────────────────────────────────────────────────────────┐ │
+│ │ # Chapter 2: Aberrations                                    │ │
+│ │ - $\Delta n = n_F - n_C$ …          (textarea: wrapped,     │ │
+│ │                                      sans-serif 14/1.6)     │ │
+│ └────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────┘
+```
+- **The note is a `<textarea>`,** editable by default.
+  - 🔒 只读 (Read-only) turns it into the M3 view (no typing); remembered per browser.
+  - The textarea keeps the browser's own Undo/Redo, selection, clipboard, spell-check and
+    IME (Chinese input).
+- **Save status in the header**, always one of:
+  - 已保存 (Saved): the text equals what the server last confirmed;
+  - 未保存 (Unsaved): you typed since;
+  - 正在保存… (Saving);
+  - 保存失败 (Save failed): the reason, and 重试 (Retry);
+  - 服务器未连接 (Server not reachable): offline;
+  - 有冲突 (Conflict): the conflict bar is shown.
+
+  保存 (Save) saves now; so does **Ctrl+S** while the focus is in the panel. Ctrl+S in the
+  PDF keeps PDF.js's own meaning (save the PDF), unless decided otherwise (D4).
+- **Keys:**
+  - In the textarea, every key is the text's own: Ctrl+Z/Y, Tab (D7), Home/End, PageDown.
+    PDF.js and the marks' Undo never see them; that's already how M3 stops keys at the
+    panel and how `lookup.js` treats text fields.
+  - Esc leaves the textarea for the PDF (M3).
+  - Typing is never reading time (M3's `inNotes`, already tested with a fake clock).
+- **A chapter note not written yet** (D2):
+  - the empty state offers 开始写这一章的笔记 (Start notes for this chapter);
+  - the file is created by the first save of typed text: `base: null`, which the store
+    allows only for README-linked chapter notes;
+  - opening or clicking alone never creates a file.
+- **Layouts:** the same in split, drawer and full-width modes, and in dark mode (PDF.js's
+  field colours, as in M3).
+
+*NoteSession: the state model* (`reader_static/note_session.js`; no DOM, so tests can drive it
+directly):
+- **Per note key:**
+  - `key`;
+  - `base`: the disk version the text is based on (SHA-256, or `null` for a note not written
+    yet);
+  - `saved`: the text the server last confirmed;
+  - `text`: the editor's current text;
+  - `inFlight`: `{text, base, seq}` or `null`;
+  - `state`;
+  - `conflict`: `{diskText, diskVersion}` or `null`;
+  - `failures`: the count, for the retry delay.
+- **States:**
+
+  | State | Meaning |
+  |---|---|
+  | `clean` | `text === saved`, nothing in flight |
+  | `dirty` | `text !== saved` |
+  | `saving` | a save is in flight; the text may already differ again |
+  | `failed` | the last save didn't arrive (network, 5xx); retried |
+  | `offline` | the server can't be reached; checked until it can |
+  | `conflict` | the disk has a version other than `base`; autosave stops for this note |
+- **Sessions outlive the view:**
+  - they're kept in a map by key for the whole tab, so a reply arriving after you switched
+    notes still updates *its* note's session, never the note on screen;
+  - the view renders only the displayed session;
+  - a session with unsaved text is never dropped.
+
+*Autosave and request order:*
+1. **When a save starts:** 1.5 s after the last edit; on Save or Ctrl+S; when switching
+   notes; when the tab is hidden; and on `pagehide` (best effort, see below).
+   - Never during IME composition (`compositionstart` … `compositionend`), so a half-typed
+     Chinese word isn't saved.
+2. **One save at a time per note.** A save sends `{key, text, base}`. Typing during it only
+   marks the session dirty; when the save answers, the next one is sent if the text still
+   differs. An older save can therefore never land after a newer one.
+3. **200 `{version}`:** `base = version`, `saved = sent text`. Then `clean` if the text
+   still equals it, else `dirty` (and the timer runs).
+4. **409 `{current}`:** `conflict`, with the disk text and version. Nothing was written
+   (M1); the editor keeps your text.
+5. **Network error, 5xx, or no answer within 15 s:** `failed`, retried after 2, 5, 10, then
+   every 30 s, with the same `base`; Retry tries now.
+   - Unreachable server: `offline`. A light check (`/api/notes/version`) every 5 s brings it
+     back; the save is then sent with its old `base`, so a file changed meanwhile becomes a
+     conflict, never an overwrite.
+   - A request that half-arrived is refused by the server (`_body`, M1), and retried.
+6. **Never shown as saved before the server's 200.** The state is in the header and in
+   `body[data-ml-save-state]` (for tests).
+
+*Conflicts* (never silent, both sides always kept):
+- **How a conflict is found:**
+  - a save answers 409;
+  - the open note's version is checked when the tab gets the focus or becomes visible, and
+    every 5 s while the panel shows it (`/api/notes/version`: version and size, no text);
+  - another tab of this browser saved the same note (`BroadcastChannel`, per origin).
+- **What happens:**
+  - nothing unsaved here: the disk version is loaded, with 已从磁盘更新 (Updated from disk);
+  - unsaved text here: the conflict bar, and autosave paused for that note.
+- **The conflict bar:** 这条笔记在别处被修改了 (This note was changed elsewhere), with
+  three choices:
+  1. **保留我的版本 (Keep mine):** `save` with `overwrite = diskVersion`. The server first
+     copies the disk version to `archive/notes-conflicts/<folder>/<note>.<stamp>.md`
+     (M1), then writes yours.
+  2. **载入磁盘版本 (Use the disk version):** your text is first written to
+     `archive/notes-conflicts/…<stamp>.mine.md` (new `/api/notes/keep-copy`), then the disk
+     version is loaded.
+  3. **对比 (Compare):** the disk version beside yours, read-only, so you can copy from it
+     into your text, then choose 1.
+
+  Each choice says where the other side went, as a message with its path.
+- **Two tabs on one note:** the second save answers 409 (the M1 version check), so it's the
+  same conflict flow. `BroadcastChannel` only makes it visible sooner.
+
+*Closing, reloading and losing the server:*
+- **The warning:** `beforeunload` asks while any session is `dirty`, `saving`, `failed`,
+  `offline` or `conflict` (the marks already use it, task 3).
+- **A save on the way out** (`pagehide`, `keepalive` fetch, best effort): only for notes
+  under 60 KB (the browser's keepalive limit), with the normal `base`. If it conflicts or
+  fails, nothing is overwritten.
+- **Not relying on the warning alone** (D1): a local draft per note while it's unsaved,
+  deleted once the server confirms. On reopening, a draft that differs from the file is
+  offered: 恢复未保存的草稿 (Restore unsaved draft), with Compare.
+- **The server gone** (VS Code closed, Quit):
+  - `offline`; the text stays in the editor;
+  - the close warning holds;
+  - the draft (if D1) keeps it on this PC;
+  - when the server is back, saving resumes against the old version (a conflict if the file
+    changed meanwhile).
+- **Switching notes with unsaved text:**
+  - it's saved first, and the switch waits for the confirmation;
+  - if that save fails or conflicts, you stay on the note with the bar;
+  - the menu never discards text.
+
+*Server changes (small, in the M1 store):*
+- **`/api/notes/version {id, key}`:** `{version, exists, bytes}`, so the 5 s check doesn't
+  move the text.
+- **`/api/notes/keep-copy {id, key, text}`:** your side of a conflict, written only to
+  `archive/notes-conflicts/<folder>/<note>.<stamp>.mine.md` (`safe_io`, `path_of`, the same
+  naming as `_keep_conflicting`). It returns the path. Never into `notes/`.
+- **Unchanged:** `/api/notes/save`. A save that changes nothing doesn't touch the file (M1).
+
+*Files:*
+- **New:** `reader_static/note_session.js` (the model) and `reader_static/note_editor.js`
+  (the source view and conflict bar).
+- **Changed:**
+  - `notes.js` (the panel uses the session; switching; the header status);
+  - `notes.css`;
+  - `notes_store.py` (`version_info`, `keep_copy`);
+  - `library_server.py` (the two routes);
+  - `reader.py` (the injection order);
+  - `lookup.js` (only if a key needs excluding);
+  - README, CLAUDE.md, this ROADMAP.
+- **Tests:** `test_notes_store.py`; new `tests/browser/test_notes_editing.py`,
+  `test_notes_conflicts.py`, `test_notes_failures.py`.
+
+*Tests* (temporary libraries only; state-based waits; no retries; no expected failures):
+- **Python:**
+  - `version` matches `read`;
+  - `keep-copy` writes only under `archive/notes-conflicts/` (refused for keys pointing
+    outside, through `path_of`);
+  - 409 leaves the file untouched; overwrite archives first (M1, kept);
+  - concurrent saves from two threads: one wins, the other is a 409;
+  - a chapter note created only by a save with `base: null`;
+  - CRLF, BOM, Chinese, tables and LaTeX kept byte for byte.
+- **Edge, editing:**
+  - type, then autosave: the file on disk equals the text (bytes, line endings kept);
+  - Ctrl+S and Save;
+  - the states shown in order;
+  - rapid typing during a held save: one save in flight, the final text on disk;
+  - the textarea's own Undo/Redo, while the PDF's marks are untouched;
+  - PDF keys typed into the note never turn pages;
+  - a not-written chapter: no file until text is typed, then created;
+  - 🔒 read-only;
+  - IME composition not saved half-way (simulated with composition events).
+- **Edge, failures:**
+  - a 500, then Retry;
+  - no answer (held), then a timeout and a retry;
+  - the server stopped mid-edit: `offline`, the text kept, saved after it's started again;
+  - a half-sent body refused (M1), then retried;
+  - closing, reloading or navigating with unsaved text: warned, and with Stay nothing lost;
+  - the `pagehide` save for a small note;
+  - the draft offered after the tab was killed (D1).
+- **Edge, conflicts:**
+  - the file changed on disk (as VS Code would) while clean: reloaded;
+  - while dirty: the bar; Keep mine (disk archived, mine written); Use disk (mine archived,
+    disk loaded); Compare;
+  - two tabs on one note;
+  - a late reply after switching notes updates the right session;
+  - switching with unsaved text (save first; a failure keeps you there).
+- **Regression:**
+  - the whole M2/M3 suite;
+  - Preview Mode and reading time with the editor in use (the fake clock);
+  - the panel-closed run;
+  - layouts and dark mode with the editor;
+  - opening and reading notes still writes nothing.
+
+*Risks:*
+1. **Tab and Enter helpers changing text** through scripts break the browser's Undo. They use
+   `document.execCommand("insertText")`, deprecated but supported in Chromium/WebView2, which
+   keeps Undo. If it ever stops working, the helpers turn off, and plain typing is unaffected
+   (D7).
+2. **IME:** saving or key handling during composition. Guarded by `isComposing`, and tested
+   with composition events.
+3. **Frequent conflicts with VS Code open on the same note:** silent reload while clean,
+   checks every 5 s, and D5 (Read/Continue no longer opening the note in VS Code).
+4. **Large notes:** a textarea handles megabytes; `version` keeps the checks light; notes
+   over 60 KB rely on the warning and draft, not the `pagehide` save.
+5. **`keepalive` and `pagehide`** are best effort: never trusted alone (warning plus draft).
+6. **`BroadcastChannel`** is per origin (port): the 409 check is the real protection.
+7. **Drafts in the browser:** privacy and leftovers (D1).
+
+*Stages* (each: its tests, then the whole suite):
+1. **Server:** `version`, `keep-copy`, and their Python tests.
+   - Done when: the routes' tests pass and nothing else changed.
+2. **The session model:** saving, ordering, retries, offline, conflict detection; no UI yet
+   beyond a hidden test hook.
+   - Done when: browser tests driving it with held, failing and 409 routes pass.
+3. **The source editor in the panel:** the textarea, header status, Save, Ctrl+S, 🔒,
+   autosave, keys, a chapter note started by typing.
+   - Done when: the editing tests pass and the M3 tests are unchanged.
+4. **Conflicts and switching:** the bar and its three choices, Compare, the version checks,
+   `BroadcastChannel`, switching notes.
+   - Done when: the conflict tests pass, and both sides are on disk in each case.
+5. **Closing and losing the server:** the warning, the `pagehide` save, offline and back, the
+   draft (D1).
+   - Done when: the failure tests pass; a killed tab loses nothing (with D1).
+6. **Regression and polish:** layouts, dark mode, README, CLAUDE.md, ROADMAP.
+   - Done when: five consecutive clean browser runs, CI green, and the real library unchanged.
+
+*Decisions (approved by the user 2026-11-08):*
+- **D1 (a), a local recovery draft** in the browser while a note is unsaved:
+  - written as the user types, from the first edit, whether or not the server is reachable;
+    at once after a failed save or a conflict;
+  - deleted only when the server confirms the newest revision, or on Discard;
+  - kept through outages, conflicts, reloads and failed saves;
+  - on reopening, a draft that differs from the file is offered: Restore, Discard or
+    Compare. Restoring compares it with the disk version first: changed since, it's a
+    conflict, never an overwrite;
+  - storage refused or full: shown, never pretended;
+  - drafts over 30 days old are deleted.
+- **D2:** a not-yet-written chapter note is created only by saving typed text, never by
+  opening it.
+- **D3:** editable by default; 🔒 Read-only is a remembered choice.
+- **D4:** Ctrl+S saves the note while the focus is in the panel; in the PDF it stays PDF.js's.
+- **D5:** Read and Continue on the library page no longer open the note in VS Code (↗ still
+  does). This is a deliberate change of the earlier workflow.
+- **D6:** autosave 1.5 s after typing stops (never mid-IME); version checks every 5 s, only
+  for the note shown, never while our own save is on its way.
+- **D7:** Tab and Shift+Tab indent; Enter continues a list or quote and ends it on an empty
+  item. All through `insertText`, so the browser's own Undo undoes them.
+
+*Results (2026-11-08):*
+- **Files:**
+  - **New:**
+    - `reader_static/note_session.js` (`NoteSession`, drafts, requests);
+    - `tests/browser/test_notes_editing.py`, `test_notes_failures.py`,
+      `test_notes_conflicts.py`;
+    - `test_test_harness.py` and `owned_processes.py` (test harness);
+    - `tests/test_long_paths.py`.
+  - **Changed:**
+    - `notes.js`, `notes.css` (the editor, status, bar, Compare, keys);
+    - `notes_store.py` (`version_info`, `keep_copy`, long-path-safe checks);
+    - `library_server.py` (the two routes; D5; tracebacks of unexpected errors to the log;
+      `shown_error`);
+    - `safe_io.py` (long paths);
+    - `reader.py` (loads `note_session.js`);
+    - the browser tests' `conftest.py`, `helpers.py` and `test_notes_content.py`;
+    - `test_notes_store.py`, `test_library_server.py`, `test_papers.py`, `test_reader.py`;
+    - `pyproject.toml` (the per-test limit);
+    - README, CLAUDE.md, this ROADMAP.
+  - **The plan said** `note_editor.js` for the view; it lives in `notes.js`, the panel, since
+    there's one view (mode A). Modes B and C will each be a view of the same session.
+- **As built:** as the plan above. Details beyond it:
+  - **A restarted server:** its access token is new (`library_server.TOKEN`, per process), so
+    an open reader page can't save any more (403). The note shows 需要重新载入 (Reload
+    needed): no retries, the text kept in the editor and the draft. After a reload (the close
+    warning asks first), the draft is offered. Documented in README.
+  - **Ctrl+Z in the note** is the textarea's own; the marks' Undo never acts from the panel
+    (M3's `inNotes`).
+  - **The `pagehide` save** is best effort, and only for notes under 60 KB (the browser's
+    `keepalive` limit). It's never trusted alone: the draft and the warning are.
+- **Bugs found while testing, fixed:**
+  - **B20, long paths on Windows (`safe_io`):**
+    - With long paths off (Windows' default), a write whose path, or its temporary file's
+      path, passed 260 characters failed. Found when conflict archives
+      (`archive/notes-conflicts/…<time>.md` plus `.<name>.<8 hex>.tmp`) passed the limit in
+      a deep folder: Keep mine and Use the disk version failed with 500. Nothing was lost,
+      but the conflict couldn't be resolved.
+    - Worse, a plain `exists()` calls a note past the limit missing, so a save meant for a
+      new note could have been written over it; and `resolve()` may not follow a link in such
+      a path, which would weaken containment.
+    - **Fix:** `safe_io._os_path` gives Windows the extended-length form (`\\?\C:\…`,
+      `\\?\UNC\server\share\…`) of absolute paths of 248+ characters, only at the
+      operating-system call.
+      - It covers folder creation, the temporary file (open, write, flush, fsync), the backup,
+        the replace, cleanup and reads.
+      - New: `safe_io.exists`, `is_file` and `real_path` (links followed, returned without
+        the prefix), used by `notes_store` for its note checks and containment.
+      - Nothing stored or shown has the prefix. Short and relative paths are unchanged. No
+        registry change.
+    - **Tests** (`tests/test_long_paths.py`, 10):
+      - writes, replacements and backups past 260 and 300 characters;
+      - Unicode names with Chinese text;
+      - a failed write keeping the original with no temporary file left;
+      - short paths unchanged;
+      - Keep mine and Use the disk version with archive paths past 255;
+      - an existing note past the limit never taken for a new one;
+      - a junction pointing out refused in a deep library.
+
+      With the old I/O, 9 of the 10 fail. Also the browser conflict tests with a long pytest
+      folder (the archive path about 261 characters, as when it failed): all pass.
+    - **Not verified here:** UNC paths (only the conversion is tested, no network share);
+      symlinks past the limit (this PC can't make symlinks; the junction case passes);
+      Windows with long paths switched on (the prefix is harmless there).
+    - **Not covered:** other modules' direct file access (library page, add_book, search
+      index) isn't changed. A library that deep may still meet the limit there.
+  - **The draft after a failed save** could lag up to 300 ms behind the newest text; it's
+    now written at once.
+  - **Unexpected server errors (500):** the message for the page has absolute paths cut to the
+    file's name (`shown_error`); the full traceback goes to the server's log.
+- **The test harness (found when a test run hung for 55 minutes):**
+  - **Simulated crash:** `Page.crash` through the tab's own DevTools session, then `close()`
+    of the crashed page, could wait forever. The crash now goes through the browser's
+    DevTools session. It passes only when both Playwright's `crash` event and Chromium's
+    `Target.targetCrashed` for that exact target arrive, within 10 s; otherwise it fails
+    with everything seen. The crashed page isn't closed by the test.
+  - **Per-test limit:** `faulthandler_timeout = 180` with `faulthandler_exit_on_timeout`
+    (pytest 9.2): a stuck test ends the run with every thread's stack. A browser test also
+    prints its own waiting line (its greenlet) 5 s earlier. Shown to work on Windows.
+  - **No orphaned test servers:** each test server starts suspended in a Windows job object
+    that closes with pytest, however pytest ends (`owned_processes`). Checked after normal
+    exit, a forced kill and the timeout; not yet run on GitHub's runner.
+  - **The crash evidence:** in later runs, every crash (9 in one batch, more since) arrived
+    with both signals, in 0.36–0.92 s. **One earlier miss stays unexplained:** with the
+    older helper, Playwright's event didn't come within 10 s once, in a full run, and it
+    gave no detail. It hasn't recurred with the new helper.
+- **Known, unchanged:** D5 (marks from two tabs), B15 (reading statistics), and the B19
+  follow-up.
+- **Recovery drafts, privacy and limits:**
+  - **Where:** they are plain text in this browser's profile on this PC (`localStorage`,
+    `myLibrary.draft.<document id>|<note>|<tab>`), only until the server confirms; deleted
+    after 30 days.
+  - **Who can see them:** anyone using the same Windows account and browser profile could
+    read them, as they could the notes themselves.
+  - **Per origin, so per port:** a server started on another port doesn't see drafts kept
+    under the old one (they stay, unused, until they expire). A desktop app with a fixed
+    port avoids this.
+
+**M5. Preview: Markdown, equations, links (mode B).**
+- **Scope:** an 编辑 / 预览 (Edit / Preview) switch, with Alt+P, plus a split preview. A
+  read-only view of M4's `NoteSession` text: it never changes the text, so what is saved is
+  always the source typed. The chosen mode is remembered per browser (see M4, *Editor modes*).
   - **Rendering:** markdown-it with `html: false`, so raw HTML in a note is shown as text,
     never run.
   - **Equations:** KaTeX for `$…$`, `$$…$$`, `\(...\)` and `\[...\]` (the forms VS Code's
@@ -2387,7 +2739,8 @@ damaged):
 - **Closing:**
   - the browser's own warning while anything is unsaved or saving (`beforeunload`);
   - nothing is sent while closing, so the warning is what protects the text;
-  - the local draft, written about 300 ms after each change and cleared after the server
+  - (M4 decision D1 (a), built: see M4 *Results* for its privacy and port limits) the
+    local draft, written about 300 ms after each change and cleared after the server
     confirms, covers a crash or forced close. On reopening, if the draft differs from the
     file, it is offered: 恢复未保存的草稿 (Restore unsaved draft), showing both.
 - **Separate from reading:**

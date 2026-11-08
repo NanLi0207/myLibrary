@@ -67,6 +67,11 @@ pythonpath = ["scripts", "library/code"]
 markers = [
     "browser: a test in a real browser (tests/browser/; run with `uv run pytest tests/browser`)",
 ]
+# A safety limit per test (not per run): a test still running after 180 s is stopped, and the
+# whole test process ends with every thread's stack printed (browser tests also print where
+# their own code waits, see tests/browser/conftest.py). The slowest test takes about 40 s.
+faulthandler_timeout = 180
+faulthandler_exit_on_timeout = true
 filterwarnings = [
     # pytest-playwright 0.10's own base_url fixture (not ours); remove once it's updated
     "ignore:Session-scoped fixtures defined as instance methods:pytest.PytestRemovedIn10Warning",

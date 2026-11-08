@@ -53,7 +53,9 @@ the library's `archive/` (`add_book.move_to_archive`, which refuses anything out
 library's folders).
 
 **Write files through `scripts/safe_io.py`, never with `Path.write_text` or `open("w")`:**
-- `write_text`/`write_bytes` are atomic.
+- `write_text`/`write_bytes` are atomic, also past Windows' 260-character path limit
+  (`safe_io._os_path` at the OS call). Checking or following a path that may be long goes
+  through `safe_io.exists`/`is_file`/`real_path`, not `Path.exists`/`resolve`.
 - A read-change-write goes through `update_text`/`update_json` (they take the file's lock), or
   holds `safe_io.lock_for(path)`.
 - Catalog changes go through `catalog.upsert`/`set_field`/`remove`.
@@ -218,8 +220,9 @@ identity (that's its `id`, see above). Inside the library it's the base of:
   subjects, shelves, where each field came from; the original download file name is
   deliberately not recorded). After adding a book, suggest shelves for it (the user's are in
   `library/library.toml`). The user browses it with `uv run scripts/library_server.py` (local
-  server: shelf bar; Read/Continue opens the PDF at the chapter page and the chapter's notes in
-  VS Code, plus its script if one exists; "Script" creates/opens the chapter script; "Shelves"
+  server: shelf bar; Read/Continue opens the PDF at the chapter page with the chapter's notes in
+  the reader's 📝 panel, plus its script in the editor if one exists (the notes open in the
+  editor too only without the reading view: task 4 M4 decision D5); "Script" creates/opens the chapter script; "Shelves"
   edits a book's shelves; ticking chapters edits notes READMEs).
   The server opens PDFs in PDF.js with a word lookup for the user (a Chinese reader):
   `scripts/reader.py` + `scripts/reader_static/`. Glossaries rank first when they match the book's shelves, subject or field by word (`reader.book_subject_words`: "Advanced optical system
@@ -238,13 +241,20 @@ identity (that's its `id`, see above). Inside the library it's the base of:
   the library's `notes/vocabulary-review.json`; never edits the vocabulary files). Topic notes
   (📝 主题笔记 / Topic note in the popup): `notes/topics/<term>.md`, created with book + page
   references only (never book text). These are the user's own work: never delete them.
-  📝 Notes panel (task 4 M3, read-only): `reader_static/notes.js` + `notes.css`, beside PDF.js
-  (`--ml-notes-space` narrows `#outerContainer`; PDF.js gets an explicit `resize` event;
-  container queries mirror PDF.js's toolbar breakpoints). It uses lookup.js's
-  `window.myLibraryReader` (token, `post`, `bi`) and only `/api/notes/list|get|open`, by
-  document id and note key, never a path. It never writes notes, position or reading time;
-  lookup.js leaves the panel alone (`inNotes`). Browser tests: `test_notes_panel.py`,
-  `test_notes_content.py`; `--notes-closed` runs any of them with the panel closed.
+  📝 Notes panel (task 4 M3, M4: editing as Markdown source): `reader_static/notes.js` +
+  `notes.css`, beside PDF.js (`--ml-notes-space` narrows `#outerContainer`; PDF.js gets an
+  explicit `resize` event; container queries mirror PDF.js's toolbar breakpoints). The text
+  and its saving are `note_session.js`'s `NoteSession` (one per note: revisions, one save in
+  flight, base versions and 409 conflicts, retries, offline, a restarted server (403: reload
+  needed), recovery drafts in `localStorage`, version checks). Future preview and visual modes
+  are views of the same session, never a second save path, and never lossy. It uses
+  lookup.js's `window.myLibraryReader` and only `/api/notes/list|get|version|save|keep-copy|open`,
+  by document id and note key, never a path. Opening or viewing writes nothing; never position
+  or reading time; lookup.js leaves the panel alone (`inNotes`). Browser tests:
+  `test_notes_panel.py`, `test_notes_content.py`, `test_notes_editing.py`,
+  `test_notes_failures.py`, `test_notes_conflicts.py`; `--notes-closed` runs any of them with
+  the panel closed. A browser test is stopped after 180 s (pyproject `faulthandler_timeout`);
+  test servers start through `tests/browser/owned_processes.py` (a job object: never orphaned).
   `library.html` is the static read-only copy (built by `scripts/library_page.py`, rebuilt by
   add_book.py). Chapter start pages are cached in the library's `.cache/chapter_pages.json`
   (`--refresh-chapters` clears a book's entry automatically).
