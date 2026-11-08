@@ -601,12 +601,26 @@ def topic_note(term: str) -> Path:
     name = re.sub(r"[^a-z0-9]+", "-", term.lower()).strip("-")
     if not name:
         raise ValueError("a topic needs an English word or phrase")
-    path = LIBRARY / "notes" / "topics" / f"{name}.md"
-    if not path.exists():
-        found = book_search.search(term, limit=8)["results"]
-        sources = "\n".join(f"- {r['title']}: PDF page {r['page']}" for r in found) or "-"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        safe_io.write_text(path, TOPIC_TEMPLATE.format(term=term, sources=sources))
+    folder = notes_store.topics_dir(LIBRARY)
+    path = folder / f"{name}.md"
+
+    def refuse_links_out() -> None:  # (as the notes panel: never read or written through)
+        if not notes_store.inside(path, folder):
+            raise ValueError(f"notes/topics/{path.name} is a link pointing out of notes/topics/")
+
+    refuse_links_out()
+    if safe_io.exists(path) or os.path.lexists(path):
+        return path
+    # D17: the slow search runs without the file's lock; the template is then created only if
+    # nothing appeared meanwhile (the notes API, an editor, another request): never over it
+    found = book_search.search(term, limit=8)["results"]
+    sources = "\n".join(f"- {r['title']}: PDF page {r['page']}" for r in found) or "-"
+    with safe_io.lock_for(path), safe_io.critical():  # (notes_store.save takes this lock too)
+        refuse_links_out()
+        try:
+            safe_io.create_text(path, TOPIC_TEMPLATE.format(term=term, sources=sources))
+        except FileExistsError:
+            pass  # written meanwhile: that note stays as it is
     return path
 
 

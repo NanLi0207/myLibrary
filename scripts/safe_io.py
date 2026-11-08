@@ -21,6 +21,7 @@ The locks are per process: the library page server and a command-line script sta
 same time still can't leave half a file, but one of two simultaneous changes can be lost.
 """
 
+import errno
 import json
 import os
 import shutil
@@ -238,6 +239,67 @@ def write_text(
     if newline != "":
         text = text.replace("\n", newline)
     write_bytes(path, text.encode(encoding), backup=backup)
+
+
+# Windows' answers when a file system has no hard links (FAT, some network shares): "not
+# supported" (50), "incorrect function" (1); elsewhere the errno says so
+_NO_HARD_LINKS_WINERROR = {1, 50}
+_NO_HARD_LINKS_ERRNO = {errno.EXDEV, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK}
+
+
+def _no_hard_links(error: OSError) -> bool:
+    return (getattr(error, "winerror", None) in _NO_HARD_LINKS_WINERROR
+            or error.errno in _NO_HARD_LINKS_ERRNO)  # fmt: skip
+
+
+def create_bytes(path: Path, data: bytes) -> None:
+    """Create `path` with `data` only if nothing is there: never replaces anything, not a file,
+    not a link, not a dangling link (FileExistsError). The whole content appears at once: it is
+    written to a temporary file next to it, flushed to disk, then given its name with a hard
+    link, which fails if the name is taken. Where the file system has no hard links, the file
+    is created exclusively (O_EXCL) and written: still never over anything, but a crash while
+    writing could leave that new file incomplete (it held nothing of the user's). Also works
+    past Windows' usual path limit (_os_path)."""
+    path = Path(path)
+    target = _os_path(path)
+    with critical():
+        _os_path(path.parent).mkdir(parents=True, exist_ok=True)
+        if os.path.lexists(target):  # (a link, even a dangling one, counts as there)
+            raise FileExistsError(errno.EEXIST, "already there", str(path))
+        tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            with open(_os_path(tmp), "xb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                os.link(_os_path(tmp), target)  # FileExistsError if anything took the name
+            except FileExistsError:
+                raise
+            except OSError as e:
+                if not _no_hard_links(e):
+                    raise
+                _create_exclusively(target, data)
+        finally:
+            _os_path(tmp).unlink(missing_ok=True)
+
+
+def _create_exclusively(target: Path, data: bytes) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    fd = os.open(target, flags)  # FileExistsError if anything is there
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+    except BaseException:
+        Path(target).unlink(missing_ok=True)  # ours, just made: not left half-written
+        raise
+
+
+def create_text(path: Path, text: str, *, encoding: str = "utf-8") -> None:
+    """create_bytes for text, with the system's line endings (as write_text)."""
+    create_bytes(path, text.replace("\n", os.linesep).encode(encoding))
 
 
 def _keep_previous(path: Path) -> None:

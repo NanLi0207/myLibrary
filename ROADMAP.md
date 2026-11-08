@@ -40,8 +40,9 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   - D19 is fixed: `8154293`, CI green (run 42502216237).
   - D15 is fixed: `0bb1ad7`, CI green (run 42505838611).
   - D20 is fixed: `d7b9fc5`, CI green (run 42510546751).
-  - D5 (versioned saving of marks, also the stale-tab case in D15) is fixed, awaiting
-    review; not committed.
+  - D5 (versioned saving of marks, also the stale-tab case in D15) is fixed: `ac206d4`,
+    CI green (run 42514738383).
+  - D17 is fixed (topic notes).
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
@@ -369,7 +370,8 @@ D12. They are kept below for the record. D5 is fixed (before M5; see its entry).
   - `local.toml`.
 - **D4 (C, fixed) Quit can stop a job mid-write.** Quit (`/api/quit`) and the library-change restart
   (`restart_later`, `os._exit`) don't wait for running jobs, and job threads are daemons.
-- **D5 (C, fixed before M5) Marks from two tabs overwrote each other.**
+- **D5 (C, fixed before M5 in `ac206d4`, CI green) Marks from two tabs overwrote each
+  other.**
   - The problem:
     - `save_marks` accepted any whole PDF with the same page count, with no version check.
     - Each tab saves the PDF as *it* loaded it plus its own marks, so a second tab's save
@@ -547,9 +549,37 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
 - **D16 (C) Glossary terms are appended without a lock or an atomic write.**
   `reader.add_glossary_term` checks for duplicates outside any lock, then uses
   `open(path, "a")`. Two clicks can add a term twice, and a crash can leave a partial row.
-- **D17 (C) Creating a topic note can replace one just saved.** `library_server.topic_note`
-  checks for the file, runs a full-text search, then writes the template, all without a
-  lock.
+- **D17 (C, fixed) Creating a topic note could replace one just saved.**
+  - The problem:
+    - `library_server.topic_note` checked for the file (plain `Path.exists`), ran the slow
+      full-text search, then wrote the template with an atomic *replace*, all without a
+      lock.
+    - A note saved meanwhile (the notes API, an editor such as VS Code, another request)
+      was replaced by the template. Reproduced: the user's text became the template.
+    - A link in `notes/topics/` pointing out of it was not refused.
+  - The fix:
+    - Links out of `notes/topics/` are refused (`notes_store.inside`, as for the panel).
+      Existence is checked with `safe_io.exists`, and a link counts as there.
+    - The search runs without any lock. Then, under the file's lock (which
+      `notes_store.save` also takes), the link check is repeated and the template is
+      created only if nothing is there.
+    - New `safe_io.create_bytes` / `create_text`:
+      - write a temporary file next to the target and flush it, then give it its name with
+        a hard link, which fails if the name is taken;
+      - never replace anything: a file, a link, a dangling link;
+      - "already there" is final, never taken for "no hard links";
+      - only where the file system has no hard links (Windows errors 1/50, or
+        `EXDEV`/`ENOTSUP`/...) the file is created exclusively (`O_EXCL`) instead;
+      - the temporary file is removed after any failure, and paths past Windows' limit
+        work.
+    - A legitimate `notes/topics/` or `notes/` on OneDrive through a junction still works.
+  - Limits:
+    - In the `O_EXCL` fallback, a crash while writing could leave the new template
+      incomplete (it holds nothing of the user's).
+    - An editor creating the file in the instant between the last check and the hard link
+      makes the link fail, so that file is kept. That is the intended outcome.
+  - Tests: `tests/test_topic_notes.py`. 10 of its 15 tests (plus 2 symlink tests that run in
+    CI) fail on the old code.
 - **D18 (C, latent) A failed rename can lose its recovery journal.**
   - `add_book.rename_document` deletes the journal even when `_undo_rename` reports moves it
     couldn't reverse.
