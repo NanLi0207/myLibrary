@@ -247,6 +247,20 @@ Last read: page 41 (Ch 2: Design Forms), 2026-11-05
 Opening a chapter just to look something up doesn't move your place; only turning pages does.
 Because it's in your notes, it's kept in git along with them.
 
+**📝 笔记 (Notes) beside the book.**
+- The book's own Markdown notes open on the right of the PDF: the chapter you're reading, the
+  README, or any other note in its folder (the menu at the top of the panel).
+- In this version they're read-only. ↗ opens the note in your editor (VS Code, or what you
+  chose in ⚙ Settings).
+- 📝 on the toolbar or **Alt+N** shows or hides them. Drag the line between the PDF and the
+  notes to make either wider (or ←/→ on it); double-click it to hide the notes.
+- Their width and whether they're open are remembered in this browser.
+- In a window narrower than 1100 px they open over the PDF instead (closed at first); below
+  760 px they fill the window.
+- Keys typed in the notes stay there (Space or PageDown scroll the note, not the book). Esc
+  goes back to the book.
+- Viewing notes never changes them, your place or your reading time.
+
 ## 5. Looking up words and terms (查词, look-up)
 
 ### Ways to look something up
@@ -713,7 +727,7 @@ to use another one.
 | `uv sync` | Create or update the Python environment (`--group optics` adds the optics packages) |
 | `uv add <package>` | Add a Python package |
 | `uv run pytest` | Run the tests (not the browser tests) |
-| `uv sync --group browser` then `uv run pytest tests/browser` | Run the browser tests: the reader in Microsoft Edge, each test on a temporary library (needs the PDF viewer: `--setup-viewer`); add `--headed` to watch, `--tracing retain-on-failure` for traces in `test-results/` |
+| `uv sync --group browser` then `uv run pytest tests/browser` | Run the browser tests: the reader in Microsoft Edge, each test on a temporary library (needs the PDF viewer: `--setup-viewer`); add `--headed` to watch, `--tracing retain-on-failure` for traces in `test-results/`, `--notes-closed` to start every reader with the notes panel closed |
 | `uv run ruff check . ; uv run ruff format .` | Lint and format the code |
 
 Your library's `catalog.csv` also opens in Excel, or search it from the terminal:

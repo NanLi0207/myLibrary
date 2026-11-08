@@ -61,6 +61,13 @@ jobs:
           uv run --group browser pytest tests/browser -v -rs
           --tracing retain-on-failure --screenshot only-on-failure
           --output test-results --junitxml test-results/browser.xml
+      - name: Browser tests with the notes panel closed (reading, marks, saving)
+        timeout-minutes: 8
+        run: >-
+          uv run --group browser pytest tests/browser/test_reading.py
+          tests/browser/test_marks.py tests/browser/test_saving.py --notes-closed -v -rs
+          --tracing retain-on-failure --screenshot only-on-failure
+          --output test-results/notes-closed --junitxml test-results/notes-closed.xml
       - name: Keep the diagnostics of a failure
         # Generated test libraries and temporary paths only: never a real library or settings
         if: failure() || cancelled()

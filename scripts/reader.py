@@ -703,12 +703,15 @@ def save_marks(file: str, data: bytes) -> dict:
 
 
 def viewer_html(token: str) -> bytes:
-    """PDF.js's viewer page, with the lookup popup added."""
+    """PDF.js's viewer page, with the lookup popup and the notes panel added (notes.js runs
+    after lookup.js, whose helpers it uses)."""
     html = (PDFJS / "web" / "viewer.html").read_text(encoding="utf-8-sig")
     extra = (
         '<link rel="stylesheet" href="/reader/lookup.css">\n'
+        '<link rel="stylesheet" href="/reader/notes.css">\n'
         f"<script>window.MYLIBRARY_TOKEN = {token!r};</script>\n"
         '<script src="/reader/lookup.js" defer></script>\n'
+        '<script src="/reader/notes.js" defer></script>\n'
     )
     return html.replace("</head>", extra + "</head>", 1).encode()
 

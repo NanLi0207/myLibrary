@@ -32,6 +32,7 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
 - **Next:** task 4, plan approved 2026-11-07 (task 4 and section 5). M1 (notes store and
   API) is done (`9acaf52`). M2 (browser tests in CI) is done (`6b19d78`, with follow-ups
   `3730d23` and `7ff8325`; CI green); its link-security tests are now required in CI.
+  M3 (split screen, notes read-only) is implemented and awaits review.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
@@ -1595,25 +1596,452 @@ ports) are green in CI (run 42418424532). Open item: whether the three symlink t
       instant before the user's place is restored. That page change can be counted among
       the pages viewed after Start reading. The saved position is the user's real page.
 
-**M3. Split-screen layout.**
-- **Scope:** `reader_static/notes.js` and `notes.css`, injected by `reader.viewer_html` next to
-  `lookup.js`.
-  - A 📝 笔记 (Notes) button on PDF.js's toolbar, and Alt+N.
-  - A right-hand panel; a divider to drag; collapse and expand.
-  - Width and open state remembered per browser (`localStorage`, wrapped in try/catch).
-  - The note is shown read-only in this milestone.
-  - PDF.js's `#mainContainer` gets `right: <panel width>`, and a `resize` event lets PDF.js
-    re-lay the pages (page-width zoom follows).
-- **Tests (browser):**
-  - opening, closing and dragging keep the current page and zoom mode;
-  - find bar, popup, marks toolbar and Undo/Redo still work with the panel open;
-  - the narrow-window behaviour;
-  - the panel never appears without `&id=` (a bare PDF).
-- **Risks:**
-  - PDF.js's toolbar breakpoints follow the *window* width, not the viewer's. With the panel
-    open, some buttons may wrap. Mitigation: hide the same groups PDF.js hides at the smaller
-    width while the panel is open.
-  - Recheck after a PDF.js upgrade.
+**M3. Split-screen layout, notes read-only**: plan approved 2026-11-07 (with the refinements
+under *Decisions*); implemented 2026-11-08, awaiting review (see *Results* at the end of M3).
+Not committed.
+
+*What M3 is:* the PDF on the left, the document's Markdown notes on the right, read-only. No
+editing, saving, Markdown rendering, quotes or links: those are M4–M7. Nothing in M3 writes a
+note file, the reading position or the reading log.
+
+**Findings in the current code** (PDF.js 4.10.38, `lookup.js`), which shape the plan:
+- **PDF.js re-fits pages only on a window resize.**
+  - Its `resize` event comes from `window` resizes only. `onResize` then re-applies
+    `auto`, `page-fit` or `page-width` zoom.
+  - The viewer's own ResizeObserver only tracks the container's *height*.
+  - So when the panel narrows the PDF area, `notes.js` must dispatch
+    `eventBus.dispatch("resize", {source: window})` itself.
+- **PDF.js's toolbar breakpoints follow the window.**
+  - `viewer.css` hides groups at window widths 840 / 750 / 690 / 560 px (`hiddenMediumView`,
+    `hiddenSmallView`; at 840 the sidebar overlays the pages).
+  - A 1400 px window with the panel open leaves the PDF about 870 px, yet PDF.js lays out
+    for 1400.
+  - The find bar's `max-width: 90vw` is relative to the window too.
+- **PDF.js's keys are on `window`.**
+  - Space, PageUp/PageDown, arrows, Home/End, n/j/p/k and +/− turn or zoom the PDF unless the
+    focus is in a text field.
+  - Pressed in the panel, they would move the PDF instead of the note.
+- **`lookup.js` covers the whole page:**
+  - double-click lookup and the selection bubble;
+  - reading activity (`trackReading`: keys, mouse, wheel and scroll anywhere);
+  - Ctrl+Z/Y for marks (anywhere but text fields);
+  - Esc leaving the marks tool.
+
+  Its fixed elements assume the PDF is the whole window: the marks status (bottom right),
+  the Preview bar (centred), notices, and popup placement (clamped to `innerWidth`).
+- **The existing browser tests start with empty `localStorage`.** Since the panel opens by
+  default for first-time users, the whole M2 suite reruns with the panel open in a 1400 px
+  window: a free regression check. The 900 px and 380 px tests would get a panel over the
+  PDF unless narrow windows start closed (decision 1 below).
+- **Chapter start pages are cached** (`library_server.CACHE`, `.cache/chapter_pages.json`, filled
+  in the background at start), so the panel can open the chapter of the current page without
+  any slow work.
+- **There's no endpoint that opens one given note** in the editor (`/api/open-notes` opens the
+  README).
+
+**UI/UX design.**
+```
+┌ PDF.js toolbar (unchanged) ······ ↶ ↷ ✎ 🖍 … ⋮ 📝 ┐┃┌ [Ch 2: Basic Optics      ▾]   ↗  ✕ ┐
+│                                                  │┃│ # Chapter 2: Basic Optics          │
+│        PDF (PDF.js; re-fitted to this width)     │┃│                                    │
+│                                                  │┃│ - my notes, as plain text          │
+│                                 标注已保存 ▪      │┃│   (raw Markdown, wrapped,          │
+└──────────────────────────────────────────────────┘┃└────────────────────────────────────┘
+                                         divider ↔ ┃  (drag, ←/→ when focused; double-click hides)
+```
+- **The 📝 button:** at the right end of PDF.js's toolbar. Tooltip
+  "笔记 Notes (Alt+N)", `aria-pressed`. It shows and hides the panel.
+- **Panel header** (same height and colours as PDF.js's toolbar, from its CSS variables, so it
+  follows light and dark mode):
+  - **the note menu,** a native `<select>`, in groups:
+    - 本书 (This document): README, or a paper's `notes.md`;
+    - 章节 (Chapters): every chapter note, marked "(还没有 not written yet)" when the file
+      doesn't exist;
+    - 其他 (Other): any other `.md` in the folder (e.g. `vocabulary.md`).
+
+    Topic notes stay for M8, as planned, though the API already lists them.
+  - **↗ 在编辑器中打开 (Open in editor):** the configured editor (VS Code by default; the
+    package uses its own setting). Disabled for a note that doesn't exist yet.
+  - **✕ 收起 (Hide):** the same as 📝.
+  - Nothing else: no save status, no edit or preview switch (M4–M5).
+- **The note:** raw Markdown in a `<pre>` (wrapped, `tab-size: 4`, readable sans-serif text;
+  long lines wrap, code keeps its spacing). It's set with `textContent`, never HTML, and
+  selectable and copyable. It scrolls on its own.
+- **States** (a line under the header, `role="status"`, Chinese with English):
+  - 载入中… (Loading…);
+  - empty note: 这条笔记还是空的 (This note is empty);
+  - not written yet: 这一章还没有笔记 (No notes for this chapter yet), with a hint that
+    writing in the panel comes later and ↗ for now;
+  - error: 无法载入笔记 (Couldn't load the note): <reason>, with 重试 (Retry);
+  - document without a notes folder: the list is empty, with 没有笔记 (No notes).
+- **Which note opens:**
+  1. the chapter containing the page the reader opened at (cached chapter pages; never
+     computed on demand);
+  2. else the note last chosen for this document in this browser;
+  3. else the README (`notes.md` for a paper).
+
+  After that only the user switches. Following the reading into the next chapter is M8's
+  chip.
+- **Fresh content:** a note is fetched when chosen, and again when the tab gets the focus
+  back (it may have been edited in VS Code). There's no polling in M3.
+- **Preview Mode:** the panel works the same way. It never records reading (see *Not
+  reading* below).
+- **No `&id=`** (a bare `?file=` viewer) or no PDF.js (the plain-PDF fallback): no panel.
+
+**Layout modes** (by the window's inner width; recomputed on window resize):
+
+| Window | Mode | Panel | PDF area |
+|---|---|---|---|
+| ≥ 1100 px | side by side | default 38 % of the window, at least 320 px; the PDF keeps at least 480 px | the rest, re-fitted |
+| 760–1099 px | drawer over the PDF | min(420 px, window − 48 px), shadowed, right side | unchanged |
+| < 760 px | full width | the whole window; ✕ or 📝 goes back to the PDF | unchanged, underneath |
+
+- **Remembered:** the side-by-side open state and width, as a fraction of the window, so a
+  different window size keeps the proportion. Stored in `localStorage` (keys
+  `myLibrary.notes.open` and `myLibrary.notes.width`), with every access in try/catch.
+  - First use (nothing stored): open, at 38 %.
+  - In drawer and full-width modes the panel starts closed, whatever is stored, and opening
+    or closing it there doesn't change the stored preference (decision 1).
+- **Divider:**
+  - Pointer drag with pointer capture.
+  - While dragging, `body.ml-dragging` turns off text selection and the PDF's pointer events,
+    so no selection or marks happen. The layout follows at once; PDF.js's `resize` is sent
+    at most every 150 ms and once at the end, so pages aren't re-rendered on every frame.
+  - Keyboard: it's focusable (`role="separator"`, `aria-valuenow` in %); ←/→ move it 24 px.
+  - Double-click hides the panel.
+  - Clamped live to the minimums. If the window shrinks below 800 px of side-by-side room,
+    the mode changes.
+
+**DOM and CSS architecture.**
+- **Nothing in PDF.js's markup is moved or patched.** `notes.js` adds:
+  - one `<aside id="mlNotes" class="ml-notes" data-mode="side|drawer|full">` at the end of
+    `<body>`, with the divider, header, status line and `<pre>`;
+  - the 📝 button, appended to `#toolbarViewerRight`.
+- **One variable carries the layout:** `:root { --ml-notes-space }` is the panel's width in
+  side mode, and `0px` when closed, in drawer or full mode.
+  - **PDF.js:** `#outerContainer { width: calc(100% - var(--ml-notes-space)) }`. The whole of
+    PDF.js (sidebar, toolbar, viewer) lives in it, so everything follows, including
+    presentation mode, which leaves for full screen.
+  - **`lookup.css`'s fixed elements** use it: the marks status and notices at
+    `right: calc(var(--ml-notes-space) + 16px)`; the Preview bar centred in the PDF area.
+    `lookup.js`'s `place()` clamps popups to `innerWidth − space`.
+  - **The panel:** `position: fixed; top: 0; bottom: 0; right: 0;
+    width: var(--ml-notes-width)`. Its z-index is above the PDF and below `lookup.js`'s
+    popups (100000), so a dictionary popup is never hidden.
+- **PDF.js's toolbar at the PDF area's width:**
+  - `#outerContainer { container: mlpdf / inline-size }`, and `@container mlpdf` rules
+    mirroring PDF.js's four window `@media` rules (the same selectors and declarations);
+  - `#findbar { max-width: 90cqw }`.
+  - Container queries are in Chromium since 105, so Edge and WebView2 have them.
+  - This mirrors PDF.js internals: rechecked at every PDF.js upgrade, and covered by a test
+    that the toolbar stays one row.
+- **Print:** `@media print { .ml-notes { display: none } }`.
+
+**JavaScript responsibilities** (no framework, no build step; plain scripts like `lookup.js`):
+- **`lookup.js`** (small changes):
+  - It exposes its helpers once:
+    `window.myLibraryReader = {token, docId, post, el, bi, biEl, isPreview()}`, so
+    `notes.js` uses the same token and request code (no copies).
+  - `const inNotes = (node) => !!node?.closest?.(".ml-notes")`, and it leaves the panel
+    alone:
+    - no double-click lookup or selection bubble there (nor for a selection reaching into
+      it);
+    - panel events aren't reading activity (decision 3 of task 4);
+    - its Ctrl+Z/Y for marks does nothing when the focus is in the panel;
+    - its "Esc leaves the marks tool" doesn't fire from the panel.
+  - `place()` clamps to the PDF area.
+- **`notes.js`** (new; one IIFE, in sections):
+  1. **prefs:** read and write `localStorage` safely;
+  2. **layout:**
+     - mode from the window width; the width clamp; setting `--ml-notes-space` and
+       `--ml-notes-width`;
+     - then `PDFViewerApplication.eventBus.dispatch("resize")`, throttled;
+     - and once at `initializedPromise` / `documentloaded`;
+  3. **divider:** pointer and keyboard;
+  4. **toggle:** 📝, ✕, Alt+N; focus handling (below);
+  5. **content:** `/api/notes/list` → the menu; `/api/notes/get` → the `<pre>` and the state
+     line; Retry; the refetch on focus; ↗ → `/api/notes/open`;
+  6. **keys:** a `keydown` listener on the panel stops PDF.js's page keys from reaching
+     `window` (below).
+- **`reader.py` `viewer_html`:** injects `notes.css` and `notes.js` after `lookup.js` (both
+  `defer`, so in order).
+- **The test hook:** `body[data-ml-notes]` = `"open"` or `"closed"`, plus
+  `data-ml-note-key`, `data-ml-note-state` (`loading | shown | empty | missing | error`)
+  and `data-ml-notes-mode`. Tests wait on these, never on time.
+
+**Notes Store API use** (M1, unchanged; all by document id and note key, never a path):
+- `POST /api/notes/list {id}` → `[{key, kind, title, chapter, exists}]`.
+  - **M3 adds** `page` to chapter entries: the chapter's start page *from the cache only*,
+    absent when not known yet. It never runs the slow chapter search during a request.
+- `POST /api/notes/get {id, key}` → `{key, text, version, exists}`.
+  - `version` is ignored in M3; M4 uses it.
+  - A 400 (`NoteError`: bad key, not UTF-8, too large) or 404 (unknown document) gives the
+    error state with the server's reason.
+- **M3 adds `POST /api/notes/open {id, key}`:** `notes_store.path_of(…, creating=False)`
+  (the same containment checks), then `library_server.open_in_editor(path)`, returning
+  `{message}` like `/api/open-notes`. A missing note gives 400, so the button is disabled
+  for it.
+- **Never called in M3:** `/api/notes/save`, `/api/position`, `/api/reading`. The panel sends
+  no write of any kind.
+
+**Toolbar, keyboard and focus.**
+- **Alt+N** (matched on `event.code === "KeyN"`, so it works with any keyboard layout or IME)
+  toggles the panel from anywhere in the reader, also from the panel.
+  - It's handled in the capture phase, with `preventDefault` and `stopPropagation`.
+  - PDF.js has no Alt+N; Edge doesn't bind it.
+- **Opening:**
+  - side by side: the focus stays where it was (you can glance at the notes without losing
+    the PDF's keyboard scrolling);
+  - drawer or full width: the focus moves to the note menu.
+- **Closing:** if the focus was in the panel, it returns to the PDF (`#viewerContainer`).
+- **Esc in the panel:**
+  - side by side: the focus goes back to the PDF, and the panel stays;
+  - drawer or full width: it closes the panel.
+  - Popups close first: `lookup.js`'s Esc already closes them.
+- **Keys in the panel:**
+  - Space, PageUp/PageDown, arrows, Home/End and plain letters scroll the note or work the
+    menu. Their propagation is stopped at the panel, so PDF.js never turns a page because of
+    them.
+  - Ctrl/Alt shortcuts pass through (Ctrl+F still opens PDF.js's find; Alt+N still
+    toggles), except Ctrl+Z/Y, which do nothing there.
+- **Text selection:** in the PDF exactly as before. In the panel it's plain selection and
+  copy, with no lookup bubble.
+- **Not reading:** the panel never sends anything that counts as reading. Its events are
+  ignored by `trackReading`, and switching notes calls no position API. In Preview Mode
+  nothing is recorded, as before.
+
+**Desktop packaging.**
+- All requests are relative (`/api/…`), so there's no port or host in the code.
+- Static files are served from `paths.APP`'s `reader_static`; no paths are absolute.
+- **WebView2:** Chromium features only (ResizeObserver, container queries, pointer events,
+  `localStorage`).
+- **Known limit:** `localStorage` is per origin, and the origin includes the port. A
+  different port forgets the panel's width and open state, though never notes. If the
+  desktop app can't keep a fixed port, these two preferences can move to the settings file
+  through an API in the packaging milestone.
+
+**Browser tests** (`tests/browser/test_notes_panel.py`, `test_notes_content.py`; temporary
+libraries and generated PDFs and notes; waits on `data-ml-*` states, PDF.js state and files):
+1. **First use:** a fresh context (empty `localStorage`) at 1400 px: panel open at about 38 %,
+   PDF re-fitted (page-width zoom: the page width equals the new viewer width).
+2. **Toolbar:** 📝 closes and opens it; `aria-pressed` follows; the PDF area returns to full
+   width; the current page is the same afterwards.
+3. **Alt+N** toggles from the PDF, from the panel and from the find bar. It never types into
+   a field or turns a page.
+4. **Divider:**
+   - a mouse drag to a new width: both areas change, and the page width follows (page-width
+     mode);
+   - dragging past the minimums stops at 320 px for the notes and 480 px for the PDF;
+   - keyboard ←/→; a double-click hides the panel;
+   - no text is selected and no mark is made by dragging with the highlight tool on.
+5. **Width restored** after a reload, and as a proportion in a different window size.
+6. **Open or closed restored** after a reload; a fresh context opens by default.
+7. **Content:** the README and a chapter note load with their exact text (including CRLF
+   files, a BOM, Chinese and a formula line); the right default note (the chapter of the
+   page opened at, from the cache; else the README).
+8. **Switching:** the menu shows the chosen note's text, never the previous one's, also when
+   switched quickly. Responses are held with `page.route` so they arrive out of order: the
+   last choice wins.
+9. **States:** a chapter not written yet (the empty state, ↗ disabled); an empty file; a
+   server error and a 400 (route-injected), then Retry; a document without notes.
+10. **Narrow windows:** at 1000 px, the drawer (closed at start, opens over the PDF, Esc
+    closes it, the PDF width unchanged); at 700 px, full width (✕ goes back); resizing the
+    window across 1100 and 760 switches modes without losing the chosen note.
+11. **The PDF toolbar with the panel open** (1400 and 1200 px windows): one row, every visible
+    button inside the PDF area; zoom in, out and page-width still work; the find bar opens and
+    fits.
+12. **Popups:** a double-click lookup on the PDF shows the popup inside the PDF area;
+    📚 In my books results open; a double-click in the panel looks nothing up.
+13. **Marks with the panel open:** highlight, Undo/Redo by button and Ctrl+Z/Y in the PDF;
+    Ctrl+Z with the focus in the panel undoes nothing; marks are saved as before.
+14. **Preview Mode:** with the panel used (open, switch, scroll, keys), no `/api/position`
+    or `/api/reading` request is sent, and no "Last read" changes; Start reading still works.
+15. **Read-only:**
+    - the notes folder's files (bytes and modification times) are identical after opening,
+      switching and refetching;
+    - no `/api/notes/save` request is seen;
+    - ↗ calls `/api/notes/open` with the key; the editor launch is stubbed in the test
+      server through the settings file (`editor = "custom"` with a harmless command).
+16. **Keys:** Space and PageDown in the panel scroll the note, and the PDF stays on its page.
+
+The whole M2 suite reruns with the panel open by default (above), plus a run of the marks
+and saving tests with the panel closed.
+
+**Python tests:** `page` in the list, from the cache only (no chapter search started);
+`/api/notes/open` (the right file; a missing note, a bad key and a link pointing out are
+refused; the editor stubbed); `viewer_html` injects `notes.js` and `notes.css`.
+
+**Main technical risks.**
+1. **PDF.js not re-fitting:** the explicit `resize` dispatch; test 1 and 4 check the page
+   width numerically.
+2. **The toolbar overflowing:** container queries mirror PDF.js's breakpoints; test 11.
+   Tied to PDF.js 4.10.38: rechecked when PDF.js is upgraded (noted at the pin in `reader.py`).
+3. **Keys reaching PDF.js from the panel:** stopped at the panel; tests 3 and 16.
+4. **`lookup.js` acting in the panel** (lookup, reading activity, Ctrl+Z, Esc): the
+   `inNotes` checks; tests 12–14.
+5. **Re-rendering while dragging:** throttled `resize`; manual check on a large book, plus
+   test 4.
+6. **Fixed overlays hidden under the panel:** the shared `--ml-notes-space`; tests 11–12.
+7. **Out-of-order responses when switching:** each request carries a sequence number, and
+   only the latest is shown; test 8.
+8. **`localStorage`:** private windows, blocked storage, and the per-port origin. Everything
+   is in try/catch with defaults; the port limit is above.
+9. **The cost of the default-note choice:** the cache only, never the slow chapter search.
+
+**Steps** (each with its tests; the whole browser suite and plain `pytest` after each):
+1. **Panel container and layout.**
+   - **Files:** `reader.py` (injection), new `reader_static/notes.js` and `notes.css`,
+     `lookup.css` (the `--ml-notes-space` offsets), `lookup.js` (the namespace, `place()`).
+   - **Behaviour:** the panel appears at 38 % with an empty body; the PDF is re-fitted; 📝
+     toggles it (needed to test anything); the open state is remembered.
+   - **Risks:** 1 and 6.
+   - **Tests:** 1, 2, 6; the M2 suite with the panel open.
+   - **Done when:** page-width zoom fits the narrower area; nothing of PDF.js or `lookup.js`
+     moves or breaks.
+2. **Divider and responsive modes.**
+   - **Files:** `notes.js`, `notes.css` (container queries, modes).
+   - **Behaviour:** drag, keyboard and double-click; the drawer and full-width modes; the
+     width remembered.
+   - **Risks:** 2 and 5.
+   - **Tests:** 4, 5, 10, 11.
+   - **Done when:** the toolbar stays one row from 1100 px up; the minimums hold; the mode
+     changes on window resize.
+3. **Notes API and choosing a note.**
+   - **Files:** `library_server.py` (`page` from the cache; `/api/notes/open`),
+     `notes_store.py` only if `entries()` needs the page passed in, `notes.js`.
+   - **Behaviour:** the menu with its groups; the default note; switching.
+   - **Risk:** 7.
+   - **Tests:** Python ones; 7 and 8.
+   - **Done when:** the right note is chosen and the last choice always wins.
+4. **The read-only note.**
+   - **Files:** `notes.js`, `notes.css`.
+   - **Behaviour:** the text, the states, Retry, the refetch on focus, ↗.
+   - **Tests:** 9 and 15.
+   - **Done when:** every state shows; no request writes anything; the files are unchanged.
+5. **Keyboard, focus and coexistence with `lookup.js`.**
+   - **Files:** `notes.js`, `lookup.js` (`inNotes` checks).
+   - **Behaviour:** Alt+N; Esc; focus moves; keys stay in the panel; no lookup or reading
+     activity there.
+   - **Risks:** 3 and 4.
+   - **Tests:** 3, 12, 13, 14, 16.
+   - **Done when:** every key test passes, and the M2 suite is green with the panel open.
+6. **Regression run and polish.**
+   - **Files:** tests, README (the 📝 line and Alt+N), CLAUDE.md (notes panel paragraph),
+     this ROADMAP.
+   - **Checks:** five consecutive browser runs; manual checks in Edge (a large book while
+     dragging; presentation mode; dark mode; 125 % and 150 % display scaling); the package
+     isn't rebuilt in M3.
+   - **Done when:** everything is green locally and in CI.
+
+**Acceptance criteria.**
+- **Layout:**
+  - the PDF and notes side by side from 1100 px;
+  - a drawer at 760–1099 px; full width below 760 px;
+  - the divider respects 480 / 320 px;
+  - page-width zoom fits the PDF area after every change.
+- **Remembered:** width (as a proportion) and open state, per browser; open by default on
+  first use; narrow windows start closed.
+- **Notes:** README and chapter notes listed and shown exactly as on disk; switching shows the
+  chosen note; the empty, missing and error states are clear (Chinese with English); ↗ opens
+  the note in the configured editor.
+- **Read-only:**
+  - no note file, position or reading-log entry is written by anything the panel does
+    (files and requests checked);
+  - Preview Mode records nothing, as before.
+- **Unchanged:** every M2 browser test passes with the panel open, and the marks and saving
+  tests also with it closed:
+  - navigation, zoom, search highlighting, cross-document search, lookup;
+  - marks with Undo/Redo, their saving and close warnings;
+  - reading progress, Preview Mode and Start reading;
+  - UUID links, and the bare-PDF fallback.
+- **Integrated look:** the panel uses PDF.js's toolbar colours and height, in light and dark
+  mode.
+- **Checks:**
+  - plain `pytest`, ruff and the browser suite five times in a row, green;
+  - CI green;
+  - the real library unchanged (checksums before and after, as in M2).
+
+**Decisions (approved by the user 2026-11-07, with refinements).**
+1. **Narrow windows:** in drawer and full-width modes the panel starts closed, and toggling it
+   there doesn't change the remembered preference. A wide window again restores the stored
+   state and width. It can still be opened and closed by hand there.
+2. **Default note:** the chapter of the page opened at, else the last chosen, else the
+   README, else an empty state.
+   - Only when the reader opens: once the user picks a note, page turns never replace it.
+   - A "follow the current chapter" option may come later, as an explicit choice.
+3. **Topic notes** in the menu wait for M8.
+4. **Preview Mode** shows the panel like normal reading, and records nothing.
+5. **Two server additions:** `page` in the list, from the cache only; and `/api/notes/open`,
+   for existing notes only, through `path_of`, with no shell and nothing written.
+6. **Read and Continue** on the library page still open the chapter's notes in VS Code too;
+   revisited in M4.
+
+**Results (2026-11-08).**
+- **Files:**
+  - **New:**
+    - `scripts/reader_static/notes.js` and `notes.css`;
+    - `tests/browser/test_notes_panel.py` (15 tests) and `test_notes_content.py` (12).
+  - **Changed:**
+    - `reader.py` (`viewer_html` injects them);
+    - `library_server.py` (`notes_with_pages`, `/api/notes/open`);
+    - `lookup.js`:
+      - `inNotes`, `notesSpace`;
+      - the `window.myLibraryReader` helpers;
+      - no lookup, reading activity, marks Undo or marks-tool Esc from the panel;
+      - popups placed in the PDF area;
+    - `lookup.css`: the marks status in the PDF area; the Preview bar moved, see below;
+    - the tests' `conftest.py` (`add_notes`, `cache_chapter_pages`, `note_files`, test
+      settings for the server, `--notes-closed`) and `helpers.py`;
+    - `test_notes_store.py` and `test_reader.py` (Python tests);
+    - `.github/workflows/tests.yml`: a second browser step with the panel closed;
+    - README, CLAUDE.md, this ROADMAP.
+- **As built:**
+  - **Layout:** one CSS variable, `--ml-notes-space`, narrows `#outerContainer`. PDF.js gets an
+    explicit `resize` event; numeric zoom is kept.
+  - **Toolbar:** container queries mirror PDF.js 4.10's toolbar rules at 840 / 750 / 690 /
+    560 px of PDF area. At 1100–1112 px windows (a PDF area under 690 px), Previous and Next
+    are hidden, as PDF.js itself does at that width; the page field and keys still work.
+  - **Divider:** drag (redraws at most every 150 ms), ←/→, and double-click.
+  - **Note text:** shown with `textContent` only.
+- **Found while testing, fixed in M3:**
+  - **The Preview bar covered the find bar.** Centred over a narrower PDF area, the Preview
+    bar (预览 / 开始阅读) lay on PDF.js's find bar and hid its ▼ button. It now sits at the
+    bottom left of the PDF area. Test: `test_the_preview_bar_covers_neither_…`, at 1400, 1100
+    and 900 px.
+  - **Long notes didn't scroll.** The note's `<pre>` lacked `min-height: 0`, so it grew past
+    the panel instead of scrolling.
+  - **The panel's border** made it 1 px wider than set (`box-sizing`).
+- **Checked before staging (2026-11-08):**
+  - **`/api/notes/open`:** only existing notes of a known document, through
+    `notes_store.path_of` (traversal, absolute paths, a non-string key, a missing note, a
+    note that's a symlink or a junction pointing out: all refused).
+    - The editor is started without a shell: a list of arguments, or `os.startfile`. A
+      custom command is one program started directly, and note names can only contain
+      letters, digits and `._ -`.
+    - Nothing is created or written; an editor that can't start says so.
+    - Listing and reading notes never start the editor.
+    - Tests: `test_notes_store.py`. The symlink case runs in CI (strict mode).
+  - **Reading:** using the notes records no reading.
+    - In normal reading, opening, closing, resizing, scrolling and switching notes send no
+      position, no seconds and no page beyond the one opened at.
+    - With Playwright's fake clock, a minute of input in the notes after the reader was idle
+      reports 0 s, and the same in the PDF reports 60 s.
+    - That test fails when `lookup.js`'s `inNotes` exclusion is removed.
+    - Clicking 📝 on the PDF toolbar counts as activity, like any toolbar click. B15 (the
+      reading log's accuracy) stays open.
+  - **Layout,** measured at 1400, 1100, 1000 and 700 px, and in dark mode:
+    - no horizontal overflow of the page, the panel or the note (with a 380-character
+      unbroken line);
+    - the header's controls stay inside the panel;
+    - the toolbar's controls stay inside the PDF area and don't overlap each other;
+    - the Preview bar stays clear of the find bar (committed test at 1400 / 1100 / 900 px).
+- **Limits:**
+  - The width and open state are kept in `localStorage`, which is per origin, so per port:
+    another port forgets them (never notes). To move into the settings file if the desktop
+    app can't keep its port.
+  - Notes are fetched when chosen and when the tab gets the focus back, not polled.
+  - The container-query copy of PDF.js's toolbar rules is to recheck at a PDF.js upgrade
+    (tests: the toolbar stays one row at 1400 / 1200 / 1100 px).
 
 **M4. Editing and saving.**
 - **Scope:** a `<textarea>` editor (no dependency) with:

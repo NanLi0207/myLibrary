@@ -279,6 +279,92 @@ def test_the_api(server):
     assert raw(library, "ch01-basics.md") == b"late\n"
 
 
+def test_the_list_gives_chapter_pages_from_the_cache_only(server, monkeypatch):
+    """The notes panel opens the chapter of the page being read: chapter start pages come from
+    the chapter-pages cache, and the (slow) chapter search is never started for the list."""
+    library, row, post = server
+
+    def no_search(*args):
+        raise AssertionError("the chapter search was started for the notes list")
+
+    monkeypatch.setattr(library_server, "find_chapter_pages", no_search)
+    status, listed = post("/api/notes/list", {"id": row["id"]})
+    assert status == 200 and not any("page" in e for e in listed["notes"])  # nothing cached
+
+    cache = library / ".cache" / "chapter_pages.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({row["id"]: {"1": 3, "2": 17}}), encoding="utf-8")
+    monkeypatch.setattr(library_server, "CACHE", cache)
+    status, listed = post("/api/notes/list", {"id": row["id"]})
+    pages = {e["key"]: e.get("page") for e in listed["notes"]}
+    assert pages["file:ch01-basics.md"] == 3 and pages["file:ch02-aberrations.md"] == 17
+    assert pages["file:README.md"] is None
+
+
+def test_the_api_opens_an_existing_note_in_the_editor(server, monkeypatch):
+    """/api/notes/open: an existing note of this document, through the same checks as reading;
+    nothing is created or changed, and an editor that can't start says so."""
+    library, row, post = server
+    opened = []
+    monkeypatch.setattr(library_server, "open_in_editor", lambda *f: opened.extend(f) or True)
+    before = {p.name: p.read_bytes() for p in (library / "notes" / NAME).iterdir()}
+
+    status, answer = post("/api/notes/open", {"id": row["id"], "key": "file:ch01-basics.md"})
+    assert status == 200 and answer["opened"]
+    assert opened == [library / "notes" / NAME / "ch01-basics.md"]
+
+    for key in ("file:ch02-aberrations.md", "file:../../catalog.csv", "file:C:/Windows/x.md", 7):
+        status, answer = post("/api/notes/open", {"id": row["id"], "key": key})
+        assert status == 400 and answer["error"], key  # not written yet, or not a note
+    assert len(opened) == 1
+    assert not (library / "notes" / NAME / "ch02-aberrations.md").exists()  # not created
+
+    monkeypatch.setattr(library_server, "open_in_editor", lambda *f: False)
+    status, answer = post("/api/notes/open", {"id": row["id"], "key": "file:README.md"})
+    assert status == 200 and not answer["opened"] and "editor" in answer["message"]
+    assert {p.name: p.read_bytes() for p in (library / "notes" / NAME).iterdir()} == before
+
+    unknown = "0" * 8 + "-0000-4000-8000-" + "0" * 12
+    status, answer = post("/api/notes/open", {"id": unknown, "key": "file:README.md"})
+    assert status == 404 and answer["error"]
+
+
+def test_listing_and_reading_never_start_the_editor(server, monkeypatch):
+    library, row, post = server
+
+    def no_editor(*files):
+        raise AssertionError(f"the editor was started for {files}")
+
+    monkeypatch.setattr(library_server, "open_in_editor", no_editor)
+    assert post("/api/notes/list", {"id": row["id"]})[0] == 200
+    for key in ("file:README.md", "file:ch01-basics.md", "file:ch02-aberrations.md"):
+        assert post("/api/notes/get", {"id": row["id"], "key": key})[0] == 200
+
+
+@pytest.mark.parametrize("kind", ["symlink", "junction"])
+def test_the_editor_is_never_given_a_note_linked_from_outside(server, monkeypatch, kind,
+                                                               tmp_path_factory):  # fmt: skip
+    """/api/notes/open goes through path_of: a note that's a link pointing out of the notes
+    folder (a file symlink; a junction named like a note) is refused, and nothing opens."""
+    library, row, post = server
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    (elsewhere / "secret.md").write_bytes(SECRET)
+    link = library / "notes" / NAME / "evil.md"
+    if kind == "symlink":
+        symlink_or_skip(elsewhere / "secret.md", link)
+    else:
+        if sys.platform != "win32":
+            pytest.skip("directory junctions are a Windows feature")
+        import _winapi
+
+        _winapi.CreateJunction(str(elsewhere), str(link))
+    opened = []
+    monkeypatch.setattr(library_server, "open_in_editor", lambda *f: opened.extend(f) or True)
+    status, answer = post("/api/notes/open", {"id": row["id"], "key": "file:evil.md"})
+    assert status == 400 and answer["error"] and opened == []
+    assert (elsewhere / "secret.md").read_bytes() == SECRET
+
+
 @pytest.mark.parametrize(
     "body",
     [

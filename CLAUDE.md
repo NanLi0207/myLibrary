@@ -238,6 +238,13 @@ identity (that's its `id`, see above). Inside the library it's the base of:
   the library's `notes/vocabulary-review.json`; never edits the vocabulary files). Topic notes
   (📝 主题笔记 / Topic note in the popup): `notes/topics/<term>.md`, created with book + page
   references only (never book text). These are the user's own work: never delete them.
+  📝 Notes panel (task 4 M3, read-only): `reader_static/notes.js` + `notes.css`, beside PDF.js
+  (`--ml-notes-space` narrows `#outerContainer`; PDF.js gets an explicit `resize` event;
+  container queries mirror PDF.js's toolbar breakpoints). It uses lookup.js's
+  `window.myLibraryReader` (token, `post`, `bi`) and only `/api/notes/list|get|open`, by
+  document id and note key, never a path. It never writes notes, position or reading time;
+  lookup.js leaves the panel alone (`inNotes`). Browser tests: `test_notes_panel.py`,
+  `test_notes_content.py`; `--notes-closed` runs any of them with the panel closed.
   `library.html` is the static read-only copy (built by `scripts/library_page.py`, rebuilt by
   add_book.py). Chapter start pages are cached in the library's `.cache/chapter_pages.json`
   (`--refresh-chapters` clears a book's entry automatically).

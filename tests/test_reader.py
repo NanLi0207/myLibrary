@@ -110,6 +110,10 @@ def test_viewer_gets_popup_and_token(tmp_path, monkeypatch):
     html = reader.viewer_html("tok123").decode()
     assert '/reader/lookup.js"' in html and "'tok123'" in html
     assert html.index("lookup.js") < html.index("</head>")
+    # the notes panel: after lookup.js, whose helpers it uses (both deferred: run in order)
+    assert '/reader/notes.css"' in html
+    assert html.index("lookup.js") < html.index("/reader/notes.js") < html.index("</head>")
+    assert reader.static_file("/reader/notes.js") and reader.static_file("/reader/notes.css")
 
 
 def test_http_lookup_and_save(dictionary, monkeypatch):

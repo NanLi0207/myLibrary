@@ -33,6 +33,19 @@
     return e;
   }
 
+  // The notes panel (notes.js) is the user's own text, not the document: no lookup there, its
+  // keys and clicks aren't reading time, and the marks' Undo/Esc don't act from it
+  function inNotes(node) {
+    const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    return !!element?.closest?.(".ml-notes");
+  }
+
+  // The space the notes panel takes beside the PDF (0 when it's closed or over the PDF)
+  function notesSpace() {
+    return parseFloat(getComputedStyle(document.documentElement)
+      .getPropertyValue("--ml-notes-space")) || 0;
+  }
+
   let sizeWatch = null;
 
   function closeAll() {
@@ -66,7 +79,8 @@
     if (box.parentNode !== document.body) document.body.append(box);
     const w = box.offsetWidth;
     const h = box.offsetHeight;
-    let left = Math.max(8, Math.min(rect.left, innerWidth - w - 8));  // never off the left edge
+    const right = innerWidth - notesSpace();  // in the PDF's part of the window
+    let left = Math.max(8, Math.min(rect.left, right - w - 8));  // never off the left edge
     let top = rect.bottom + 6;
     if (top + h > innerHeight - 8) top = Math.max(8, rect.top - h - 6);
     box.style.left = `${left}px`;
@@ -512,7 +526,7 @@
   }
 
   document.addEventListener("dblclick", (event) => {
-    if (event.target.closest?.(".ml-popup, .ml-bubble")) return;
+    if (event.target.closest?.(".ml-popup, .ml-bubble") || inNotes(event.target)) return;
     const sel = getSelection();
     const text = sel.toString().trim();
     if (!text || !sel.rangeCount || text.length > 60) return;
@@ -548,6 +562,7 @@
       const sel = getSelection();
       if (!sel.rangeCount || !sel.toString().trim()) return;
       if (!sel.anchorNode?.parentElement?.closest(".textLayer")) return;
+      if (inNotes(sel.focusNode)) return;  // dragged on into the notes panel: not a lookup
       // A drag that starts or ends inside a word takes the whole word ("eiling gla" ->
       // "veiling glare"); show the snapped selection so you see what was looked up
       const range = snapToWords(sel.getRangeAt(0));
@@ -616,7 +631,8 @@
     let lastActive = Date.now();
     let seconds = 0;
     const pages = new Set();
-    const active = () => { lastActive = Date.now(); };
+    // Using the notes panel isn't reading (task 4 decision 3); turning a page always is
+    const active = (event) => { if (!inNotes(event?.target)) lastActive = Date.now(); };
     for (const type of ["mousemove", "keydown", "wheel", "pointerdown", "touchstart"]) {
       addEventListener(type, active, { passive: true, capture: true });
     }
@@ -719,6 +735,7 @@
       if (event.key !== "Escape" || mode() === NONE) return;
       if (document.querySelector(".annotationEditorLayer .selectedEditor")) return;
       if (event.target.closest?.("input, textarea, [contenteditable='true']")) return;
+      if (inNotes(event.target)) return;  // Esc in the notes panel is the panel's
       app.eventBus.dispatch("switchannotationeditormode", { source: window, mode: NONE });
     }, true);
   }
@@ -769,6 +786,7 @@
       const t = event.target;
       if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement
         || t instanceof HTMLSelectElement || t?.isContentEditable) return;  // the field's own
+      if (inNotes(t)) return;  // in the notes panel: never the PDF's marks
       event.preventDefault();
       act(name);
     });
@@ -903,4 +921,9 @@
   document.addEventListener("scroll", (event) => {
     if (!event.target.closest?.(".ml-popup")) closeAll();
   }, true);
+
+  // For notes.js (the notes panel): the same token, requests and bilingual labels, not copies
+  window.myLibraryReader = Object.freeze({
+    token, docId, post, el, bi, biEl, isPreview: () => preview,
+  });
 })();

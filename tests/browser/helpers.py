@@ -195,3 +195,44 @@ def saved_marks(page: Page, server, doc_id: str, lines: list[int]) -> None:
         highlight_line(page, line)
     leave_tool(page)
     wait_marks_saved(page)
+
+
+# --- the notes panel (notes.js) ----------------------------------------------------------------
+
+NOTE_SETTLED = "['shown', 'empty', 'missing', 'none', 'error']"
+
+
+def notes_settled(page: Page) -> str:
+    """Wait until the panel shows a note (or says why not); its state."""
+    page.wait_for_function(
+        f"() => {NOTE_SETTLED}.includes(document.body.dataset.mlNoteState)"
+        " && !document.getElementById('mlNotes').hidden"
+    )
+    return page.evaluate("() => document.body.dataset.mlNoteState")
+
+
+def notes_open(page: Page) -> bool:
+    page.wait_for_function("() => document.body.dataset.mlNotes")  # notes.js has started
+    return page.evaluate("() => document.body.dataset.mlNotes") == "open"
+
+
+def layout(page: Page) -> dict:
+    """Widths (px): the window, PDF.js's area, the notes panel, the first page; and the mode."""
+    return page.evaluate(
+        """() => ({
+          window: innerWidth,
+          pdf: document.getElementById('outerContainer').getBoundingClientRect().width,
+          notes: document.getElementById('mlNotes').getBoundingClientRect().width,
+          page: document.querySelector('.page').getBoundingClientRect().width,
+          mode: document.body.dataset.mlNotesMode,
+          open: document.body.dataset.mlNotes === 'open',
+        })"""
+    )
+
+
+def page_width_changes(page: Page, before: float) -> None:
+    """Wait until PDF.js has re-fitted its pages (their width moved away from `before`)."""
+    page.wait_for_function(
+        "w => Math.abs(document.querySelector('.page').getBoundingClientRect().width - w) > 10",
+        arg=before,
+    )

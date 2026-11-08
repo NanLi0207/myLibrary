@@ -38,6 +38,15 @@ SERVER = paths.APP / "scripts" / "library_server.py"
 VERSIONS: dict[str, str] = {}
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--notes-closed",
+        action="store_true",
+        help="start every reader with the notes panel closed, as a user who closed it "
+        "(to check the reader without the panel too)",
+    )
+
+
 def pytest_configure(config):
     if not hasattr(config.option, "browser_channel"):
         return  # pytest-playwright isn't installed: tests/conftest.py says what to do
@@ -151,6 +160,34 @@ class Library:
             },
         )
 
+    def add_notes(self, doc_id: str, chapters: list[str], files: dict[str, bytes]) -> Path:
+        """The document's README with a checklist linking chapter notes ch01-…md, ch02-…md
+        (`chapters` are their titles), and the note files given (name -> exact bytes)."""
+        folder = self.root / self.row(doc_id)["notes"]
+        items = "".join(
+            f"- [ ] [Ch {n}: {title}](ch{n:02d}-{title.lower().replace(' ', '-')}.md)\n"
+            for n, title in enumerate(chapters, 1)
+        )
+        readme = f"# {self.row(doc_id)['title']}\n\n## Reading progress\n\n{items}"
+        (folder / "README.md").write_text(readme, encoding="utf-8", newline="\n")
+        for name, data in files.items():
+            (folder / name).write_bytes(data)
+        return folder
+
+    def cache_chapter_pages(self, doc_id: str, starts: dict[int, int]) -> None:
+        """What the server's chapter-pages cache knows (before it starts: then it never
+        searches the PDF for this document)."""
+        cache = self.root / ".cache" / "chapter_pages.json"
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        known = json.loads(cache.read_text(encoding="utf-8")) if cache.exists() else {}
+        known[doc_id] = {str(n): page for n, page in starts.items()}
+        cache.write_text(json.dumps(known), encoding="utf-8")
+
+    def note_files(self, doc_id: str) -> dict[str, tuple[bytes, int]]:
+        """Every file in the document's notes folder: its bytes and modification time."""
+        folder = self.root / self.row(doc_id)["notes"]
+        return {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in sorted(folder.iterdir())}
+
     def row(self, doc_id: str) -> dict:
         return catalog.load(self.catalog)[doc_id]
 
@@ -203,15 +240,19 @@ class Server:
     A start that fails (the port was taken meanwhile) is cleaned up and tried again on another
     port, at most START_ATTEMPTS times in all; the test itself is never run again."""
 
-    def __init__(self, library: Library, home: Path, wait_for_index: bool, ports=None):
+    def __init__(
+        self, library: Library, home: Path, wait_for_index: bool, ports=None, settings: str = ""
+    ):
         self.library = library
         self.home = home
         self.log_path = home / "server.log"
-        settings = home / "settings.toml"
-        settings.write_text("# browser test settings: nothing set\n", encoding="utf-8")
+        settings_file = home / "settings.toml"
+        settings_file.write_text(
+            "# browser test settings\n" + settings, encoding="utf-8"
+        )  # never the real ones: e.g. an editor that only records what it was asked to open
         env = {k: v for k, v in os.environ.items() if not k.startswith("MYLIBRARY_")}
         env |= {
-            "MYLIBRARY_SETTINGS": str(settings),  # never the real local.toml
+            "MYLIBRARY_SETTINGS": str(settings_file),  # never the real local.toml
             "USERPROFILE": str(home),
             "HOME": str(home),
             "APPDATA": str(home / "AppData" / "Roaming"),
@@ -333,10 +374,10 @@ class Server:
 def server_factory(library, tmp_path, request, output_path):
     started: list[Server] = []
 
-    def start(wait_for_index: bool = False) -> Server:
+    def start(wait_for_index: bool = False, settings: str = "") -> Server:
         home = tmp_path / "home"
         home.mkdir(exist_ok=True)
-        server = Server(library, home, wait_for_index)
+        server = Server(library, home, wait_for_index, settings=settings)
         started.append(server)
         return server
 
@@ -364,6 +405,16 @@ def server(server_factory) -> Server:
 @pytest.fixture
 def browser_context_args(browser_context_args):
     return {**browser_context_args, "viewport": {"width": 1400, "height": 1000}}
+
+
+@pytest.fixture
+def context(context, pytestconfig):
+    """With --notes-closed, the notes panel is remembered as closed before any page loads."""
+    if pytestconfig.getoption("--notes-closed"):
+        context.add_init_script(
+            "try { localStorage.setItem('myLibrary.notes.open', '0'); } catch {}"
+        )
+    return context
 
 
 @pytest.fixture

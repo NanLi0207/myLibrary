@@ -429,6 +429,20 @@ def _read_cache() -> dict:
     return safe_io.load_json(CACHE, {}, cache=True)
 
 
+def notes_with_pages(doc_id: str, row: dict) -> list[dict]:
+    """The notes panel's list (notes_store.entries), each chapter with its start `page` when
+    the chapter-pages cache already knows it. Never starts the (slow) chapter search: without
+    the cache, chapters simply have no page."""
+    entries = notes_store.entries(LIBRARY, row)
+    with _cache_lock:
+        starts = _read_cache().get(doc_id, {})
+    for entry in entries:
+        page = starts.get(str(entry["chapter"])) if entry["kind"] == "chapter" else None
+        if isinstance(page, int):
+            entry["page"] = page
+    return entries
+
+
 def chapter_at(doc_id: str, page: int, chapters: list[dict]) -> dict | None:
     """The chapter that page belongs to: the last one starting on or before it."""
     chapter_page(doc_id, 1, chapters)  # makes sure the book's chapter pages are cached
@@ -676,14 +690,24 @@ class Handler(BaseHTTPRequestHandler):
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
 
     def _notes(self, doc_id: str, body: dict):
-        """/api/notes/list {id}, /api/notes/get {id, key}, /api/notes/save {id, key, text,
-        base[, overwrite]}. A save based on an old version answers 409 with the note as it is
-        now, and writes nothing (notes_store.save)."""
+        """/api/notes/list {id}, /api/notes/get {id, key}, /api/notes/open {id, key},
+        /api/notes/save {id, key, text, base[, overwrite]}. A save based on an old version
+        answers 409 with the note as it is now, and writes nothing (notes_store.save)."""
         row = catalog.load(CATALOG)[doc_id]
         if self.path == "/api/notes/list":
-            return self._json(HTTPStatus.OK, {"notes": notes_store.entries(LIBRARY, row)})
+            return self._json(HTTPStatus.OK, {"notes": notes_with_pages(doc_id, row)})
         if self.path == "/api/notes/get":
             return self._json(HTTPStatus.OK, notes_store.read(LIBRARY, row, body.get("key")))
+        if self.path == "/api/notes/open":
+            # An existing note only (path_of without creating: the same containment checks);
+            # the editor from the settings, started without a shell. Nothing is written
+            path = notes_store.path_of(LIBRARY, row, body.get("key"))
+            if open_in_editor(path):
+                return self._json(HTTPStatus.OK, {"opened": True, "message": "opened the note"})
+            return self._json(
+                HTTPStatus.OK,
+                {"opened": False, "message": "the editor couldn't be started (see Settings)"},
+            )
         if self.path == "/api/notes/save":
             # base: the version the text was read at; null for a note that didn't exist yet
             base = body.get("base", "missing")

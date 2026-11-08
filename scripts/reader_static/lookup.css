@@ -228,7 +228,8 @@
 /* "标注已保存 (Marks saved)": bottom right, a moment after you stop marking */
 .ml-saved {
   position: fixed;
-  right: 16px;
+  /* in the PDF's part of the window, left of the notes panel when it's beside the PDF */
+  right: calc(var(--ml-notes-space, 0px) + 16px);
   bottom: 16px;
   z-index: 100000;
   max-width: min(420px, calc(100vw - 32px));
@@ -247,12 +248,13 @@
 .ml-saved.ml-find {
   bottom: 64px;
 }
-/* "预览 (Preview)": a search result opened to look something up, not counted as reading */
+/* "预览 (Preview)": a search result opened to look something up, not counted as reading.
+   Bottom left of the PDF: the find bar (top left, as wide as it needs) and the marks' status
+   (bottom right) are never under it, whatever the PDF area's width beside the notes */
 .ml-preview {
   position: fixed;
-  top: 40px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 16px;
+  left: 16px;
   z-index: 100000;
   display: flex;
   align-items: center;

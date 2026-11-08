@@ -1,0 +1,195 @@
+/* 📝 Notes beside the PDF (notes.js; task 4 M3). One variable carries the layout:
+   --ml-notes-space is the panel's width while it's beside the PDF (0 when closed, or when it
+   opens over the PDF in a narrow window); PDF.js's whole viewer (#outerContainer) gets the
+   rest. The panel uses PDF.js's own toolbar colours, so it follows light and dark mode. */
+:root {
+  --ml-notes-space: 0px;
+  --ml-notes-width: 0px;
+}
+
+/* PDF.js: its toolbar, sidebar and pages all live in #outerContainer */
+#outerContainer {
+  width: calc(100% - var(--ml-notes-space));
+  /* the PDF area as a container, for the toolbar rules below */
+  container: mlpdf / inline-size;
+}
+
+/* PDF.js 4.10 hides toolbar groups by the *window's* width (viewer.css, @media max-width 840 /
+   750 / 690 / 560 px). With the notes beside it the PDF area is narrower than the window, so
+   the same rules are applied by the PDF area's width. Mirrors PDF.js's own selectors: to
+   recheck when PDF.js is upgraded (tests: test_notes_panel.py, the toolbar stays one row). */
+@container mlpdf (max-width: 840px) {
+  #sidebarContainer {
+    background-color: var(--sidebar-narrow-bg-color);
+  }
+  #outerContainer.sidebarOpen #viewerContainer {
+    inset-inline-start: 0 !important;
+  }
+}
+@container mlpdf (max-width: 750px) {
+  #outerContainer .hiddenMediumView {
+    display: none !important;
+  }
+  #outerContainer .visibleMediumView:not(.hidden, [hidden]) {
+    display: inline-block !important;
+  }
+}
+@container mlpdf (max-width: 690px) {
+  .hiddenSmallView,
+  .hiddenSmallView * {
+    display: none !important;
+  }
+  #toolbarContainer #toolbarViewer .toolbarButtonSpacer {
+    width: 0;
+  }
+}
+@container mlpdf (max-width: 560px) {
+  #scaleSelectContainer {
+    display: none;
+  }
+}
+#findbar {
+  max-width: 90cqw; /* PDF.js says 90vw: the window, not the PDF area */
+}
+
+/* The panel */
+.ml-notes {
+  position: fixed;
+  inset-block: 0;
+  right: 0;
+  width: var(--ml-notes-width);
+  box-sizing: border-box; /* its border inside that width */
+  z-index: 50000; /* above the PDF, below lookup.js's popups (100000) */
+  display: flex;
+  flex-direction: column;
+  background: var(--body-bg-color, #f9f9fa);
+  color: var(--main-color, #0c0c0d);
+  border-left: 1px solid var(--toolbar-border-color, #d0d0d0);
+  font: 14px/1.5 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+.ml-notes[hidden] {
+  display: none;
+}
+.ml-notes[data-mode="drawer"] {
+  box-shadow: -8px 0 24px rgb(0 0 0 / 0.25);
+}
+.ml-notes[data-mode="full"] {
+  border-left: 0;
+}
+
+/* The divider: the panel's left edge (beside the PDF only) */
+.ml-notes-divider {
+  position: absolute;
+  inset-block: 0;
+  left: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+.ml-notes:not([data-mode="side"]) .ml-notes-divider {
+  display: none;
+}
+.ml-notes-divider:hover,
+.ml-notes-divider:focus-visible,
+body.ml-dragging .ml-notes-divider {
+  background: rgb(11 107 203 / 0.35);
+  outline: none;
+}
+body.ml-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+body.ml-dragging #outerContainer {
+  pointer-events: none; /* no text selected and no mark made while the divider moves */
+}
+
+/* Its header: as tall and coloured as PDF.js's toolbar */
+.ml-notes-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--toolbar-height, 32px);
+  padding: 0 6px;
+  background: var(--toolbar-bg-color, #f9f9fa);
+  border-bottom: 1px solid var(--toolbar-border-color, #d0d0d0);
+  box-sizing: border-box;
+}
+.ml-notes-head select {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  background: var(--field-bg-color, #fff);
+  color: var(--field-color, #060606);
+  border: 1px solid var(--field-border-color, #bbb);
+  border-radius: 4px;
+  font: 13px system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+.ml-notes-head button {
+  flex: none;
+  min-width: 28px;
+  height: 24px;
+  background: none;
+  color: var(--main-color, #0c0c0d);
+  border: 0;
+  border-radius: 4px;
+  font: 15px/1 system-ui, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+.ml-notes-head button:hover:not(:disabled) {
+  background: var(--button-hover-color, #dddedf);
+}
+.ml-notes-head button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The state line: loading, empty, not written yet, an error */
+.ml-notes-status {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--toolbar-border-color, #d0d0d0);
+  font-size: 13px;
+}
+.ml-notes-status:empty {
+  display: none;
+}
+.ml-notes-status .ml-error {
+  color: #c0392b;
+}
+.ml-notes-status button {
+  margin-left: 8px;
+}
+
+/* The note: its Markdown as plain text, wrapped, read-only */
+.ml-note-text {
+  flex: 1;
+  min-height: 0; /* scrolls inside the panel instead of growing past it */
+  margin: 0;
+  padding: 12px 16px 24px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+  font: 14px/1.6 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: var(--field-bg-color, #fff); /* like a page: white, or dark in dark mode */
+  color: var(--field-color, #060606);
+  outline: none;
+}
+.ml-note-text:focus-visible {
+  box-shadow: inset 0 0 0 2px rgb(11 107 203 / 0.5);
+}
+
+/* 📝 on PDF.js's toolbar, drawn like its own buttons (an icon as a mask) */
+#mlNotesToggle::before {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='black' stroke-width='1.4' stroke-linejoin='round' d='M2.5 2.5h11v11h-11zM10 2.5v11M4.5 5.5h3.5M4.5 8h3.5M4.5 10.5h3.5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='black' stroke-width='1.4' stroke-linejoin='round' d='M2.5 2.5h11v11h-11zM10 2.5v11M4.5 5.5h3.5M4.5 8h3.5M4.5 10.5h3.5'/%3E%3C/svg%3E");
+}
+@media print {
+  .ml-notes {
+    display: none !important;
+  }
+  #outerContainer {
+    width: 100%;
+  }
+}
