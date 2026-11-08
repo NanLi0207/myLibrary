@@ -15,6 +15,7 @@ word, or drag over a phrase, to see:
 """
 
 import argparse
+import codecs
 import csv
 import hashlib
 import io
@@ -562,6 +563,32 @@ def lookup(text: str, context: str = "", doc_id: str | None = None) -> dict:
 NEW_GLOSSARY = "my-terms"  # created by 加入术语表 (Add to glossary) if there is none yet
 
 
+def _add_glossary_row(path: Path, term: str, row: list[str], label: str) -> None:
+    """D16: one row more in glossary `path`, one writer at a time (the file's lock). The check
+    for the term reads the file as it is now (not the cached glossary: another request may
+    have just added it); the whole file is then written atomically (safe_io), keeping its BOM
+    and line endings, with the row on a line of its own. A failed write changes nothing."""
+    global _glossary_cache, _glossary_words_cache
+    with safe_io.lock_for(path), safe_io.critical():
+        data = safe_io.read_bytes(path) if safe_io.exists(path) else b""
+        bom = data.startswith(codecs.BOM_UTF8)
+        text = data[len(codecs.BOM_UTF8) :].decode("utf-8") if bom else data.decode("utf-8")
+        eol = "\r\n" if "\r\n" in text else "\n"
+        wanted = tuple(tokens(term))  # the same "same term" as the glossary lookup's
+        for existing in csv.DictReader(io.StringIO(text)):
+            if tuple(tokens(existing.get("term") or "")) == wanted:
+                raise ValueError(f"“{term}” is already in the {label} glossary")
+        if not text.strip():
+            text = "term,zh,note,definition" + eol
+        elif not text.endswith(("\n", "\r")):
+            text += eol  # (never joined to a last row without its line end)
+        line = io.StringIO()
+        csv.writer(line, lineterminator=eol).writerow(row)
+        new = (codecs.BOM_UTF8 if bom else b"") + (text + line.getvalue()).encode("utf-8")
+        safe_io.write_bytes(path, new)
+    _glossary_cache = _glossary_words_cache = None  # (only after the write succeeded)
+
+
 def add_glossary_term(
     term: str, zh: str, definition: str = "", note: str = "", glossary_name: str | None = None
 ) -> dict:
@@ -589,14 +616,7 @@ def add_glossary_term(
     if any(e["glossary"] == target["name"] for e in glossary().get(tuple(tokens(term)), [])):
         raise ValueError(f"“{term}” is already in the {target['label']} glossary")
     path = target["path"]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8-sig") if path.exists() else ""
-    with open(path, "a", encoding="utf-8", newline="") as f:
-        if not existing:
-            f.write("term,zh,note,definition\n")
-        elif not existing.endswith("\n"):
-            f.write("\n")
-        csv.writer(f, lineterminator="\n").writerow([term, zh, note, definition])
+    _add_glossary_row(path, term, [term, zh, note, definition], target["label"])
     return {
         "term": term,
         "zh": zh,

@@ -42,7 +42,8 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   - D20 is fixed: `d7b9fc5`, CI green (run 42510546751).
   - D5 (versioned saving of marks, also the stale-tab case in D15) is fixed: `ac206d4`,
     CI green (run 42514738383).
-  - D17 is fixed (topic notes).
+  - D17 is fixed: `aa4bf1c`.
+  - D16 is fixed (glossary).
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
@@ -546,10 +547,27 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
         refuses to move a file another program holds open.
     - `remove_book` and `rename_document` move the PDF without its lock. A marks save at
       that moment can recreate the file at the old name.
-- **D16 (C) Glossary terms are appended without a lock or an atomic write.**
-  `reader.add_glossary_term` checks for duplicates outside any lock, then uses
-  `open(path, "a")`. Two clicks can add a term twice, and a crash can leave a partial row.
-- **D17 (C, fixed) Creating a topic note could replace one just saved.**
+- **D16 (C, fixed) Glossary terms were appended without a lock or an atomic write.**
+  - The problem:
+    - `reader.add_glossary_term` checked for duplicates in the cached glossary, outside any
+      lock, then appended with `open(path, "a")`.
+    - Two requests at once both added the same term (reproduced).
+    - A crash could leave a partial row, and CRLF glossaries (Excel) got bare-LF rows.
+  - The fix (`reader._add_glossary_row`):
+    - Under the glossary file's lock, the file is read as it is now. The duplicate check
+      uses the same "same term" rule as the lookup (tokens and base forms), on that content.
+    - The whole file is written atomically (`safe_io.write_bytes`), keeping its BOM and
+      line endings. A file without a final line end gets one before the new row, so rows
+      are never joined.
+    - The glossary caches are reset only after a successful write. A failed write leaves
+      the file byte-identical, and the term isn't taken as added.
+    - Paths past Windows' limit work.
+  - Limits:
+    - A glossary open in Excel can't be replaced on Windows: the add fails with an error;
+      nothing is lost.
+    - Other programs editing the CSV at the same moment don't share the lock.
+  - Tests: `tests/test_glossary_terms.py`. 6 of its 11 tests fail on the old code.
+- **D17 (C, fixed in `aa4bf1c`) Creating a topic note could replace one just saved.**
   - The problem:
     - `library_server.topic_note` checked for the file (plain `Path.exists`), ran the slow
       full-text search, then wrote the template with an atomic *replace*, all without a
