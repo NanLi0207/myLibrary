@@ -351,9 +351,12 @@ def _check_catalog_repeats() -> list[dict]:
         keep = rows[pair["keep"]]["title"]
         if not pair["drop"]:
             job = _new_job("repeat", file=name[pair["keep"]])
+            why = (f"and a notes folder in catalog.csv isn't under notes/ ({pair['problem']}): "
+                   "nothing was merged or moved. Correct catalog.csv" if pair.get("problem")
+                   else "and both have your notes or progress. Keep one: add_book.py --remove "
+                   "<name>")  # fmt: skip
             _finish(job, "error", f"“{keep}” is in the library twice ({pair['reason']}: "
-                    f"{name[pair['keep']]} and {name[pair['other']]}), and both have your notes "
-                    "or progress. Keep one: add_book.py --remove <name>")  # fmt: skip
+                    f"{name[pair['keep']]} and {name[pair['other']]}), {why}")  # fmt: skip
         else:
             moved = add_book.merge_into(pair["drop"], pair["keep"])
             # Its tombstone points to the one kept: its reading history counts for that one

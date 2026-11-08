@@ -31,6 +31,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import catalog
+import notes_store
 import paths
 import safe_io
 
@@ -624,6 +625,8 @@ def save_word(doc_id: str, title: str, text: str, context: str, page: int | None
     row = catalog.load(LIBRARY / "catalog.csv").get(doc_id)
     if row is None:
         raise ValueError("no such document")
+    # First, before anything else: never a vocabulary file outside the library's notes
+    path = notes_store.notes_file(LIBRARY, row, "vocabulary.md")
     info = lookup(text, context, doc_id)
     entry = info["entries"][0] if info["entries"] else {}
     own = next((g for g in info["glossary"] if tokens(g["term"]) == tokens(text)), None)
@@ -638,7 +641,6 @@ def save_word(doc_id: str, title: str, text: str, context: str, page: int | None
         meaning = "； ".join(line.strip() for line in lines[:2])[:80]
     if not word:
         raise ValueError("nothing to save")
-    path = LIBRARY / row["notes"] / "vocabulary.md"
     path.parent.mkdir(parents=True, exist_ok=True)
 
     def cell(value) -> str:
@@ -650,7 +652,7 @@ def save_word(doc_id: str, title: str, text: str, context: str, page: int | None
     )
     # One save at a time (two words saved quickly from two tabs), the file replaced whole
     with safe_io.lock_for(path), safe_io.critical():
-        existing = safe_io.read_text(path) if path.exists() else ""
+        existing = safe_io.read_text(path) if safe_io.exists(path) else ""
         if not existing:
             existing = VOCAB_HEADER.format(title=title)
         saved_words = {

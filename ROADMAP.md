@@ -36,7 +36,8 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   panel, Markdown source) is done (`268a7cd`, CI green, manual acceptance passed).
   - The code-quality audit after M4 is done (2026-11-08).
   - Its data-safety findings come before M5: D13–D20, B21–B24, B26.
-  - D13 and D14 are fixed, awaiting review; not committed.
+  - D13 and D14 are fixed: `8f029a7` and `edb4dbe`, CI green (run 42497560951).
+  - D19 is fixed, awaiting review; not committed.
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
@@ -409,8 +410,8 @@ D12. They are kept below for the record. Still open: D5 (task 5).
 Found by the code-quality audit after M4 (2026-11-08): D13–D20, B21–B26. The ones marked open
 are to be fixed before M5, in small separate batches (B25 later, in its own reviewed change).
 
-- **D13 (C, fixed; audit P0-1) Switching notes could save one note's text into another's
-  file.**
+- **D13 (C, fixed in `8f029a7`, CI green; audit P0-1) Switching notes could save one note's
+  text into another's file.**
   - `notes.js` `show()` named the new note before its text arrived, and the box stayed
     editable with the previous note's text. Typing then went to the new note's session.
   - If that note was opened earlier in the tab, autosave wrote the old note's text over its
@@ -423,7 +424,7 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
     - a composition ends in the note it started in.
   - Tests: `tests/browser/test_notes_switching.py`. Three of its four tests fail on the old
     code.
-- **D14 (C, fixed; audit P0-2) Clear archive deleted user work.**
+- **D14 (C, fixed in `edb4dbe`, CI green; audit P0-2) Clear archive deleted user work.**
   - `library_jobs._archive_plan` deleted every file in `archive/notes/<name>/` when
     `has_own_work` found no ticks, no "Last read" and no edited `.md` file. That included
     README text, images, nested notes and PDFs kept beside notes.
@@ -456,14 +457,49 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
   - It also snapshots the README without its lock.
   - It has no production caller yet (tests only), so it must be fixed before any rename
     feature.
-- **D19 (C) A hand-edited catalog `notes` value can point outside the library.**
-  - `library_page.readme_of`, `reader.save_word` and `add_book.notes_dir_of` use
-    `LIBRARY / row["notes"]` unchecked. Only `notes_store.notes_dir` refuses absolute paths
-    and `..`.
-  - With such a value, page turns ("Last read"), ticks, saved words and chapter refreshes
-    write outside the library.
-  - Only a manual catalog edit can set such a value. No API, metadata lookup or file name
-    can.
+- **D19 (C, fixed; audit) A hand-edited catalog `notes` value could point outside the
+  library.**
+  - The problem:
+    - `library_page.readme_of`, `reader.save_word` and `add_book.notes_dir_of` used
+      `LIBRARY / row["notes"]` unchecked; only `notes_store.notes_dir` refused absolute paths
+      and `..`.
+    - With such a value, page turns ("Last read"), ticks and chapter refreshes wrote outside
+      the library (reproduced: an outside README edited, a template created there), and so
+      did saved words.
+    - Only a manual catalog edit can set such a value. No API, metadata lookup or file name
+      can.
+  - The fix:
+    - All three use the panel's checks. `notes_dir_of` is `notes_store.notes_dir`. The new
+      `notes_store.notes_file` (fixed names only: README.md, vocabulary.md) also refuses a
+      file that is a link or junction pointing out of the folder.
+    - A notes folder kept elsewhere through a junction, or `notes/` itself, still works.
+    - Checked before anything changes:
+      - `merge_into` checks both folders and the README before the catalog;
+      - `save_word` checks before the lookup;
+      - `refresh_chapters` checks the README before moving templates, and never reads or
+        moves a template that is a link out of the folder.
+    - One bad entry:
+      - the library page shows it with "笔记文件夹有问题 (Notes folder problem)", no progress
+        and no notes link, and leaves the bad value off the page;
+      - Read still opens its PDF;
+      - Refresh only reports a repeat pair involving it (nothing merged or moved);
+      - the server answers 400.
+    - Messages never show the value. A 400's message goes through `shown_error`, which cuts
+      full paths.
+    - The catalog is never changed or repaired.
+  - Not covered:
+    - A link swapped in by another program between the check and the write.
+      - The atomic write (`os.replace`) replaces a link rather than writing through it.
+      - A read-change-write (`update_text`) could still read through a link swapped in at
+        that moment.
+    - `add_book.has_own_work` may still read through a README that links out of the
+      folder. It only reads, to decide whether there is work; it never writes there.
+    - Older multi-step operations can still stop partway on an ordinary file-system
+      failure, such as a locked file while a merge copies notes or a refresh moves
+      templates. D19 guarantees only that a refused path changes nothing.
+  - Tests: `tests/test_notes_containment.py`. 11 of them fail on the old code. The symlink
+    cases run in CI, where link tests are required; junction cases run everywhere on
+    Windows.
 - **D20 (C) The tests' central isolation is incomplete.**
   - The autouse fixture in `tests/conftest.py` redirects 4 things. Module globals
     (`LIBRARY`, `CATALOG`, `ARCHIVE` in about 13 modules) and `paths.SETTINGS_FILE` point at

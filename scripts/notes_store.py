@@ -55,8 +55,29 @@ def notes_dir(library: Path, row: dict) -> Path:
     parts = name.parts
     if name.is_absolute() or name.drive or len(parts) < 2 or parts[0] != "notes" \
             or ".." in parts:  # fmt: skip
-        raise NoteError(f"the catalog's notes folder isn't under notes/: {str(name)[:80]!r}")
+        # (the value itself isn't repeated: it may be a full path, and this reaches the page)
+        raise NoteError("this document's notes folder in catalog.csv isn't under notes/")
     return library / name
+
+
+# The tool's own files in a document's notes folder, written by code (reading progress,
+# ticks, saved words): fixed names, never one a page sent
+OWN_FILES = {"README.md", "vocabulary.md"}
+
+
+def notes_file(library: Path, row: dict, name: str) -> Path:
+    """The document's README.md or vocabulary.md, existing or not yet: in its notes folder
+    (notes_dir: never a catalog value outside notes/), and never a file that is a link or
+    junction pointing out of that folder (as for the panel's notes). A link on the folder
+    itself, or on notes/ (kept on OneDrive), is the user's own arrangement and allowed.
+    NoteError otherwise."""
+    if name not in OWN_FILES:
+        raise NoteError(f"not one of the notes folder's own files: {name[:80]!r}")
+    folder = notes_dir(library, row)
+    path = folder / name
+    if not _inside(path, folder):
+        raise NoteError(f"this document's {name} is a link pointing out of its notes folder")
+    return path
 
 
 def topics_dir(library: Path) -> Path:
@@ -72,6 +93,12 @@ def _inside(path: Path, folder: Path) -> bool:
         return safe_io.real_path(path).is_relative_to(safe_io.real_path(folder))
     except OSError, RuntimeError:  # a link loop, or a link that can't be followed
         return False
+
+
+def inside(path: Path, folder: Path) -> bool:
+    """_inside, for the other code that reads or writes a notes folder (add_book's merge
+    and chapter refresh): the same rule as the panel's."""
+    return _inside(path, folder)
 
 
 def version_of(data: bytes | None) -> str | None:

@@ -497,9 +497,12 @@ def open_chapter(doc_id: str, number: int | None, base_url: str, resume: bool = 
     the reader's panel); with resume, open the page you last read and the chapter it belongs
     to."""
     row = catalog.load(CATALOG)[doc_id]
-    readme = library_page.readme_of(row)
-    chapters = library_page.chapters(doc_id, readme)
-    last = library_page.last_read(doc_id, readme) if resume else None
+    try:
+        readme, notes_problem = library_page.readme_of(row), ""
+    except notes_store.NoteError as e:  # the PDF still opens; no notes or progress are used
+        readme, notes_problem = None, str(e)
+    chapters = library_page.chapters(doc_id, readme) if readme else []
+    last = library_page.last_read(doc_id, readme) if resume and readme else None
     is_paper = row.get("type") == "paper"
     if last and not is_paper:
         chapter = chapter_at(doc_id, last["page"], chapters)
@@ -507,7 +510,7 @@ def open_chapter(doc_id: str, number: int | None, base_url: str, resume: bool = 
         chapter = next((c for c in chapters if c["number"] == number), None)
     if is_paper:  # its one item, "Read the paper", whose notes are notes.md
         chapter = next((c for c in chapters if c["number"] == 1), None)
-    notes_dir = readme.parent
+    notes_dir = readme.parent if readme else None
     opened = []
 
     if (LIBRARY / row["file"]).exists():
@@ -525,15 +528,21 @@ def open_chapter(doc_id: str, number: int | None, base_url: str, resume: bool = 
     # The notes are written in the reader's 📝 panel (task 4 M4, decision D5): they open in
     # the external editor only without the reading view (a plain PDF has no panel) or with ↗.
     # Two editors on one note is how conflicts start
-    note = notes_dir / chapter["note"] if chapter and chapter["note"] else notes_dir / "README.md"
-    if not note.exists():
-        note = notes_dir / "README.md"
+    note = None
+    if notes_dir is not None:
+        note = (
+            notes_dir / chapter["note"] if chapter and chapter["note"] else notes_dir / "README.md"
+        )
+        if not note.exists():
+            note = notes_dir / "README.md"
     in_reader = reading_view.viewer_ready() and (LIBRARY / row["file"]).exists()
-    files = [] if in_reader else [note]
+    files = [] if in_reader or note is None else [note]
     script = script_for(row, chapter) if chapter and python_features() else None
     if script:
         files.append(script)
-    if not files:
+    if notes_problem:
+        opened.append(f"no notes ({notes_problem})")
+    elif not files:
         opened.append("notes in the reader's 📝 panel")
     elif open_in_editor(*files):
         what = "notes" if not in_reader else ""
@@ -921,7 +930,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, {"chapter_list": chapters})
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
         except ValueError as e:  # something the page sent that can't be done
-            self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+            self._json(HTTPStatus.BAD_REQUEST, {"error": shown_error(e)})  # no full paths
         except Exception as e:
             traceback.print_exc()  # an unexpected error: where it happened, in the server's log
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": shown_error(e)})

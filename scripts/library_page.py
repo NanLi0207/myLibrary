@@ -39,8 +39,14 @@ LAST_READ_RE = re.compile(
 
 
 def readme_of(row: dict) -> Path:
-    """A document's notes README (details, progress, "Last read" line): <its notes>/README.md."""
-    return LIBRARY / row["notes"] / "README.md"
+    """A document's notes README (details, progress, "Last read" line): <its notes>/README.md.
+    notes_store.NoteError if the catalog's notes folder isn't under notes/, or the README is a
+    link pointing out of it: progress is never read or written outside the library."""
+    # Imported here, not at the top: notes_store imports this module (chapters_in), so a
+    # top-level import here would be circular
+    import notes_store
+
+    return notes_store.notes_file(LIBRARY, row, "README.md")
 
 
 def readme_path(doc_id: str) -> Path:
@@ -123,10 +129,15 @@ def _mtime(path: Path) -> float:
 
 def books(pdf_base: str | None = None) -> list[dict]:
     """Catalog rows plus chapter progress; pdf_base is the server URL prefix for PDFs."""
+    import notes_store  # (see readme_of)
+
     result = []
     for row in catalog.load(CATALOG).values():
         pdf = LIBRARY / row["file"]
-        readme = readme_of(row)
+        try:
+            readme, notes_problem = readme_of(row), ""
+        except notes_store.NoteError as e:  # shown without progress or notes, never others lost
+            readme, notes_problem = None, str(e)
         scan, pages = scan_info(pdf)
         # The reading view is told which document it shows (its id), whatever the file's name
         reader = f"{pdf_base}/{row['file']}" + ("&id=" + row["id"] if "?file=" in (pdf_base or "")
@@ -134,21 +145,26 @@ def books(pdf_base: str | None = None) -> list[dict]:
         result.append(
             row
             | {
-                "chapter_list": chapters(row["id"], readme),
+                "chapter_list": chapters(row["id"], readme) if readme else [],
                 "shelf_list": catalog.split_list(row.get("shelves") or ""),
                 "kind": row.get("type") or "book",
                 "field_label": subjects.field_label(row.get("field") or ""),
                 "citations": citation.all_formats(row),
                 "scan": scan,
                 "ocr_minutes": max(1, round(ocr_minutes(pages))),
-                "last_read": last_read(row["id"], readme),
+                "last_read": last_read(row["id"], readme) if readme else None,
                 # When the notes README last changed (reading position, ticks): orders books
                 # read on the same day for "Sort: recently read"
-                "touched": _mtime(readme),
+                "touched": _mtime(readme) if readme else 0.0,
                 "pdf_missing": not pdf.exists(),
                 "pdf_uri": reader or pdf.as_uri(),
-                "notes_uri": "vscode://file/"
-                + quote((LIBRARY / row["notes"]).as_posix(), safe="/:"),
+                "notes_uri": ""
+                if notes_problem
+                else "vscode://file/" + quote(readme.parent.as_posix(), safe="/:"),
+                "notes_problem": notes_problem,
+                # (the bad value itself may be a full path: not put on the page; catalog.csv
+                # keeps it, untouched, for the user to correct)
+                **({"notes": ""} if notes_problem else {}),
             }
         )
     return result
@@ -794,7 +810,8 @@ function card(b, inList = false) {
   const more = `
       ${b.pdf_missing ? `<span class="missing" title="${esc(b.file)} is gone; notes and scripts are still here">PDF missing</span>`
         : `<a href="${esc(b.pdf_uri)}" target="_blank" rel="noopener">PDF</a>`}
-      ${API ? `<button type="button" data-notes>Notes</button>` : `<a href="${esc(b.notes_uri)}">Notes</a>`}
+      ${b.notes_problem ? `<span class="missing" title="${esc(b.notes_problem)}">笔记文件夹有问题 (Notes folder problem)</span>`
+        : API ? `<button type="button" data-notes>Notes</button>` : `<a href="${esc(b.notes_uri)}">Notes</a>`}
       ${b.openlibrary ? `<a href="${esc(b.openlibrary)}" target="_blank" rel="noopener">Open Library</a>` : ""}
       <span class="cite-wrap"><button type="button" data-cite title="Copy a citation: APA, IEEE, GB/T 7714, BibTeX or RIS">Cite ▾</button></span>
       ${API && b.scan && !b.pdf_missing ? `<button type="button" data-ocr title="This book is a scan: OCR adds a text layer, so its words can be looked up and searched">OCR (~${b.ocr_minutes} min)</button>` : ""}`;

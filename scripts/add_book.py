@@ -46,6 +46,7 @@ from pathlib import Path
 import book_meta
 import catalog
 import library_page
+import notes_store
 import paths
 import safe_io
 import shelves
@@ -198,8 +199,10 @@ def doc_for_pdf(pdf: Path) -> dict | None:
 
 
 def notes_dir_of(row: dict) -> Path:
-    """A document's notes folder: the catalog's `notes` column (notes/<name>/)."""
-    return LIBRARY / row["notes"] if row.get("notes") else NOTES / row["slug"]
+    """A document's notes folder: the catalog's `notes` column (notes/<name>/), checked as the
+    notes panel checks it: notes_store.NoteError if it isn't under notes/ (an absolute path,
+    "..", a hand-edited catalog), so nothing is ever read, written or moved outside."""
+    return notes_store.notes_dir(LIBRARY, row)
 
 
 def examples_dir_of(row: dict) -> Path:
@@ -210,12 +213,17 @@ def examples_dir_of(row: dict) -> Path:
 def refresh_chapters(pdf: Path, dry_run: bool) -> None:
     """Regenerate chapter templates after the reader improved, keeping any notes you wrote."""
     row = doc_for_pdf(pdf)
+    # Checked before anything changes (NoteError: a notes folder outside notes/, or a README
+    # linked from outside it)
     notes_dir = notes_dir_of(row) if row else NOTES / pdf.stem  # (a named PDF not added yet)
+    readme = notes_store.notes_file(LIBRARY, row, "README.md") if row else notes_dir / "README.md"
     print(pdf.name)
     chapters = book_chapters(pdf)
     if not chapters:
         return
-    old = sorted(notes_dir.glob("ch[0-9][0-9]*.md"))
+    old = sorted(  # a template that is a link out of the folder is never read or moved
+        n for n in notes_dir.glob("ch[0-9][0-9]*.md") if notes_store.inside(n, notes_dir)
+    )
     kept = [n for n in old if not is_untouched_template(n)]
     print(f"  -> {len(old) - len(kept)} old templates replaced by {len(chapters)} chapters")
     for note in kept:
@@ -231,7 +239,6 @@ def refresh_chapters(pdf: Path, dry_run: bool) -> None:
             moved = move_to_archive(note, folder=f"notes/{notes_dir.name}")
             print(f"  -> {note.name} moved to {moved.relative_to(ARCHIVE.parent).as_posix()}")
     write_chapter_notes(notes_dir, chapters)
-    readme = notes_dir / "README.md"
     if readme.exists():
 
         def new_list(text: str) -> str:
@@ -462,7 +469,10 @@ def has_own_work(notes_dir: Path, examples_dir: Path | None = None) -> bool:
 
 
 def doc_has_own_work(row: dict) -> bool:
-    return has_own_work(notes_dir_of(row), examples_dir_of(row))
+    try:
+        return has_own_work(notes_dir_of(row), examples_dir_of(row))
+    except notes_store.NoteError:  # notes not where they should be: treated as yours, kept
+        return True
 
 
 # Which copy of a repeat to keep: the one with more information
@@ -499,6 +509,15 @@ def why_richer(better: tuple, worse: tuple) -> str:
     return next((n for n, a, b in zip(names, better, worse, strict=True) if a > b), "the same")
 
 
+def _notes_problem(row: dict) -> str:
+    """Why this document's notes folder can't be used ("" if it can)."""
+    try:
+        notes_dir_of(row)
+    except notes_store.NoteError as e:
+        return f"{row['slug']}: {e}"
+    return ""
+
+
 def catalog_repeats() -> list[dict]:
     """Pairs already in the catalog that are the same work: [{keep, drop, reason, why}] (ids).
     The copy with more information is kept (merge_into then gives it the other's work).
@@ -518,6 +537,14 @@ def catalog_repeats() -> list[dict]:
                 else ""
             )  # fmt: skip
             if not reason:
+                continue
+            # A notes folder outside notes/ (hand-edited catalog): neither is merged or
+            # archived, the pair is only reported
+            if problem := next(
+                (_notes_problem(r) for r in (a, b) if _notes_problem(r)), ""
+            ):  # fmt: skip
+                found.append({"keep": a["id"], "drop": "", "reason": reason, "other": b["id"],
+                              "problem": problem})  # fmt: skip
                 continue
             # Marks live inside the PDF and can't be merged over: a PDF with marks is kept
             marks_a = fa.is_file() and has_marks(fa)
@@ -552,6 +579,10 @@ def merge_into(src: str, dst: str) -> list[str]:
     import shutil
 
     rows = catalog.load(CATALOG)
+    # Both notes folders and the README checked before anything changes: a refusal
+    # (NoteError) leaves the catalog and both documents as they were
+    src_dir, dst_dir = notes_dir_of(rows[src]), notes_dir_of(rows[dst])
+    readme = notes_store.notes_file(LIBRARY, rows[dst], "README.md")
     moved = []
     # Catalog: details dst lacks, and the shelves of both
     fill = {
@@ -563,13 +594,15 @@ def merge_into(src: str, dst: str) -> list[str]:
     catalog.update(CATALOG, dst, fill)
     catalog.set_field(CATALOG, dst, "shelves", "; ".join(shelves))
 
-    src_dir, dst_dir = notes_dir_of(rows[src]), notes_dir_of(rows[dst])
     src_name = rows[src]["slug"]
     dst_dir.mkdir(parents=True, exist_ok=True)
-    readme = dst_dir / "README.md"
     if src_dir.exists() and readme.exists():
         old_readme = src_dir / "README.md"
-        old = old_readme.read_text(encoding="utf-8") if old_readme.exists() else ""
+        old = (
+            old_readme.read_text(encoding="utf-8")
+            if old_readme.exists() and notes_store.inside(old_readme, src_dir)
+            else ""
+        )
 
         def merged(text: str) -> str:
             # Ticks, by chapter number ("Read the paper" is chapter 1)
@@ -594,7 +627,9 @@ def merge_into(src: str, dst: str) -> list[str]:
         safe_io.update_text(readme, merged)  # a page turn may write "Last read" meanwhile
     # Notes you wrote: into the same chapter's template (still empty, so nothing is lost)
     for note in sorted(src_dir.glob("*.md")):
-        if note.name == "README.md" or is_untouched_template(note):
+        if note.name == "README.md" or not notes_store.inside(note, src_dir):
+            continue  # (a link out of the folder: never read)
+        if is_untouched_template(note):
             continue
         target = dst_dir / note.name
         if m := re.match(r"(ch\d{2})-", note.name):
