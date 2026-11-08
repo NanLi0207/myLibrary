@@ -313,6 +313,13 @@
   }
 
   const session = () => (current ? sessions.get(current) : null);
+  // The session the box's text belongs to, for typing: the note chosen, and only once its own
+  // text is in the box. While another note loads (or failed to), the box isn't that note's,
+  // so nothing typed may reach it: never one note's text saved into another's file
+  const typing = () => {
+    const note = session();
+    return note && note.loaded && text.dataset.key === note.key ? note : null;
+  };
 
   function sessionFor(key) {
     if (!sessions.has(key)) {
@@ -411,17 +418,18 @@
   // Show a note. Leaving one with unsaved text saves it first; if that save fails or meets a
   // conflict, the note stays on screen with its text (never discarded by switching)
   async function show(key, { chosen = true } = {}) {
+    const mine = ++asked;
     const leaving = session();
     if (leaving && key !== current && leaving.unconfirmed) {
       menu.value = current;
       const state = await leaving.flush();
+      if (mine !== asked) return;  // another note was chosen while saving: that choice wins
       if (state !== "clean") {
         say(biEl("span", "ml-error", "这条笔记还没保存好，请先处理",
           "This note isn't saved yet: deal with it first"));
         return;
       }
     }
-    const mine = ++asked;
     current = key;
     menu.value = key;
     comparing = false;
@@ -429,13 +437,20 @@
     if (chosen) store(KEYS.last, key);
     const note = sessionFor(key);
     if (note.loaded && note.unconfirmed) return render(note, { fresh: true });  // as left here
+    // Until this note's text is in the box, the box is read-only, and empty if it held
+    // another note's text (that text stays in its own session)
+    text.readOnly = true;
+    if (text.dataset.key !== key) {
+      text.value = "";
+      delete text.dataset.key;
+    }
     setState("loading", biEl("span", "ml-muted", "载入中…", "Loading…"));
     let answer;
     try {
       answer = await post("/api/notes/get", { id: docId, key });
     } catch (error) {
       if (mine === asked) failed(error, () => show(key, { chosen: false }));
-      return;
+      return;  // the box stays read-only: nothing typed can reach a note not shown
     }
     if (mine !== asked) return;  // another note was chosen meanwhile: the last choice wins
     if (note.loaded && note.unconfirmed) return render(note, { fresh: true });
@@ -459,7 +474,7 @@
   };
 
   function render(note, { fresh = false } = {}) {
-    if (note.key !== current) return;
+    if (note.key !== current || !note.loaded) return;  // not loaded: show() renders it once it is
     if (text.dataset.key !== note.key) {  // another note than the one in the box: from its top
       fresh = true;
       text.dataset.key = note.key;
@@ -644,12 +659,20 @@
 
   // --- typing ---------------------------------------------------------------------------
 
-  text.addEventListener("input", () => session()?.edit(text.value));
-  // Chinese input: nothing is saved while a word is being composed
-  text.addEventListener("compositionstart", () => session()?.setComposing(true));
+  text.addEventListener("input", () => typing()?.edit(text.value));
+  // Chinese input: nothing is saved while a word is being composed. The composition ends on
+  // the session it started in, even if the note changed meanwhile (else that one never
+  // autosaves again); its text is taken only if the box still holds that note
+  let composingIn = null;
+  text.addEventListener("compositionstart", () => {
+    composingIn = typing();
+    composingIn?.setComposing(true);
+  });
   text.addEventListener("compositionend", () => {
-    session()?.edit(text.value);
-    session()?.setComposing(false);
+    const note = composingIn;
+    composingIn = null;
+    if (note && note === typing()) note.edit(text.value);
+    note?.setComposing(false);
   });
 
   // Markdown helpers (decision D7), through insertText so the browser's own Undo still undoes
