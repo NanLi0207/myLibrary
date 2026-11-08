@@ -38,7 +38,10 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   - Its data-safety findings come before M5: D13–D20, B21–B24, B26.
   - D13 and D14 are fixed: `8f029a7` and `edb4dbe`, CI green (run 42497560951).
   - D19 is fixed: `8154293`, CI green (run 42502216237).
-  - D15 is fixed, awaiting review; not committed. Next: a D20 plan, for review first.
+  - D15 is fixed: `0bb1ad7`, CI green (run 42505838611).
+  - D20 is fixed, awaiting review; not committed.
+  - Next, before M5: versioned saving of marks (D5 and the stale-tab case in D15), plan
+    first.
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
@@ -440,7 +443,8 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
     and `…_never_goes_through_links`.
   - Still open: B13. Documents themselves (pre-marks and pre-OCR originals) are still
     deleted, by design.
-- **D15 (C, fixed; audit) Marks could be lost to a concurrent PDF replacement.**
+- **D15 (C, fixed in `0bb1ad7`, CI green; audit) Marks could be lost to a concurrent PDF
+  replacement.**
   - The problem:
     - OCR (`ocr_pdf.make_searchable`) and new bookmarks (`add_bookmarks.write_bookmarks`)
       rebuild the PDF from the file as it was when they started, then `ocr_pdf.replace_pdf`
@@ -553,13 +557,55 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
   - Tests: `tests/test_notes_containment.py`. 11 of them fail on the old code. The symlink
     cases run in CI, where link tests are required; junction cases run everywhere on
     Windows.
-- **D20 (C) The tests' central isolation is incomplete.**
-  - The autouse fixture in `tests/conftest.py` redirects 4 things. Module globals
-    (`LIBRARY`, `CATALOG`, `ARCHIVE` in about 13 modules) and `paths.SETTINGS_FILE` point at
-    the real library unless each test patches them.
-  - Some files leave `add_book.ARCHIVE` unpatched.
-  - This is latent: the checksums taken around every test run show no write to the real
-    library.
+- **D20 (C, fixed; audit) Tests could write the real library or settings.**
+  - The problem:
+    - `paths` picks the library and settings file when first imported, from the real
+      settings. In a test run, `paths.LIBRARY` was the real `library/` and
+      `paths.SETTINGS_FILE` the real `local.toml`; 30 module paths pointed into the real
+      library.
+    - `tests/conftest.py`'s autouse fixture redirected only 4 things, and each test file
+      redirected its own subset, with gaps.
+    - Test runs also wrote `.pyc` files into the library's `code/__pycache__` (its own tests
+      run too).
+    - No test is known to have written the real library: the checksums taken around runs
+      never changed.
+  - The fix, test infrastructure only (`tests/isolation_guard.py`, started at the top of
+    `tests/conftest.py`):
+    - **The real places are found first, read-only.** A separate process with no bytecode
+      imports `paths` and prints them: the library, the settings file, the default library,
+      a backup folder from the settings, `library/`, `local.toml` and `%APPDATA%/myLibrary`.
+    - **Then the run gets its own empty library and settings.** `MYLIBRARY_LIBRARY` and
+      `MYLIBRARY_SETTINGS` name them before any app module is imported. If an app module was
+      imported earlier (a plugin), no test runs; after the imports, no module path may lie in
+      a protected place.
+    - **A guard (`sys.addaudithook`) refuses writes there and records them.** It covers:
+      - opening to write or append, creating files, rename and replace (source and
+        destination), removal, `rmtree` and `rmdir` (also of a folder holding a protected
+        place), `mkdir`;
+      - copies (including `shutil.copy2` and `copy`, which raise no audit event on Windows),
+        hard links from or into them, and SQLite connections other than read-only;
+      - paths compared case-insensitively, also in their `\\?\` long-path form, and also
+        once links and junctions are followed.
+    - **A refused write fails its test** even if the code caught the refusal (an autouse
+      fixture); one outside any test fails the run.
+    - Reads are allowed. Bytecode isn't written during test runs.
+    - The run's folder is removed at the end, and only that folder: it carries a marker, and
+      the guard protects the rest.
+    - Subprocesses that tests start inherit the redirected environment, including the
+      browser tests' servers, which also keep their own check of the library they serve.
+  - Not covered (it isn't an operating-system sandbox):
+    - writes not made through Python's file functions (native code on its own);
+    - subprocesses given an explicit real path (they get the environment, not the guard);
+    - a hard link into the library made before the run;
+    - operations relative to a directory file descriptor.
+
+    The checksums of the real library taken around runs stay an independent check.
+  - Tests: the D20 part of `tests/test_test_isolation.py`. The guard is aimed at invented
+    folders only, never the real library. It covers each kind of write, spellings of a path,
+    junctions and symlinks, reads allowed, a caught refusal still failing its test, a plugin
+    importing the app too early, subprocesses, a server, and the run folder's removal.
+  - `tests/test_paths.py`: one test assumed `MYLIBRARY_LIBRARY` was unset; it now unsets it,
+    as its neighbour already did.
 
 ### Correctness
 

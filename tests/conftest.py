@@ -2,12 +2,42 @@ import importlib.util
 import time
 from pathlib import Path
 
-import book_ocr
-import library_jobs
-import library_page
-import library_server
+import isolation_guard
 import pytest
-import subjects
+
+# D20: before any of the app's modules is imported, this run gets its own library and settings
+# (the environment points every module there) and a guard refuses writes to the real ones.
+# See tests/isolation_guard.py. The app's modules are imported only after this line.
+isolation_guard.start()
+
+import book_ocr  # noqa: E402
+import library_jobs  # noqa: E402
+import library_page  # noqa: E402
+import library_server  # noqa: E402
+import subjects  # noqa: E402
+
+isolation_guard.check_modules()  # every module's paths are the run's, or no test runs
+
+
+@pytest.fixture(autouse=True)
+def no_writes_to_real_data():
+    """D20: a test that tried to write the user's real library or settings fails, even if the
+    code it ran caught the refusal."""
+    with isolation_guard.watching() as refused:
+        yield
+    if refused:
+        pytest.fail("\n".join(refused), pytrace=False)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if isolation_guard.session_violations:  # refused outside any test (collection, a plugin)
+        print("\n" + "\n".join(isolation_guard.session_violations))
+        session.exitstatus = 1
+
+
+def pytest_unconfigure(config):
+    isolation_guard.finish()  # this run's own folder only
+
 
 # The browser tests (tests/browser/, Playwright + Edge) need the optional `browser` dependency
 # group. Plain `pytest` leaves them out; `pytest tests/browser` runs them.

@@ -26,6 +26,7 @@ def test_first_start_creates_and_remembers_a_library(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "LIBRARY", library)
     monkeypatch.setattr(paths, "LIBRARY_SOURCE", "default")
     monkeypatch.setattr(paths, "SETTINGS_FILE", tmp_path / "local.toml")
+    monkeypatch.delenv(paths.ENV_VAR, raising=False)  # (the test run sets it: D20)
 
     paths.ensure_library()
     for sub in ("books", "notes/topics", "glossaries", "examples"):
