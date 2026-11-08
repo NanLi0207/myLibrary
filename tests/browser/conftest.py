@@ -32,6 +32,7 @@ import owned_processes
 import paths
 import pytest
 import reader
+import safe_io
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -234,7 +235,10 @@ class Library:
         return self.root / self.row(doc_id)["file"]
 
     def readme(self, doc_id: str) -> str:
-        return (self.root / self.row(doc_id)["notes"] / "README.md").read_text(encoding="utf-8")
+        # Through safe_io, as the app reads it: the server replaces the README atomically
+        # (another process), and on Windows a read at that instant can briefly be refused
+        # (PermissionError); safe_io retries that a bounded number of times
+        return safe_io.read_text(self.root / self.row(doc_id)["notes"] / "README.md")
 
     def reading_log(self) -> dict:
         path = self.root / "notes" / "reading-log.json"

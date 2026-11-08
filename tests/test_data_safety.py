@@ -374,3 +374,66 @@ def test_no_temporary_files_are_left_behind(tmp_path):
     names = sorted(p.name for p in tmp_path.iterdir())
     assert names == ["a.md", "b.json", "b.json.bak"]
     assert not any(n.endswith(".tmp") for n in os.listdir(tmp_path))
+
+
+# --- reading while another process replaces the file (Windows) -------------------------------
+# On Windows, opening a file at the instant another process replaces it, or while it holds the
+# file without sharing, is refused (PermissionError). safe_io.read_text waits that out a
+# bounded number of times (the browser tests read the server's README this way: CI run
+# 42517810946 failed on a plain read). A file locked for good, or missing, still fails.
+
+windows_only = pytest.mark.skipif(os.name != "nt", reason="Windows' sharing violations")
+
+
+def held_without_sharing(path):
+    """A real Windows handle on `path` that lets nobody else open it, as during a swap."""
+    import _winapi
+
+    GENERIC_READ, OPEN_EXISTING, NORMAL = 0x80000000, 3, 0x80
+    return _winapi.CreateFile(str(path), GENERIC_READ, 0, 0, OPEN_EXISTING, NORMAL, 0)
+
+
+@windows_only
+def test_a_read_refused_for_a_moment_is_retried(tmp_path, monkeypatch):
+    import _winapi
+
+    path = tmp_path / "README.md"
+    path.write_text("Last read: page 5\n", encoding="utf-8")
+    handle = held_without_sharing(path)
+    with pytest.raises(PermissionError):
+        path.read_text(encoding="utf-8")  # the plain read the browser test used: refused
+    pauses = []
+
+    def pause(seconds):  # the other process lets go during safe_io's first pause
+        pauses.append(seconds)
+        if len(pauses) == 1:
+            _winapi.CloseHandle(handle)
+
+    monkeypatch.setattr(safe_io.time, "sleep", pause)
+    assert safe_io.read_text(path) == "Last read: page 5\n"
+    assert len(pauses) == 1
+
+
+@windows_only
+def test_a_read_refused_for_good_still_fails(tmp_path, monkeypatch):
+    import _winapi
+
+    path = tmp_path / "README.md"
+    path.write_text("x", encoding="utf-8")
+    handle = held_without_sharing(path)
+    pauses = []
+    monkeypatch.setattr(safe_io.time, "sleep", pauses.append)
+    try:
+        with pytest.raises(PermissionError, match="README.md is open in another program"):
+            safe_io.read_text(path)
+    finally:
+        _winapi.CloseHandle(handle)
+    assert len(pauses) == safe_io.TRIES - 1  # bounded: then it says so
+
+
+def test_a_missing_file_fails_at_once(tmp_path, monkeypatch):
+    pauses = []
+    monkeypatch.setattr(safe_io.time, "sleep", pauses.append)
+    with pytest.raises(FileNotFoundError):
+        safe_io.read_text(tmp_path / "README.md")
+    assert pauses == []  # nothing to wait for: no retries
