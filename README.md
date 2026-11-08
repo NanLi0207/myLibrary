@@ -536,8 +536,9 @@ goes to `archive/` complete, as a backup. If both hold your work, nothing is tou
 History names the pair for you to decide.
 
 **⚙ Settings → Clear archive** shows how much `archive/` holds and deletes it for good, after
-asking: the removed and repeated PDFs, original scans and empty note templates. Archived notes,
-notebooks and scripts with your own work are always kept (and listed). A scanned book gets an **OCR** button (see below).
+asking: the removed and repeated PDFs, original scans and note templates still exactly as
+generated. Everything else is kept (and listed): every README, notes, images, other files and
+folders, PDFs kept beside notes, notebooks and scripts. Links and junctions are never followed. A scanned book gets an **OCR** button (see below).
 
 **From the terminal:** put the PDF into your library's `books/` folder with any file name, then:
 

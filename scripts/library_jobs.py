@@ -4,6 +4,7 @@ The page polls list_jobs() to show progress; nothing here needs a terminal. The 
 `uv run scripts/add_book.py` and `uv run scripts/ocr_pdf.py`, without the questions.
 """
 
+import os
 import re
 import threading
 import time
@@ -371,28 +372,72 @@ def _check_catalog_repeats() -> list[dict]:
 # --- the archive --------------------------------------------------------------------------------
 
 
-# What "Clear archive" deletes: the documents themselves, empty note templates and placeholder
-# files. Everything else (scripts, notebooks, notes with your writing) is kept, whatever folder
-# it's in: archive/ can hold things from older versions of this tool too.
+# What "Clear archive" deletes: only what is positively known to hold none of your work:
+# - archived documents (removed books and papers, repeats, original scans), except in the
+#   folders of notes and scripts (a PDF kept beside notes is yours);
+# - empty .gitkeep placeholders;
+# - generated chapter or paper templates (by name: chNN-....md, notes.md) still untouched,
+#   directly in an archived document's notes folder (archive/notes/<name>/).
+# Everything else is kept, whatever folder it's in: every README (even empty or as generated),
+# images, unknown files, nested folders, and anything reached through a link or junction
+# (never followed: it may lead outside the archive). archive/ can hold things from older
+# versions of this tool too. If in doubt, a file is kept.
 DOCUMENTS = {".pdf", ".djvu", ".epub"}
+OWN_FOLDERS = {"notes", "notes-conflicts", "examples"}  # documents in these are yours
+TEMPLATE_NAME = re.compile(r"ch\d{2,}-[a-z0-9-]*\.md|notes\.md")
+
+
+def _archive_walk(archive: Path) -> tuple[list[Path], list[Path], list[Path]]:
+    """(plain files, folders, everything else: links, junctions, unreadable folders) under
+    `archive`, never through a link or junction."""
+    files, folders, other = [], [], []
+    stack = [archive]
+    while stack:
+        folder = stack.pop()
+        try:
+            entries = list(os.scandir(folder))
+        except OSError:  # unreadable: whatever is in it is kept
+            other.append(folder)
+            continue
+        for entry in entries:
+            path = Path(entry.path)
+            if entry.is_symlink() or entry.is_junction():
+                other.append(path)
+            elif entry.is_dir(follow_symlinks=False):
+                folders.append(path)
+                stack.append(path)
+            elif entry.is_file(follow_symlinks=False):
+                files.append(path)
+            else:
+                other.append(path)
+    return sorted(files), folders, other
+
+
+def _deletable(path: Path, parts: tuple[str, ...]) -> bool:
+    """Whether "Clear archive" may delete this archived file (see above)."""
+    name = path.name
+    if name == ".gitkeep":
+        return path.stat().st_size == 0
+    if path.suffix.lower() in DOCUMENTS:
+        return parts[0] not in OWN_FOLDERS
+    if parts[0] == "notes" and len(parts) == 3 and TEMPLATE_NAME.fullmatch(name):
+        try:
+            return add_book.is_untouched_template(path)
+        except OSError, UnicodeError:
+            return False
+    return False
 
 
 def _archive_plan() -> tuple[list[Path], list[str]]:
     """(files to delete, what's kept: "folder/item" names) for "Clear archive"."""
     archive = add_book.ARCHIVE
     delete, kept = [], []
-    if not archive.exists():
+    if not archive.is_dir():
         return delete, kept
-    for f in sorted(archive.rglob("*")):
-        if not f.is_file():
-            continue
+    files, _, other = _archive_walk(archive)
+    for f, plain in [(f, True) for f in files] + [(f, False) for f in sorted(other)]:
         parts = f.relative_to(archive).parts
-        empty_notes = (
-            parts[0] == "notes"
-            and len(parts) > 2
-            and not add_book.has_own_work(archive / "notes" / parts[1])
-        )
-        if f.suffix.lower() in DOCUMENTS or f.name == ".gitkeep" or empty_notes:
+        if plain and _deletable(f, parts):
             delete.append(f)
         else:
             name = "/".join(parts[:2])
@@ -409,15 +454,15 @@ def archive_summary() -> dict:
 
 def clear_archive() -> dict:
     """Delete the archived documents (removed books and papers, repeats, original scans) and
-    empty note templates; keep everything that holds your own work."""
+    untouched note templates; keep everything else (see DOCUMENTS above)."""
     delete, kept = _archive_plan()
     summary = {"files": len(delete), "bytes": sum(f.stat().st_size for f in delete), "kept": kept}
     for f in delete:
         f.unlink()
     archive = add_book.ARCHIVE
-    if archive.exists():  # folders left empty, deepest first
-        for folder in sorted((d for d in archive.rglob("*") if d.is_dir()),
-                             key=lambda d: len(d.parts), reverse=True):  # fmt: skip
+    if archive.is_dir():  # folders left empty, deepest first; never through a link
+        _, folders, _ = _archive_walk(archive)
+        for folder in sorted(folders, key=lambda d: len(d.parts), reverse=True):
             if not any(folder.iterdir()):
                 folder.rmdir()
     return summary

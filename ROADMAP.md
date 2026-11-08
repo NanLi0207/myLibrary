@@ -33,8 +33,11 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   API) is done (`9acaf52`). M2 (browser tests in CI) is done (`6b19d78`, with follow-ups
   `3730d23` and `7ff8325`; CI green); its link-security tests are now required in CI.
   M3 (split screen, notes read-only) is done (`73fbc72`, CI green). M4 (editing in the
-  panel, Markdown source) is done (`268a7cd`, CI green, manual acceptance passed). Next: a
-  code-quality audit before M5.
+  panel, Markdown source) is done (`268a7cd`, CI green, manual acceptance passed).
+  - The code-quality audit after M4 is done (2026-11-08).
+  - Its data-safety findings come before M5: D13–D20, B21–B24, B26.
+  - D13 and D14 are fixed, awaiting review; not committed.
+  - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
@@ -403,6 +406,72 @@ D12. They are kept below for the record. Still open: D5 (task 5).
   - `replace_pdf` refuses an entry without a PDF.
   - `move_to_archive` refuses anything outside the library's document and notes folders.
 
+Found by the code-quality audit after M4 (2026-11-08): D13–D20, B21–B26. The ones marked open
+are to be fixed before M5, in small separate batches (B25 later, in its own reviewed change).
+
+- **D13 (C, fixed; audit P0-1) Switching notes could save one note's text into another's
+  file.**
+  - `notes.js` `show()` named the new note before its text arrived, and the box stayed
+    editable with the previous note's text. Typing then went to the new note's session.
+  - If that note was opened earlier in the tab, autosave wrote the old note's text over its
+    file, with no copy kept. A failed load left that state open indefinitely.
+  - The fix:
+    - typing reaches a session only when the box holds that note's text (`typing()`);
+    - the box is empty and read-only while another note loads, or after its load failed;
+    - an unloaded session is never rendered;
+    - a choice made while the previous note was saving wins;
+    - a composition ends in the note it started in.
+  - Tests: `tests/browser/test_notes_switching.py`. Three of its four tests fail on the old
+    code.
+- **D14 (C, fixed; audit P0-2) Clear archive deleted user work.**
+  - `library_jobs._archive_plan` deleted every file in `archive/notes/<name>/` when
+    `has_own_work` found no ticks, no "Last read" and no edited `.md` file. That included
+    README text, images, nested notes and PDFs kept beside notes.
+  - It also walked through junctions, so it could delete files outside the archive.
+  - Now it deletes only these:
+    - documents outside the notes and scripts folders;
+    - empty `.gitkeep` files;
+    - generated templates (`chNN-….md`, `notes.md`) directly in an archived notes folder,
+      and only when still untouched.
+  - Every README is kept. Links and junctions are never followed.
+  - Tests: `test_library_jobs.py` `test_clear_archive_deletes_only_untouched_templates_and_documents`
+    and `…_never_goes_through_links`.
+  - Still open: B13. Documents themselves (pre-marks and pre-OCR originals) are still
+    deleted, by design.
+- **D15 (C) Marks can be lost to a concurrent PDF replacement.**
+  - `reader.save_marks` holds only `safe_io.lock_for(pdf)`.
+  - OCR (`ocr_pdf.replace_pdf`), `add_book.replace_pdf` and `rename_document` swap or move
+    the PDF without that lock.
+  - Marks saved during an OCR run are left only in the `archive/books/` copy, and the reader
+    was told they were saved.
+- **D16 (C) Glossary terms are appended without a lock or an atomic write.**
+  `reader.add_glossary_term` checks for duplicates outside any lock, then uses
+  `open(path, "a")`. Two clicks can add a term twice, and a crash can leave a partial row.
+- **D17 (C) Creating a topic note can replace one just saved.** `library_server.topic_note`
+  checks for the file, runs a full-text search, then writes the template, all without a
+  lock.
+- **D18 (C, latent) A failed rename can lose its recovery journal.**
+  - `add_book.rename_document` deletes the journal even when `_undo_rename` reports moves it
+    couldn't reverse.
+  - It also snapshots the README without its lock.
+  - It has no production caller yet (tests only), so it must be fixed before any rename
+    feature.
+- **D19 (C) A hand-edited catalog `notes` value can point outside the library.**
+  - `library_page.readme_of`, `reader.save_word` and `add_book.notes_dir_of` use
+    `LIBRARY / row["notes"]` unchecked. Only `notes_store.notes_dir` refuses absolute paths
+    and `..`.
+  - With such a value, page turns ("Last read"), ticks, saved words and chapter refreshes
+    write outside the library.
+  - Only a manual catalog edit can set such a value. No API, metadata lookup or file name
+    can.
+- **D20 (C) The tests' central isolation is incomplete.**
+  - The autouse fixture in `tests/conftest.py` redirects 4 things. Module globals
+    (`LIBRARY`, `CATALOG`, `ARCHIVE` in about 13 modules) and `paths.SETTINGS_FILE` point at
+    the real library unless each test patches them.
+  - Some files leave `add_book.ARCHIVE` unpatched.
+  - This is latent: the checksums taken around every test run show no write to the real
+    library.
+
 ### Correctness
 
 - **B1 (C, fixed in task 1) Page errors show nothing.** `do_GET` had no error handling, so a
@@ -452,6 +521,28 @@ D12. They are kept below for the record. Still open: D5 (task 5).
   access violation while indexing). It isn't reproducible, so the cause is unconfirmed (see
   task 3). Indexing now survives it per document. If it recurs, run `book_search.page_texts`
   in a subprocess, so the server process never continues in an unsafe native state.
+- **B21 (C; audit) Slug-keyed leftovers in OCR.**
+  - `add_book.check_remaining_scans` tests `pdf.stem in catalog.load(...)`, which is always
+    False with id keys. So command-line OCR never refreshes a scan's chapters.
+  - `library_jobs._ocr` calls `forget_chapter_pages(pdf.stem)`, which removes nothing.
+- **B22 (C; audit) Requests without a full timeout.**
+  - `note_session.js` `request()` clears its timer before reading the response body, so a
+    stalled body leaves "Saving…" for good.
+  - `lookup.js` `post()`, used for the notes list and note loading, has no timeout and
+    throws a SyntaxError on a non-JSON error page.
+  - It also sends `keepalive` on every call.
+- **B23 (C; audit) Ctrl+S retries after a server restart.** `notes.js` `saveNow` calls
+  `retryNow()` in the "Reload needed" (403) state, which is documented as never retried. The
+  Save button is rightly disabled there.
+- **B24 (C; audit) A conflict between identical texts.** `NoteSession.conflicted` doesn't
+  compare texts. A save that timed out but was written comes back as a 409 "conflict" with
+  our own text.
+- **B25 (C; audit; approved for later, separately) `safe_io.update_text`/`write_text` change
+  line endings.** They read with universal newlines and write `os.linesep`, so every tick
+  and "Last read" turns an LF README into CRLF. This is the likely source of the line-ending
+  churn under `library/`. `notes_store` keeps each file's own form.
+- **B26 (C; audit) A `safe_io` docstring holds an invalid escape (`\)`).** Python 3.14 warns
+  about it, and it is a SyntaxError under `-W error`.
 - **B16 (S) Not yet confirmed.**
   - `pick_folder` decodes non-ASCII folder names in the ANSI code page.
   - Find online puts OpenAlex URLs into `href` with no scheme check.

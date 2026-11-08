@@ -1,3 +1,4 @@
+import os
 import time
 
 import add_book
@@ -376,6 +377,92 @@ def test_clear_archive_never_deletes_scripts(library):
     assert summary["kept"] == ["notebooks/shannon-1997-art"] and summary["files"] == 2
     assert (old / "ch01_introduction.py").exists()
     assert not (library / "archive" / "books").exists()
+
+
+TEMPLATE = add_book.chapter_note(add_book.Chapter(1, "Intro", ["Stops"]))
+
+
+def files_under(folder) -> dict:
+    return {
+        p.relative_to(folder).as_posix(): p.read_bytes()
+        for p in sorted(folder.rglob("*"))
+        if p.is_file()
+    }
+
+
+def test_clear_archive_deletes_only_untouched_templates_and_documents(library):
+    """Audit P0-2: a README's own text (with no ticks, no "Last read"), an empty README,
+    images, unknown files, nested notes and PDFs kept beside notes all stay. Only archived
+    documents, empty .gitkeep files and provably untouched generated templates go."""
+    archive = library / "archive"
+    written = archive / "notes" / "ann-2001-book"
+    (written / "figures").mkdir(parents=True)
+    (written / "README.md").write_text("# Ann's book\n\nMy own summary of the stops.\n")
+    (written / "ch01-intro.md").write_text(TEMPLATE)  # untouched: goes
+    (written / "ch02-stops.md").write_text("# Chapter 2\n\nWhat I learned.\n")
+    (written / "vocabulary.md").write_text("# Vocabulary\n")
+    (written / "figure.png").write_bytes(b"\x89PNG my sketch")
+    (written / "attachment.pdf").write_bytes(b"%PDF my own scan")
+    (written / "drawing.xyz").write_bytes(b"unknown")
+    (written / "figures" / "ch03-nested.md").write_text(TEMPLATE)  # nested: stays
+    empty = archive / "notes" / "bob-2002-book"
+    empty.mkdir()
+    (empty / "README.md").write_text("")
+    (empty / "ch01-intro.md").write_text(TEMPLATE)  # untouched: goes
+    paper = archive / "notes" / "cy-2003-paper"
+    paper.mkdir()
+    (paper / "README.md").write_text("# A paper\n\n- [ ] [Read the paper](notes.md)\n")
+    (paper / "notes.md").write_text(add_book.PAPER_NOTES.format(title="A paper"))  # goes
+    (archive / "books").mkdir()
+    (archive / "books" / "old.pdf").write_bytes(b"%PDF old")
+    (archive / "books" / ".gitkeep").write_text("")
+    (archive / "odd").mkdir()
+    (archive / "odd" / ".gitkeep").write_text("not empty: not a placeholder")
+    (archive / "notes" / "loose.md").write_text(TEMPLATE)  # not in a document's folder
+    before = files_under(archive)
+    gone = {
+        "notes/ann-2001-book/ch01-intro.md",
+        "notes/bob-2002-book/ch01-intro.md",
+        "notes/cy-2003-paper/notes.md",
+        "books/old.pdf",
+        "books/.gitkeep",
+    }
+
+    summary = library_jobs.archive_summary()
+    assert summary["files"] == len(gone)
+    library_jobs.clear_archive()
+    assert files_under(archive) == {k: v for k, v in before.items() if k not in gone}
+    assert (empty / "README.md").exists() and (paper / "README.md").exists()
+    assert library_jobs.archive_summary()["files"] == 0
+
+
+def test_clear_archive_never_goes_through_links(library, tmp_path):
+    """A junction or symbolic link inside archive/ may lead outside it: never followed, the
+    link itself kept, nothing behind it deleted or emptied."""
+    if os.name != "nt":
+        pytest.skip("junctions are a Windows feature")
+    import _winapi
+
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "inner").mkdir(parents=True)
+    (elsewhere / "ch01-intro.md").write_text(TEMPLATE)
+    (elsewhere / "book.pdf").write_bytes(b"%PDF not archived")
+    (elsewhere / ".gitkeep").write_text("")
+    notes = library / "archive" / "notes"
+    notes.mkdir(parents=True)
+    _winapi.CreateJunction(str(elsewhere), str(notes / "dee-2004-book"))
+    _winapi.CreateJunction(str(elsewhere), str(library / "archive" / "books"))
+    try:
+        os.symlink(elsewhere / "book.pdf", library / "archive" / "linked.pdf")
+    except OSError:  # symlinks need Developer Mode or administrator rights; junctions don't
+        if os.environ.get("MYLIBRARY_REQUIRE_LINK_TESTS") == "1":  # CI: must be tested
+            raise
+    before = files_under(elsewhere)
+
+    assert library_jobs.archive_summary()["files"] == 0
+    library_jobs.clear_archive()
+    assert files_under(elsewhere) == before and (elsewhere / "inner").is_dir()
+    assert (notes / "dee-2004-book").exists() and (library / "archive" / "books").exists()
 
 
 def test_ocr_of_a_locked_pdf_ends_with_a_message(library, monkeypatch):
