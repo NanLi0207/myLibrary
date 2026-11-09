@@ -160,7 +160,7 @@ def is_file(path) -> bool:
 
 
 def real_path(path) -> Path:
-    """Path.resolve(): the real location, links and junctions followed, also for paths too
+    r"""Path.resolve(): the real location, links and junctions followed, also for paths too
     long for Windows' usual limit (where Windows can't open the path to follow its links, so a
     plain resolve() might return it unfollowed). Returned in the ordinary form (no \\?\), so
     it compares with other resolved paths."""

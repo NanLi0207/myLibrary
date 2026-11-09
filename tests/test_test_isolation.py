@@ -69,7 +69,8 @@ def test_b_must_not_run_beside_it():
 
 def session(pytester, tests: str, conftest: str | None = None):
     pytester.makeconftest(conftest or CONFTEST.read_text(encoding="utf-8"))
-    pytester.makeini(f"[pytest]\npythonpath = {SCRIPTS.as_posix()} {TESTS.as_posix()}\n")
+    # quoted: a folder name may hold a space ("C:/Users/Nan Li/...")
+    pytester.makeini(f'[pytest]\npythonpath = "{SCRIPTS.as_posix()}" "{TESTS.as_posix()}"\n')
     pytester.makepyfile(test_inner=tests)
     return pytester.runpytest_subprocess("-p", "no:cacheprovider", "-v")
 
@@ -169,7 +170,8 @@ def test_an_app_module_imported_too_early_stops_the_run(pytester):
     """A plugin that imports the app before conftest.py can redirect it: no test runs."""
     pytester.makepyfile(early_plugin="import paths\n")
     pytester.makeconftest(CONFTEST.read_text(encoding="utf-8"))
-    pytester.makeini(f"[pytest]\npythonpath = {SCRIPTS.as_posix()} {TESTS.as_posix()}\n")
+    # quoted: a folder name may hold a space ("C:/Users/Nan Li/...")
+    pytester.makeini(f'[pytest]\npythonpath = "{SCRIPTS.as_posix()}" "{TESTS.as_posix()}"\n')
     pytester.makepyfile(test_inner="def test_never_runs():\n    pass\n")
     result = pytester.runpytest_subprocess("-p", "early_plugin", "-p", "no:cacheprovider")
     assert result.ret != 0
