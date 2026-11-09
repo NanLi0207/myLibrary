@@ -422,3 +422,38 @@ def test_an_unexpected_errors_message_shows_no_folders():
     }  # fmt: skip
     for message, shown in cases.items():
         assert library_server.shown_error(OSError(message)) == shown
+
+
+def test_a_burst_of_connections_is_never_refused():
+    """A reader page opens about 25 connections at once (PDF.js, its icons, the reader's
+    scripts, the notes' first requests): the server queues them instead of refusing some
+    (with the default listen backlog of 5, Windows refused a reload's /api/notes/list in CI).
+    A fast accept loop may serve such a burst even with a small queue, so the configured
+    backlog is checked as well as the burst itself."""
+    assert library_server.Server.request_queue_size >= 64
+    server = library_server.Server(("127.0.0.1", 0), library_server.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    burst = 48
+    start = threading.Barrier(burst)
+    results: list = [None] * burst
+
+    def fetch(n: int) -> None:
+        start.wait()
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{server.server_port}/api/whoami", timeout=30
+            ) as r:
+                results[n] = r.status
+        except OSError as e:  # (refused, reset: reported below)
+            results[n] = e
+
+    try:
+        threads = [threading.Thread(target=fetch, args=(n,)) for n in range(burst)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(60)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert results == [200] * burst, [r for r in results if r != 200]

@@ -54,6 +54,11 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
     depended on markdown-it being installed in the tool's `.cache/reader` (it is locally, not
     in CI's test job), since M5a added "notes preview" to `reader.missing()`. The test now
     uses its own preview folder and runs with and without the preview.
+  - Connections refused during a page load (browser CI run 42630235744: after a reload, five
+    icons, `locale.json` and `/api/notes/list` refused while the server kept serving, so the
+    notes panel showed no note): `library_server.Server` used the default listen backlog of
+    5. Now `request_queue_size = 64` (locally, a 48-connection burst: 33 of 240 refused with
+    5, none with 64). Test: `test_a_burst_of_connections_is_never_refused`.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.

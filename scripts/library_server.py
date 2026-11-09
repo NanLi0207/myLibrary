@@ -1105,6 +1105,11 @@ def setup_reader() -> None:
 class Server(ThreadingHTTPServer):
     # On Windows SO_REUSEADDR lets a second server share the port and steal requests
     allow_reuse_address = sys.platform != "win32"
+    # Connections waiting to be accepted (listen backlog). The default, 5, is too few: a reader
+    # page opens about 25 at once (PDF.js, its icons, the reader's scripts, the notes' first
+    # requests), and Windows refuses the ones that don't fit (seen in CI: a reload's
+    # /api/notes/list refused, so the panel showed no note)
+    request_queue_size = 64
 
 
 def already_running(port: int) -> str | None:
