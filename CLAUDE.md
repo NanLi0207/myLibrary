@@ -4,21 +4,39 @@ A general study tool for learning from your own PDF books (any subject): reading
 English–Chinese lookup and subject glossaries, book search, progress, shelves, notes, topic notes,
 and per-chapter Python scripts for checking a book's worked examples. No marimo/notebooks.
 Keep the tool subject-neutral: nothing in `scripts/` should assume optics. The repo is public;
-the books never go in it. See README.md.
+the books never go in it. See README.md (the project homepage) and docs/USER_GUIDE.md (the
+full bilingual manual). Its three pillars are learning, reading and note-taking; executable
+learning (chapter scripts, `code/`) is an optional differentiator, never a required path.
 
 ## Working on this project (always apply)
 
-**ROADMAP.md is the plan; DEVELOPMENT_SPEC.md is the product spec.** At the start of any
-development session, read ROADMAP.md: the architecture, the gap analysis, the known bugs (IDs
-like D1, B5, L3), the v0.3/v0.4/v0.5 tasks and the design notes. Read DEVELOPMENT_SPEC.md for
-the goals, principles and constraints behind them (local-first, offline-first, optional
-network and AI, no destructive migrations, no rewrites). Work through the current milestone in
-order; don't start the next milestone, or features outside it, unless the user asks. Keep
-ROADMAP.md current in the same change as the code: tick finished tasks with the version, add
-bugs and limitations you find (name the function or file; line numbers drift), remove ones you
-fix, and update the architecture and gap analysis when they change. If a plan changes, change
-the file rather than leaving it stale. Don't claim a feature works unless it was verified; say
-when browser, Windows-specific or package testing wasn't done.
+**Where things are (restructured 2026-11-09):**
+- `ROADMAP.md`: the active plan. Section 2 names **the current approved milestone**; section
+  11 is the current list of open bugs and limitations (IDs like D18, B5, L20).
+- `docs/history/ROADMAP_HISTORY.md`: the earlier roadmap, kept unchanged: the architecture
+  and gap analysis of 2026-11-06, full bug descriptions, task designs (task 4's section 5:
+  notes and passages, approved decisions), verification records. Read the parts the current
+  milestone needs.
+- `DEVELOPMENT_SPEC.md`: the product and technical spec (pillars, requirements FR-*, the
+  anchor model, data safety, non-goals); `docs/history/DEVELOPMENT_SPEC_v1.md` is the original
+  brief.
+- `docs/COMPETITIVE_ANALYSIS.md`: the qualified comparison with BookxNote Pro, MarginNote 5 and
+  Zotero 10 (sources, verification dates). Don't add competitor claims without a source.
+- `docs/USER_GUIDE.md`: the user manual (formerly the README); `docs/LIBRARIES.md`: several
+  libraries and the Test & Demo library.
+
+At the start of any development session, read ROADMAP.md, and DEVELOPMENT_SPEC.md for the
+goals, principles and constraints (local-first, offline-first, optional network and AI, no
+destructive migrations, no rewrites). Work through the current milestone (ROADMAP section 2)
+in order; don't start the next milestone, the later priorities (P2–P5) or the proposed new
+items (E1–E4, R1–R3), or features outside it, unless the user asks; a competitor's feature is
+no reason to change the order. Keep ROADMAP.md current in the same change as the code: tick
+finished items with their commit, add bugs and limitations you find to section 11 (name the
+function or file; line numbers drift), move ones you fix to "fixed", and update DEVELOPMENT_SPEC
+when the architecture changes. Never edit the history files except to fix a broken link. If a
+plan changes, change the file rather than leaving it stale. Don't claim a feature works unless
+it was verified; say when browser, Windows-specific or package testing wasn't done. Keep the
+user guide's feature-status table (section 15) in step.
 
 **Document identity: the UUID, and only the UUID (v0.3 task 3).**
 - Every document has a permanent UUID4 in `catalog.csv`'s `id` column. `catalog.load()`
@@ -102,7 +120,7 @@ UUID identity), and will later ship as a Windows desktop app (EXE/installer, a w
 - No Electron, React, Qt or other framework switch without a specific reason and the user's
   approval.
 - No EXE, installer, desktop-window or licence work until the packaging milestone (ROADMAP
-  section 8).
+  section 9; details in the history's section 8).
 - Core features come first.
 
 Rules for all new code:
@@ -151,7 +169,7 @@ the server (`restart_later`).
 `library_jobs.py`: identify, name, register in the background; never asks: `book_meta.fill_gaps`
 fills a missing title/year/author from the PDF itself; a name this tool gave before is not
 trusted (`OUR_NAME_RE`); repeats (`add_book.repeat_of`: same DOI, same ISBN for non-papers, identical file by
-SHA-256 with size prefilter; a name or title alone never is, see Task 2 in ROADMAP) always go
+SHA-256 with size prefilter; a name or title alone never is, see Task 2 in docs/history/ROADMAP_HISTORY.md) always go
 to `archive/` from every path, CLI included;
 the richer copy wins (`info_score`: text layer, filled INFO_FIELDS, bookmarks, pages): on
 adding, a better *file* replaces the PDF in place (`replace_pdf`), details always merge

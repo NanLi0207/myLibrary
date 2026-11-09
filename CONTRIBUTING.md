@@ -25,18 +25,19 @@ better documentation are all welcome.
 ## Project rules
 
 - **Never commit books**, or text copied from them (they're copyrighted). Git ignores every
-  PDF; notes must be written in your own words.
+  PDF except the public, synthetic or openly licensed test corpus in `test_library/` (see its
+  README); notes must be written in your own words.
 - **Leave `library/` alone.** It's the author's own library (notes, shelves, glossary), included
   as a live example. Contributions go to the tool (`scripts/`, `tests/`, docs). Use your own
-  library for testing: it lives in its own folder (see the README's *Where things are stored*).
+  library for testing: it lives in its own folder (see the user guide's [*Where things are stored*](docs/USER_GUIDE.md#111-文件存放在哪里--where-things-are-stored)).
   A pull request that adds a new subject glossary can include it as an example under
   `examples/glossaries/`, which you're welcome to create.
 - **Chinese always comes with English.** Any Chinese in the interface, messages or docs gets its
   English translation next to it: in the popup use `bi(zh, en)` / `biEl(...)` from
   `scripts/reader_static/lookup.js`; in text write e.g. "**加入生词本** (Save word)".
 - **Keep the tool subject-neutral.** Nothing in `scripts/` should assume one subject; subject
-  knowledge belongs in a library's `glossaries/<subject>.csv` (see the README's *Glossaries*
-  section). New subject glossaries are very welcome. Scripts find the library through
+  knowledge belongs in a library's `glossaries/<subject>.csv` (see the user guide's
+  [*Glossaries*](docs/USER_GUIDE.md#7-术语表--glossaries) section). New subject glossaries are very welcome. Scripts find the library through
   `scripts/paths.py` (`paths.LIBRARY`); never build data paths from a script's own location.
 - **Add or update tests** for changes in behavior (`tests/`).
 - Follow the existing style: plain, readable Python; comments that explain *why*.
