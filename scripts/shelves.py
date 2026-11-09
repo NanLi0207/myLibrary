@@ -299,6 +299,7 @@ def _main() -> None:
     paths.add_argument(parser)
     parser.add_argument("--apply", action="store_true", help="shelve the items on no shelf")
     args = parser.parse_args()
+    paths.refuse_frozen()  # never the showcase library/ or test_library/ (paths.FROZEN)
     catalog_path = LIBRARY / "catalog.csv"
     rows = catalog.load(catalog_path)
     print(f"{'YOUR SHELVES':30} | {'SUGGESTED':30} | TITLE")

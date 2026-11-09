@@ -26,6 +26,7 @@ from pathlib import Path
 import catalog
 import paths
 import pypdfium2 as pdfium
+import safe_io
 
 LIBRARY = paths.LIBRARY
 CATALOG = LIBRARY / "catalog.csv"
@@ -36,6 +37,8 @@ MARK_START, MARK_END = "\x02", "\x03"  # around the matched words in snippets
 
 
 def _connect() -> sqlite3.Connection:
+    if reason := paths.frozen_reason(INDEX):  # (sqlite writes outside safe_io)
+        raise safe_io.FrozenLocation(13, reason, str(INDEX))
     INDEX.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(INDEX, timeout=30)
     columns = {r[1] for r in con.execute("PRAGMA table_info(books)")}
@@ -253,6 +256,7 @@ def main() -> None:
     parser.add_argument("term", nargs="*")
     parser.add_argument("--status", action="store_true", help="each document's index status")
     args = parser.parse_args()
+    paths.refuse_frozen()  # never the showcase library/ or test_library/ (paths.FROZEN)
     print(describe(update(verbose=True)))
     if args.status:
         names = {i: r["slug"] for i, r in catalog.load(CATALOG).items()}

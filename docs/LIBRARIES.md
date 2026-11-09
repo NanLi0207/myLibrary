@@ -131,5 +131,7 @@ hidden there); it can be reset instead.
   browser drafts. None of these is in git, and nothing here commits or pushes them.
 - Never assume the two computers' private libraries are the same. To carry one over, copy the
   folder (section 3) or use 💾 backups.
-- The `library/` folder in this repository is the author's historical example library; it is
-  left as it is.
+- The `library/` folder in this repository is a frozen public showcase of the author's
+  library, kept as it is in git: the app refuses to open or write it (like `test_library/`).
+  The author's own library lives outside the repository. To explore the showcase, copy the
+  folder elsewhere and add the copy as a personal library.

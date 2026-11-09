@@ -192,6 +192,7 @@ def _main() -> None:
     paths.add_argument(parser)
     parser.add_argument("--apply", action="store_true", help="record subjects and shelve the items")
     args = parser.parse_args()
+    paths.refuse_frozen()  # never the showcase library/ or test_library/ (paths.FROZEN)
     catalog_path = LIBRARY / "catalog.csv"
     for doc_id, row in catalog.load(catalog_path).items():
         if row.get("topic"):  # already known

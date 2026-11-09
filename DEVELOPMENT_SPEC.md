@@ -324,6 +324,10 @@ shows it, the resolution order applies, and the user's comments are never droppe
 - **DS-6** 版权：书从不进 git；工具从不把书中文字写进公开的笔记；公开的测试/示例书库只含合成或已核实许可的文档。Copyright:
   books never go into git; the tool never writes book text into public notes; the public Test &
   Demo library holds only synthetic or licence-verified documents.
+- **DS-7** [已有 Existing] 冻结的文件夹：仓库中的公开示例 `library/` 和标准测试书库 `test_library/` 从不被应用打开或
+  写入（`paths.FROZEN`；`ensure_library`、`safe_io`、各写入脚本都拒绝）。Frozen folders: the public showcase
+  `library/` and the canonical `test_library/` in the repository are never opened or written by
+  the app (`paths.FROZEN`; refused by `ensure_library`, `safe_io` and every writing script).
 
 ---
 

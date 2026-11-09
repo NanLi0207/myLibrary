@@ -404,6 +404,12 @@ def main() -> None:
         what.add_argument(flag, action="store_true")
     args = parser.parse_args()
     library = args.library.resolve()
+    tool = Path(__file__).resolve().parent.parent  # (this script doesn't import paths)
+    frozen = [tool / "library", tool / "test_library"]  # paths.FROZEN
+    if (args.apply or args.resume or args.rollback) and any(
+        library == f or f in library.parents for f in frozen
+    ):
+        sys.exit(f"{library} is frozen (the showcase or canonical test library): never migrated")
     try:
         if args.check:
             problems = check(library)

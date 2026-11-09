@@ -178,6 +178,41 @@ def display(path: Path) -> str:
 # logs of servers the launcher started (scripts/libraries.py)
 LOCAL_DIR = SETTINGS_FILE.parent / ".myLibrary-local"
 CANONICAL_TEST_LIBRARY = "test_library"  # in the tool's folder (libraries.TEST_CANONICAL)
+# The author's example library in the tool's folder: a frozen public showcase, kept as it is in
+# git and never opened or changed by the app (the author's own library lives elsewhere)
+SHOWCASE_LIBRARY = "library"
+FROZEN = {
+    SHOWCASE_LIBRARY: (
+        "library/ is the public showcase (the author's example library, kept as it is in git): "
+        "myLibrary never opens or changes it. Use your own library (⚙ Settings, or --library "
+        "<folder>); to try it out, copy the folder elsewhere and add it as a personal library."
+    ),
+    CANONICAL_TEST_LIBRARY: (
+        "test_library/ is the canonical Test & Demo library, kept unchanged in git: open its "
+        "working copy instead (uv run scripts/launch_library.py --test)"
+    ),
+}
+
+
+def frozen_reason(path) -> str:
+    """Why the app must never write in this folder ("" if it may): the showcase library/ and
+    the canonical test_library/ in the tool's folder, and anything inside them."""
+    here = os.path.normcase(str(Path(path).resolve()))
+    for name, reason in FROZEN.items():
+        root = os.path.normcase(str((APP / name).resolve()))
+        if here == root or here.startswith(root + os.sep):
+            return reason
+    return ""
+
+
+def refuse_frozen(library=None) -> None:
+    """Stop (SystemExit with the reason) before a script changes a frozen library."""
+    if reason := frozen_reason(library or LIBRARY):
+        raise SystemExit(reason)
+
+
+# Every write through safe_io into a frozen folder is refused as well, whatever the caller
+safe_io.freeze(*(APP / name for name in FROZEN))
 
 LIBRARY_TOML = """# This library's settings.
 name = "My library"
@@ -197,16 +232,11 @@ id = "{id}"
 
 def ensure_library(library: Path | None = None) -> Path:
     """Create the library's folders if they're missing; a library chosen by default is
-    remembered in the settings file so the next start uses the same one. Never the canonical
-    Test & Demo library (test_library/, kept unchanged in git): only its working copy is used."""
+    remembered in the settings file so the next start uses the same one. Never a frozen library
+    (the showcase library/ or the canonical test_library/ in the tool's folder, frozen_reason):
+    the server and add_book.py start here, so nothing of theirs ever writes there."""
     library = library or LIBRARY
-    canonical = os.path.normcase(str((APP / CANONICAL_TEST_LIBRARY).resolve()))
-    here = os.path.normcase(str(Path(library).resolve()))
-    if here == canonical or here.startswith(canonical + os.sep):
-        raise SystemExit(
-            "test_library/ is the canonical Test & Demo library, kept unchanged in git: open its "
-            "working copy instead (uv run scripts/launch_library.py --test)"
-        )
+    refuse_frozen(library)
     for sub in ("books", "papers", "theses", "notes/topics", "glossaries", "examples"):
         (library / sub).mkdir(parents=True, exist_ok=True)
     if not (library / "library.toml").exists():

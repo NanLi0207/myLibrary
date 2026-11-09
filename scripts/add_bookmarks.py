@@ -153,6 +153,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--yes", action="store_true", help="don't ask before changing a PDF")
     args = parser.parse_args()
+    paths.refuse_frozen()  # never the showcase library/ or test_library/ (paths.FROZEN)
 
     targets = [args.pdf.resolve()] if args.pdf else sorted(BOOKS.glob("*.pdf"))
     for pdf in targets:

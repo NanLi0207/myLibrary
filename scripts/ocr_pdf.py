@@ -228,6 +228,7 @@ def main() -> None:
     parser.add_argument("pdf", type=Path)
     parser.add_argument("--yes", action="store_true", help="don't ask before starting")
     args = parser.parse_args()
+    paths.refuse_frozen()  # never the showcase library/ or test_library/ (paths.FROZEN)
 
     pdf = args.pdf.resolve()
     if not pdf.exists():

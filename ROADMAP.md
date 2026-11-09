@@ -430,6 +430,15 @@ stays as it is.
 
 ## 10. 示例书库 / The example library (`library/`)
 
+**冻结的公开示例 / A frozen public showcase** (2026-11-09): 用户自己的书库已复制到仓库之外（每台电脑
+`local.toml` 中的默认书库，不在 git 中）。
+`library/` 保持 git 中的样子，应用从不打开或写入它：`paths.FROZEN`、`paths.ensure_library`、`safe_io.FrozenLocation`、
+各写入脚本的 `paths.refuse_frozen()`；测试 `tests/test_showcase.py`。The user's own library was copied
+outside the repository (on this computer, the default in `local.toml`); `library/` stays as it
+is in git and the app never opens or writes it. 下面的整理事项若要做，应在用户自己的书库中做；`library/` 的任何改变都
+需要用户单独决定。The tidying items below, if done, belong in the user's own library; any change to
+`library/` is a separate decision of the user's.
+
 这是用户的数据：只在用户同意后用工具修正。11 个条目的 `type` 为空；`bentley`、`chacon` 的作者用逗号分隔；
 `archut-2022`、`jendrny-2024` 有 DOI，却用了 PDF 创建日期作为年份；`esveld`、`bentley`、`geary` 的详情来自文件名；
 `yoder` 和两份 UIC 文件没有主题，每次刷新都会再次查询。在单独评审的迁移之前，它的 git 跟踪状态保持不变。

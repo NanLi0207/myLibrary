@@ -53,6 +53,35 @@ class ShuttingDown(RuntimeError):
         super().__init__("myLibrary is stopping; nothing new is written")
 
 
+class FrozenLocation(PermissionError):
+    """A write into a frozen folder (paths.FROZEN: the showcase library/ and the canonical
+    test_library/ in the tool's folder), refused before anything is touched."""
+
+
+_frozen: list[str] = []  # normalised real paths of the frozen folders (freeze)
+
+
+def freeze(*folders) -> None:
+    """Never write into these folders or anything inside them (paths registers its frozen
+    libraries at import). A backstop under paths.ensure_library's refusal: it holds for every
+    write made through this module, whichever script or job makes it."""
+    for folder in folders:
+        root = os.path.normcase(os.path.realpath(folder))
+        if root not in _frozen:
+            _frozen.append(root)
+
+
+def _refuse_frozen(path: Path) -> None:
+    if not _frozen:
+        return
+    here = os.path.normcase(str(real_path(path)))
+    for root in _frozen:
+        if here == root or here.startswith(root.rstrip("\\/") + os.sep):
+            raise FrozenLocation(
+                errno.EACCES, "a frozen folder (the showcase or canonical test library)", str(path)
+            )
+
+
 def _shown(path: Path) -> str:
     """notes/reading-log.json rather than the whole path, when it's in a library folder."""
     parts = path.parts
@@ -211,8 +240,9 @@ def write_bytes(path: Path, data: bytes, *, backup: bool = False) -> None:
     """Replace `path` with `data`, whole or not at all. backup=True first keeps the current
     version as <name>.bak (for files whose history matters: the reading log, review progress).
     Every step (the folder, the temporary file, the backup, the swap, cleaning up) also works
-    for paths longer than Windows' usual limit (_os_path)."""
+    for paths longer than Windows' usual limit (_os_path). Never into a frozen folder (freeze)."""
     path = Path(path)
+    _refuse_frozen(path)
     with critical():
         _os_path(path.parent).mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.tmp")
@@ -259,8 +289,9 @@ def create_bytes(path: Path, data: bytes) -> None:
     link, which fails if the name is taken. Where the file system has no hard links, the file
     is created exclusively (O_EXCL) and written: still never over anything, but a crash while
     writing could leave that new file incomplete (it held nothing of the user's). Also works
-    past Windows' usual path limit (_os_path)."""
+    past Windows' usual path limit (_os_path). Never into a frozen folder (freeze)."""
     path = Path(path)
+    _refuse_frozen(path)
     target = _os_path(path)
     with critical():
         _os_path(path.parent).mkdir(parents=True, exist_ok=True)

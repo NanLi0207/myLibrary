@@ -1915,4 +1915,5 @@ render();
 
 
 if __name__ == "__main__":
+    paths.refuse_frozen()  # (the page is written into the library)
     print(f"wrote {paths.display(build())}")

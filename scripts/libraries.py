@@ -178,6 +178,8 @@ def check(folder) -> dict:
         return result
     if result["test"]:
         errors.append("this is the Test & Demo library: open it with Test & Demo mode")
+    elif reason := paths.frozen_reason(path):  # the showcase library/ in the tool's folder
+        errors.append(reason)
     real_root = _norm(path)
     if os.path.normcase(str(path.absolute())) != real_root:
         warnings.append(f"the folder is a link; its real place is {safe_io.real_path(path)}")

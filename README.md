@@ -191,6 +191,7 @@ Third-party components and their licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_
 two real papers in the public test corpus have their own licences (CC BY 4.0, CC0), see
 [test_library/README.md](test_library/README.md).
 
-> 作者用它学习光学设计；作者自己的书库放在本仓库的 `library/` 中作为真实示例（不含书本身）。The author uses it to
-> learn optical design; their library is in `library/` as a worked example (the books themselves
-> are not included).
+> 作者用它学习光学设计；本仓库的 `library/` 是作者书库的冻结公开示例（不含书本身），myLibrary 从不打开或修改它。
+> The author uses it to learn optical design; `library/` in this repository is a frozen public
+> showcase of their library (the books themselves are not included), never opened or changed by
+> myLibrary.

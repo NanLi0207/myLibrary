@@ -34,13 +34,14 @@ myLibrary is a study tool that runs locally, for books, papers and theses in any
 package** (no Python or command line needed) is coming soon, for **9.9 RMB**. Contributions are
 welcome: see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-> 作者用它学习光学设计。作者自己的书库放在本仓库的 `library/` 中作为真实示例：书架、笔记、约 300
-> 条的光学术语表、章节脚本和一个小型光学代码模块（书本身不包含在内）。你自己的书库放在单独的文件夹里，
-> 可以用于任何学科（见[用于你自己的学科](#16-用于你自己的学科--use-it-for-your-own-subject)）。
-> The author uses it to learn optical design. Their library is included in `library/` as a
-> worked example: shelves, notes, an optics glossary of about 300 terms, chapter scripts and a
-> small optics code module (the books themselves are not included). Your own library lives in
-> its own folder, for any subject (see
+> 作者用它学习光学设计。本仓库的 `library/` 是作者书库的一份**冻结的公开示例**：书架、笔记、约 300
+> 条的光学术语表、章节脚本和一个小型光学代码模块（书本身不包含在内）。myLibrary 从不打开或修改它；想试用的话，把它复制到
+> 别处，再作为私人书库添加。你自己的书库放在单独的文件夹里，可以用于任何学科（见[用于你自己的学科](#16-用于你自己的学科--use-it-for-your-own-subject)）。
+> The author uses it to learn optical design. `library/` in this repository is a **frozen public
+> showcase** of the author's library: shelves, notes, an optics glossary of about 300 terms,
+> chapter scripts and a small optics code module (the books themselves are not included).
+> myLibrary never opens or changes it; to try it out, copy it elsewhere and add it as a
+> personal library. Your own library lives in its own folder, for any subject (see
 > [Use it for your own subject](#16-用于你自己的学科--use-it-for-your-own-subject)).
 
 **关于本文档 / About this guide.** 中文在前，英文紧随其后。按钮名称按界面原样写出（界面上的中文按钮都带英文）。

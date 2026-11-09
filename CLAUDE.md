@@ -86,11 +86,13 @@ library's folders).
 - Long jobs check `library_jobs._stopping` at safe points.
 
 **The user's standing rules for development (2026-11-06):**
-- Never modify, delete, migrate or overwrite files in the real `library/`.
+- Never modify, delete, migrate or overwrite files in the user's real library (outside the
+  repository, see below) or in the showcase `library/`.
 - Test destructive, concurrency, damage and recovery cases only in temporary folders with
   invented data.
-- Don't reset, clean or normalize the line-ending-only changes git shows under `library/`.
-- Don't revert or overwrite `library/notes/reading-log.json`.
+- Don't reset, clean or normalize changes git shows under `library/`, and don't revert
+  anything there, unless the user asks for that file explicitly (as on 2026-11-09, after
+  checking that their external copy held the change).
 - No broad staging (`git add -A`, `git add .`).
 - No automatic commits or pushes.
 - Explain any production data migration and get agreement before implementing it.
@@ -155,8 +157,15 @@ Rules for all new code:
   `Documents/myLibrary Library` (created and remembered on first start). Scripts use
   `paths.LIBRARY` for data and `paths.APP` for the tool; never build data paths from the
   script's own location.
-- **The user's library is `library/` in this repository** (their `local.toml` says
-  `library = "library"`), public as a live example. Their subject is optical design.
+- **The user's own library is outside the repository** (since 2026-11-09): its folder is the
+  default in each computer's `local.toml` (not in git) and may differ between computers. Their
+  subject is optical design.
+- **`library/` in this repository is a frozen public showcase** (the author's example library,
+  as committed): the app never opens or changes it. `paths.FROZEN` lists it with the canonical
+  `test_library/`; `paths.ensure_library` refuses both (the server and add_book.py), every
+  `safe_io` write into them raises `safe_io.FrozenLocation`, and every script that writes into
+  a library calls `paths.refuse_frozen()` first (`tests/test_showcase.py`). Its git tracking
+  stays as it is; changing it is a separate, explicit decision of the user's.
 
 **Settings** (`paths.load_settings()` / `save_settings()`): library, `editor` (vscode / notepad /
 system / custom + `editor_command` with `{file}`), `python_features`. Stored in `local.toml`, or

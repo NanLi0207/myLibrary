@@ -364,6 +364,8 @@ def change_settings(updates: dict) -> dict:
         if folder.resolve() != LIBRARY.resolve():
             if libraries.is_test_library(folder):  # (its working copy or test_library/ itself)
                 raise ValueError("that's the Test & Demo library: open it with 📚 Library modes")
+            if reason := paths.frozen_reason(folder):  # the showcase library/
+                raise ValueError(reason)
             paths.ensure_library(folder)
             clean["library"] = folder.as_posix()
             restart = True
