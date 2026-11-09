@@ -363,15 +363,33 @@ def test_no_download_means_no_download(monkeypatch):
     assert started == [True]
 
 
-def test_without_the_dictionary_books_still_open_in_the_reader(library, monkeypatch, tmp_path):
-    """The dictionary (ECDICT) is optional: when only it is missing (a failed or pending
-    download), books still open in the reading view, with the reader's own script injected."""
+@pytest.mark.parametrize("preview", [True, False], ids=["preview installed", "no preview"])
+def test_without_the_dictionary_books_still_open_in_the_reader(
+    library, monkeypatch, tmp_path, preview
+):
+    """The dictionary (ECDICT) is optional: when it is missing (a failed or pending download),
+    books still open in the reading view, with the reader's own script injected, whether the
+    notes' preview (markdown-it, also optional) is installed or not. Every optional part is
+    this test's own, never the tool's .cache/reader (installed on one computer, not in CI)."""
+    reading_view = library_server.reading_view
     pdfjs = tmp_path / "reader" / "pdfjs"
     (pdfjs / "web").mkdir(parents=True)
     (pdfjs / "web" / "viewer.html").write_text("<html><head></head><body></body></html>")
-    monkeypatch.setattr(library_server.reading_view, "PDFJS", pdfjs)
-    monkeypatch.setattr(library_server.reading_view, "DICT_DB", tmp_path / "no-dictionary.db")
-    assert library_server.reading_view.missing() == ["dictionary"]
+    markdown_it = tmp_path / "reader" / "markdown-it"
+    if preview:  # installed as setup_preview() leaves it: the file and its verified marker
+        markdown_it.mkdir(parents=True)
+        (markdown_it / "markdown-it.min.js").write_text("/* markdown-it */", encoding="utf-8")
+        (markdown_it / reading_view.MARKDOWN_IT_MARKER).write_text(
+            f"{reading_view.MARKDOWN_IT_VERSION}\n{reading_view.MARKDOWN_IT_SHA256}\n",
+            encoding="utf-8",
+        )
+    monkeypatch.setattr(reading_view, "PDFJS", pdfjs)
+    monkeypatch.setattr(reading_view, "DICT_DB", tmp_path / "no-dictionary.db")
+    monkeypatch.setattr(reading_view, "MARKDOWN_IT", markdown_it)
+    assert bool(reading_view.markdown_it_installed()) is preview
+    assert "dictionary" in reading_view.missing()
+    assert reading_view.missing() == ["dictionary"] + ([] if preview else ["notes preview"])
+    assert reading_view.viewer_ready()  # the dictionary isn't needed to read
     url = library_server.pdf_url("http://x", "books/a.pdf", 3, doc(library))
     assert url == f"http://x/pdfjs/web/viewer.html?file=/books/a.pdf&id={doc(library)}#page=3"
 
@@ -380,7 +398,9 @@ def test_without_the_dictionary_books_still_open_in_the_reader(library, monkeypa
     try:
         address = f"http://127.0.0.1:{server.server_port}/pdfjs/web/viewer.html"
         with urllib.request.urlopen(address, timeout=5) as page:
-            assert b"/reader/lookup.js" in page.read()
+            html = page.read()
+        assert b"/reader/lookup.js" in html and b"/reader/notes.js" in html
+        assert (b"/vendor/markdown-it/markdown-it.min.js" in html) is preview
     finally:
         server.shutdown()
 

@@ -47,8 +47,13 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   - M5 revised into M5a–M5d (2026-11-08); M5a implemented, awaiting review.
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
 - **Several libraries, Test & Demo library, portable libraries** (requested 2026-11-09, outside
-  the v0.3 order at the user's request; section 4b): implemented, not committed, awaiting
-  review. M5a's CI fixes on the other computer are untouched.
+  the v0.3 order at the user's request; section 4b): committed and pushed (`2b0ff96`,
+  `4094dc4`); CI's browser job green (run 42623667334). Its `test` job failed only on the M5a
+  test below, which failed the same way since `b9323dc`.
+  - M5a CI failure fixed: `test_without_the_dictionary_books_still_open_in_the_reader`
+    depended on markdown-it being installed in the tool's `.cache/reader` (it is locally, not
+    in CI's test job), since M5a added "notes preview" to `reader.missing()`. The test now
+    uses its own preview folder and runs with and without the preview.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
