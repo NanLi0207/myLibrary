@@ -1,0 +1,5 @@
+# Glossaries of the Test & Demo library (synthetic examples)
+default = "physics"
+
+[physics]
+label = "物理 Physics"

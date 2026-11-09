@@ -1,0 +1,13 @@
+# The Test & Demo library: synthetic and openly licensed documents only (README.md).
+# test_library/ is the canonical copy in git; Test & Demo mode opens a working copy of it.
+name = "Test & Demo library"
+id = "6f1c2a9e-3b7d-4e58-9a0c-1d2e3f405162"
+test_library = true
+
+[shelves]
+"Physics and Astronomy" = "物理与天文 Physics and Astronomy"
+"Mathematics" = "数学 Mathematics"
+"Computer Science" = "计算机科学 Computer Science"
+"Medicine" = "医学 Medicine"
+"Arts and Humanities" = "人文 Arts and Humanities"
+"Social Sciences" = "社会科学 Social Sciences"

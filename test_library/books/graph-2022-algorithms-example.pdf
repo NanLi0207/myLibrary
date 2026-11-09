@@ -1,0 +1,236 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Outlines 2 0 R
+/PageMode /UseNone
+/Pages 8 0 R
+/Type /Catalog
+>>
+endobj
+2 0 obj
+<<
+/Count 3
+/First 3 0 R
+/Last 5 0 R
+/Type /Outlines
+>>
+endobj
+3 0 obj
+<<
+/Next 4 0 R
+/Dest [ 6 0 R /Fit ]
+/Parent 2 0 R
+/Title (1 Sorting)
+>>
+endobj
+4 0 obj
+<<
+/Next 5 0 R
+/Prev 3 0 R
+/Dest [ 16 0 R /Fit ]
+/Parent 2 0 R
+/Title (2 Graph Search)
+>>
+endobj
+5 0 obj
+<<
+/Dest [ 18 0 R /Fit ]
+/Parent 2 0 R
+/Prev 4 0 R
+/Title (3 Dynamic Programming)
+>>
+endobj
+6 0 obj
+<<
+/Contents 7 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Parent 8 0 R
+/Resources <<
+/Font 11 0 R
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+>>
+endobj
+7 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ]
+/Length 471
+>>
+stream
+Garo=_/A!]&4H!_ME/,!^ku$#bL[L]:`qo$5gQgE(>2)K@C`](^G!M^Y`[EO*X:9+O#n+'9%a(8'C_j9kO01p6?dsn2tuMWn?'=GGm1h%q9Ds+r+4Mi>@Q>he$ck(h1Q;G]pk8i(AJV5"-4POrB^2BRTGn(':]$nWnN]@4DQKsP)P&.7GkCc=IVnT/[r#Bbq#jd+^oQR7WGb)84[Ao:E"O-4Y'8?</GUN!qh62r"/S]j:%l\kbH?p1AIR4/qG5oEZB>BT$EH'N8aR"_cJU_G&rdKq*JsA.IsW0:3qu:"$OQlO@,%#X"r-;;Og;V\kODE;'']al4&24)%tBGHaj2;PNX2igpYj9(Q1KJEP4"!<.MhVHur-l'bKXH8Ki,*M5IsGVJNY4L*OOZ1H@aY;"+%K4XD)bMu&+J[hYA*U@?7o`0f@Oah7#m@[HC4:&DZ]C=a;,2_F;MK;ttdh#.ELG0T=~>
+endstream
+endobj
+8 0 obj
+<<
+/Count 4
+/Kids [ 9 0 R 6 0 R 16 0 R 18 0 R ]
+/Type /Pages
+>>
+endobj
+9 0 obj
+<<
+/Contents 10 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Parent 8 0 R
+/Resources <<
+/Font 11 0 R
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+>>
+endobj
+10 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ]
+/Length 226
+>>
+stream
+GarWrYmu@>'SYM:V`:G4<,PX'X.(I"iauNtYY#WYJI_8E7SF@,QTP,eq/Qcr@aK@X)V?"1%g8%L=-+%%k(M5PA!`;Bh'EI.p<T*k=p_/e%'<&SD]#@k@TVB5k<`>Ga9SNeXDTQ#KXo"%-C@%C9_oh^FY"dcN+<EfdWunFX=\q0koH(A'4N4D>FgNrPW$#Q_=dp'ie$dH(6&jGd+PKemepWb,'j9-Bh*1~>
+endstream
+endobj
+11 0 obj
+<<
+/F1 12 0 R
+/F2 13 0 R
+/F3 14 0 R
+/F4 15 0 R
+>>
+endobj
+12 0 obj
+<<
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+/Name /F1
+/Subtype /Type1
+/Type /Font
+>>
+endobj
+13 0 obj
+<<
+/BaseFont /Helvetica-Bold
+/Encoding /WinAnsiEncoding
+/Name /F2
+/Subtype /Type1
+/Type /Font
+>>
+endobj
+14 0 obj
+<<
+/BaseFont /Times-Roman
+/Encoding /WinAnsiEncoding
+/Name /F3
+/Subtype /Type1
+/Type /Font
+>>
+endobj
+15 0 obj
+<<
+/BaseFont /Courier
+/Encoding /WinAnsiEncoding
+/Name /F4
+/Subtype /Type1
+/Type /Font
+>>
+endobj
+16 0 obj
+<<
+/Contents 17 0 R
+/MediaBox [ 0 0 595.2756 841.8898 ]
+/Parent 8 0 R
+/Resources <<
+/Font 11 0 R
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>>
+/Rotate 90
+/Trans <<
+>>
+/Type /Page
+>>
+endobj
+17 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ]
+/Length 590
+>>
+stream
+Garo>Z#8;M&;KpA`=I&^$C)>PbE`3O8^S:WZ;j/EV?8E@75b`,*,.K(d<@63f8uQU*&nr-J+rJn&h-`"GW.d)=6&=B$(7Jn6-dCWof^%==0\>_c==O#fi6ja,o.pFKbS*$Q)K%7J(A??`5mIIX9OY+Uq"f2W.1RkIgjRi&[B<#BU4SK!6p28*Kt5jrie0E"8l;:%OiVY^SI<qU,YtbD*/$AWf*Uk_s_Eg'MO-E0*,98+cs[c0nLbE]6gkp`B+4n!KH,Jm013/B]WYCH;`>H%SPM9gS-JCA%P[],FNg;T4CFjpd3scp=__B`jYL@A_U=o0$pP5ko&@N'_L$03,BU"@;CH1G];GapiW@*4OcV9ekF1sMa]O,1sTup40f;A+OcJ/W96#a?u"9ZNO&q;lBeS'7B9;6C^=bm827bEd-@hVnlV<nH4OXA.hq*@n7:A+@Se(jnTqr+a>E>Zb]_/Do=PdfJ^`'4^W,;V>]9`d'Sj_ug[cU6+=ec=!-f]G:\YTeIkTtqG+'A"N--_g=N'>d,N789ejWT0,/tj\!8^GfIm"=!.ZP_gjkG>s<?YmZPfV;Zc&^;_q?Jb:(+f~>
+endstream
+endobj
+18 0 obj
+<<
+/Contents 19 0 R
+/MediaBox [ 0 0 841.8898 595.2756 ]
+/Parent 8 0 R
+/Resources <<
+/Font 11 0 R
+/ProcSet [ /PDF /Text /ImageB /ImageC /ImageI ]
+>>
+/Rotate 0
+/Trans <<
+>>
+/Type /Page
+>>
+endobj
+19 0 obj
+<<
+/Filter [ /ASCII85Decode /FlateDecode ]
+/Length 480
+>>
+stream
+Garo=bDI5n&4Q?b'mH&KUU9l+O10C#?ijIfA6j)>>KVms9hB1ts*_*uK,l>m#jK2h*-!P[<3YI(!q;o(q_&_n7Xor*9oJuOTDQ6`f<FS(DbYZ%?cj.R$=22MHIK"D#JBlrBZdDiJ5;)"n,pC?*0ik[1;63W'E,OYG&=fWn,CFH2f$mVZ5[<DNC3>pZB'#6CLD!F2?+8*]>eYo@D27='.Jo5PClY%Me'l]&'4[=EDiDb$P$$r*@!*GI]&tL18g'Sl80l@Y8N?5,U+q!QOu;cU?jW2j8!i#.asu3<UP]8#6uo/IKmp.KG$)5D1nP\r7/3'Zb>"h(c].EO#TRV`5uY)n0@3^+jGWA-.'T!BB9k_-qDjNA`+<UO"<eIRX#(u@FjM7X:RAXP_=tF=jeB01egZ$'TjEthtERZn1X&-;=H"(F>LtFGhlZD-Q5"5gZ^8tA\#t=s1MZQmnMQf>;T>GZr_,"r;rA?b@U~>
+endstream
+endobj
+20 0 obj
+<<
+/Author (Theo Graph)
+/CreationDate (D\07220000101000000\05300\04700\047)
+/Creator (myLibrary test corpus \050tests\057make\137test\137library\056py\051)
+/Keywords ()
+/ModDate (D\07220000101000000\05300\04700\047)
+/Producer (myLibrary test corpus \050tests\057make\137test\137library\056py\051)
+/Subject (computer science)
+/Title (Algorithms by Example)
+/Trapped /False
+>>
+endobj
+xref
+0 21
+0000000000 65535 f 
+0000000015 00000 n 
+0000000099 00000 n 
+0000000170 00000 n 
+0000000257 00000 n 
+0000000362 00000 n 
+0000000462 00000 n 
+0000000662 00000 n 
+0000001224 00000 n 
+0000001303 00000 n 
+0000001504 00000 n 
+0000001822 00000 n 
+0000001888 00000 n 
+0000001996 00000 n 
+0000002109 00000 n 
+0000002219 00000 n 
+0000002325 00000 n 
+0000002528 00000 n 
+0000003210 00000 n 
+0000003412 00000 n 
+0000003984 00000 n 
+trailer
+<<
+/Size 21
+/Root 1 0 R
+/Info 20 0 R
+/ID [ <2e559121a67ff4dbf2ce19a9d55a8e2e> <2e559121a67ff4dbf2ce19a9d55a8e2e> ]
+>>
+startxref
+4375
+%%EOF

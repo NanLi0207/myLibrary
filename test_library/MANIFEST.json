@@ -1,0 +1,458 @@
+{
+  "library_id": "6f1c2a9e-3b7d-4e58-9a0c-1d2e3f405162",
+  "generator": "tests/make_test_library.py",
+  "documents": [
+    {
+      "id": "6fab383f-5072-4992-9321-c2cc86506da6",
+      "file": "books/lumen-2024-primer-geometrical-optics.pdf",
+      "type": "book",
+      "title": "A Primer of Geometrical Optics",
+      "subject": "physics/optics",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "caef3b89acd96902937316ae3ab3b24bc8a5344f50c8752e094309e1dd1375e4",
+      "bytes": 6677,
+      "pages": 4,
+      "features": [
+        "native text",
+        "bookmarks",
+        "multi-chapter",
+        "equations",
+        "table",
+        "figure",
+        "PDF annotations (highlight, sticky note)"
+      ],
+      "expect": {
+        "text": true,
+        "outline": 3,
+        "first_page_contains": "Geometrical Optics",
+        "annotations": 2
+      }
+    },
+    {
+      "id": "f7bfc074-91e2-4ce0-98da-9cfdb9b71904",
+      "file": "books/vector-2023-notes-linear-algebra.pdf",
+      "type": "book",
+      "title": "Notes on Linear Algebra",
+      "subject": "mathematics",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "17c8ed8b6840400819a37591dedf8a809ca5d127335d6d8ed8430973dd484f1a",
+      "bytes": 5747,
+      "pages": 6,
+      "features": [
+        "native text",
+        "printed contents page, no bookmarks",
+        "multi-chapter"
+      ],
+      "expect": {
+        "text": true,
+        "outline": 0,
+        "first_page_contains": "Linear Algebra"
+      }
+    },
+    {
+      "id": "cde9bf07-3628-4a41-bd3d-634237aed39c",
+      "file": "books/graph-2022-algorithms-example.pdf",
+      "type": "book",
+      "title": "Algorithms by Example",
+      "subject": "computer science",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "0701d5b5556b35676776f37a7ab1dc99df5deba0e5d21dcdc5b410140e909d3e",
+      "bytes": 4952,
+      "pages": 4,
+      "features": [
+        "native text",
+        "bookmarks",
+        "code listing",
+        "landscape page (last chapter)",
+        "page rotated by 90 degrees (page 3)"
+      ],
+      "expect": {
+        "text": true,
+        "outline": 3,
+        "rotated_pages": [
+          3
+        ],
+        "landscape_pages": [
+          4
+        ],
+        "first_page_contains": "Algorithms"
+      }
+    },
+    {
+      "id": "94d23a3d-3b0c-4a21-8456-4351292c1271",
+      "file": "books/li-2021-short-history-writing.pdf",
+      "type": "book",
+      "title": "A Short History of Writing",
+      "subject": "humanities",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "6c4d2ef84184b083c9cac86683efb103e31d5d9dc46bd547bbd9d6adcba2218c",
+      "bytes": 6259,
+      "pages": 4,
+      "features": [
+        "Chinese text (STSong-Light, not embedded)",
+        "Unicode accents and symbols",
+        "bookmarks"
+      ],
+      "expect": {
+        "text": true,
+        "outline": 3,
+        "first_page_contains": "History of Writing"
+      }
+    },
+    {
+      "id": "93579638-7741-4575-9f69-dd3da3a606bc",
+      "file": "books/cell-2020-cell-biology-field-guide.pdf",
+      "type": "book",
+      "title": "Cell Biology Field Guide",
+      "subject": "biology",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "014dcf863c64fd4d70b00806fd2c63bbd24b09b3dec5eea9fc18ca435864f74b",
+      "bytes": 97967,
+      "pages": 3,
+      "features": [
+        "image-only scan (no text layer)",
+        "slightly skewed pages"
+      ],
+      "expect": {
+        "text": false
+      }
+    },
+    {
+      "id": "f23d1178-c524-4eaf-9861-16a33d7b9524",
+      "file": "books/bone-2019-human-anatomy-review-sheets.pdf",
+      "type": "book",
+      "title": "Human Anatomy Review Sheets",
+      "subject": "medicine",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "f25ca3d850b76cd95f0a9f0f9370f4691dbb84bfc4502319ca7879570999c79f",
+      "bytes": 94900,
+      "pages": 3,
+      "features": [
+        "scan with a genuine OCR text layer (rapidocr, invisible Helvetica text)"
+      ],
+      "expect": {
+        "text": true,
+        "ocr": true,
+        "first_page_contains": "Anatomy"
+      }
+    },
+    {
+      "id": "6fa7184a-4e6f-465e-ba80-9fb95baaac90",
+      "file": "books/mean-2018-statistics-mixed-pages.pdf",
+      "type": "book",
+      "title": "Statistics with Mixed Pages",
+      "subject": "mathematics",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "7db5a0102bfc1ff3549441ad9821184e0510a5f06535e86c295fe93a6aded67c",
+      "bytes": 81730,
+      "pages": 4,
+      "features": [
+        "mixed: pages 1-2 searchable, pages 3-4 image-only"
+      ],
+      "expect": {
+        "text": true,
+        "image_only_pages": [
+          3,
+          4
+        ]
+      }
+    },
+    {
+      "id": "14b61393-0edd-4639-9d2b-09f7071648a5",
+      "file": "books/unknown--field-notes-without-metadata.pdf",
+      "type": "book",
+      "title": "Field Notes Without Metadata",
+      "subject": "social sciences",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "aebc846772bc3508a4418c0d999e09a498790df97dd670d77a14a54a661fc1dd",
+      "bytes": 1814,
+      "pages": 1,
+      "features": [
+        "incomplete metadata: no author, no year, empty PDF Info"
+      ],
+      "expect": {
+        "text": true
+      }
+    },
+    {
+      "id": "5483d057-5dd1-44ae-bc93-6f9ff4897f49",
+      "file": "books/format-1999-legacy-document-structure.pdf",
+      "type": "book",
+      "title": "A Legacy Document Structure",
+      "subject": "computer science",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "42bc1c7f1bba04f7f5180898268213daf4e2b3a09eb8f00b14bc154bfb39b641",
+      "bytes": 2517,
+      "pages": 2,
+      "features": [
+        "PDF 1.3 header",
+        "classic xref table",
+        "Type1 Helvetica, no embedded fonts"
+      ],
+      "expect": {
+        "text": true,
+        "pdf_version": "1.3"
+      }
+    },
+    {
+      "id": "9fc5c34a-33a4-400d-a804-9d981331d79f",
+      "file": "papers/node-2024-sparse-graphs-fast-search.pdf",
+      "type": "paper",
+      "title": "Sparse Graphs for Fast Search: A Synthetic Study",
+      "subject": "computer science",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "257f7431da9d001ec523ed1b34db55a8c101bf9741972c79598d708f3db9f24d",
+      "bytes": 3737,
+      "pages": 2,
+      "features": [
+        "two-column layout",
+        "figure (bar chart)",
+        "DOI in the 10.5555 test prefix"
+      ],
+      "expect": {
+        "text": true,
+        "first_page_contains": "Sparse Graphs"
+      }
+    },
+    {
+      "id": "f8bbb5a6-1ce8-4366-af6f-fac2188f4114",
+      "file": "papers/photon-2023-thermal-lensing-synthetic-laser-rod.pdf",
+      "type": "paper",
+      "title": "Thermal Lensing in a Synthetic Laser Rod",
+      "subject": "physics/optics",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "9115a8ebb92ab16a775ffb68e4621161e6717dffe77240e889729b9ff1459241",
+      "bytes": 4236,
+      "pages": 2,
+      "features": [
+        "two-column layout",
+        "equations",
+        "table"
+      ],
+      "expect": {
+        "text": true
+      }
+    },
+    {
+      "id": "57960acb-5d8f-4cbb-bc29-bb68f2aaada0",
+      "file": "papers/pulse-2022-synthetic-cohort-study-sleep-memory.pdf",
+      "type": "paper",
+      "title": "A Synthetic Cohort Study of Sleep and Memory",
+      "subject": "biology/medicine",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "f30d3354c81721d252981788076a5d04394eba9801cc880ed82a5ce254df0ef2",
+      "bytes": 4620,
+      "pages": 2,
+      "features": [
+        "AES-256 encrypted, empty user password (opens without one)"
+      ],
+      "expect": {
+        "text": true,
+        "encrypted": true
+      }
+    },
+    {
+      "id": "3ae79daf-9785-49b4-8965-3dfab62f9a22",
+      "file": "papers/node-2023-sparse-graphs-fast-search.pdf",
+      "type": "paper",
+      "title": "Sparse Graphs for Fast Search: A Synthetic Study (Preprint)",
+      "subject": "computer science",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "6b3893b052c813fd9b7b1e5524c0a3eff661912d0cb32692733e221202db5b69",
+      "bytes": 3740,
+      "pages": 2,
+      "features": [
+        "near-duplicate of the 2024 paper: preprint, no DOI; kept as its own item"
+      ],
+      "expect": {
+        "text": true
+      }
+    },
+    {
+      "id": "b1bfbc17-5be4-4b6c-82a9-26995dde02b5",
+      "file": "papers/survey-2021-reading-habits-students.pdf",
+      "type": "paper",
+      "title": "Reading Habits of Students: A Synthetic Survey",
+      "subject": "social sciences",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "c7787e801421be32dfa095ccadb053b2b3bd1f7feafc213330eb8e9221909766",
+      "bytes": 2414,
+      "pages": 1,
+      "features": [
+        "one-column",
+        "table"
+      ],
+      "expect": {
+        "text": true
+      }
+    },
+    {
+      "id": "919f34ff-956c-4c54-80bb-573e30ea236f",
+      "file": "theses/proof-2020-learning-shortest-paths-synthetic-graphs.pdf",
+      "type": "thesis",
+      "title": "Learning Shortest Paths on Synthetic Graphs",
+      "subject": "computer science/mathematics",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "1985ad09fbe073b9953b62218be8775d49d61ca087bd88085571911be175159e",
+      "bytes": 9169,
+      "pages": 9,
+      "features": [
+        "thesis title page",
+        "contents page",
+        "bookmarks",
+        "references",
+        "appendix",
+        "table"
+      ],
+      "expect": {
+        "text": true,
+        "outline": 7
+      }
+    },
+    {
+      "id": "5ebd6a73-feab-4053-8ebe-ff2c429f0a01",
+      "file": "theses/zhang-2021-urban-memory-oral-history.pdf",
+      "type": "thesis",
+      "title": "Urban Memory and Oral History",
+      "subject": "humanities",
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)",
+      "sha256": "bcf54617a865d891888fa04a23649a0fda95e669568070ea5bd08b6f0f68e345",
+      "bytes": 10310,
+      "pages": 9,
+      "features": [
+        "Chinese title page (硕士学位论文)",
+        "contents",
+        "references",
+        "appendix"
+      ],
+      "expect": {
+        "text": true,
+        "outline": 7
+      }
+    },
+    {
+      "id": "c57d06cb-85a1-4c94-970d-dd9b9d0a3526",
+      "file": "papers/collard-2023-optimizing-internal-phase-reference-shape.pdf",
+      "type": "paper",
+      "title": "Optimizing the internal phase reference to shape the output of a multimode optical fiber",
+      "subject": "physics/optics",
+      "source": "real",
+      "source_url": "https://doi.org/10.1371/journal.pone.0290300",
+      "pdf_url": "https://journals.plos.org/plosone/article/file?id=10.1371/journal.pone.0290300&type=printable",
+      "licence": "CC BY 4.0",
+      "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Collard L, Piscopo L, Pisano F, Zheng D, De Vittorio M, Pisanello F (2023) Optimizing the internal phase reference to shape the output of a multimode optical fiber. PLoS ONE 18(9): e0290300. https://doi.org/10.1371/journal.pone.0290300. Licensed under CC BY 4.0; unchanged.",
+      "evidence": "Article page (journals.plos.org, checked 2026-11-09): \"This is an open access article distributed under the terms of the Creative Commons Attribution License\", linked to creativecommons.org/licenses/by/4.0/; the same statement is printed on page 1 of the PDF. No figure is marked as reproduced from elsewhere.",
+      "sha256": "bb943236476a97bae2ce84f0455c35f9cf535bd55a8977da727372e65b5a32e1",
+      "bytes": 2602652,
+      "pages": 12,
+      "features": [
+        "real research paper",
+        "PDF 1.6, publisher typesetting, embedded fonts",
+        "figures, equations, references",
+        "12 pages"
+      ],
+      "expect": {
+        "text": true,
+        "first_page_contains": "e0290300"
+      }
+    },
+    {
+      "id": "3f959bb0-9c15-4d7d-ba77-d61059dde8f8",
+      "file": "papers/dashnow-2014-ten-simple-rules-writing-plos.pdf",
+      "type": "paper",
+      "title": "Ten Simple Rules for Writing a PLOS Ten Simple Rules Article",
+      "subject": "computational biology / scientific writing",
+      "source": "real",
+      "source_url": "https://doi.org/10.1371/journal.pcbi.1003858",
+      "pdf_url": "https://journals.plos.org/ploscompbiol/article/file?id=10.1371/journal.pcbi.1003858&type=printable",
+      "licence": "CC0 1.0 (public domain dedication)",
+      "licence_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attribution": "None required (CC0). Given as courtesy: Dashnow H, Lonsdale A, Bourne PE (2014) Ten Simple Rules for Writing a PLOS Ten Simple Rules Article. PLoS Comput Biol 10(10): e1003858. https://doi.org/10.1371/journal.pcbi.1003858.",
+      "evidence": "Article page (journals.plos.org, checked 2026-11-09): \"... may be freely reproduced, distributed, transmitted, modified, built upon, or otherwise used by anyone for any lawful purpose. The work is made available under the Creative Commons CC0 public domain dedication.\"; the same statement is printed on page 1 of the PDF.",
+      "sha256": "93b6752052ef18f987fee5be87009e5027be03bf78624ea160c9229bb20db5e9",
+      "bytes": 451576,
+      "pages": 5,
+      "features": [
+        "real article (editorial format)",
+        "public domain (CC0)",
+        "5 pages"
+      ],
+      "expect": {
+        "text": true,
+        "first_page_contains": "e1003858"
+      }
+    }
+  ],
+  "fixtures": [
+    {
+      "file": "fixtures/encrypted-with-password.pdf",
+      "features": [
+        "AES-256, user password 'test'"
+      ],
+      "expect": {
+        "opens_without_password": false,
+        "password": "test"
+      },
+      "sha256": "b5815934bd7165857e1657e2f02943e6e3af0e1bd4118e750d3b3700d7bf8ca6",
+      "bytes": 4991,
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)"
+    },
+    {
+      "file": "fixtures/truncated.pdf",
+      "features": [
+        "cut off at 60 %: no xref, no %%EOF"
+      ],
+      "expect": {
+        "valid": false
+      },
+      "sha256": "8c8a4a0538cc433fcc4b692d836c47cd5626a88823a87cee22b9555ee4755380",
+      "bytes": 3448,
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)"
+    },
+    {
+      "file": "fixtures/not-a-pdf.pdf",
+      "features": [
+        "HTML with a .pdf name"
+      ],
+      "expect": {
+        "valid": false
+      },
+      "sha256": "1327b7d4b7855f8312c16a33ab3e978c20a6acfa84f7871112519fe08d2c83a1",
+      "bytes": 66,
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)"
+    },
+    {
+      "file": "fixtures/Downloaded copy (1).pdf",
+      "features": [
+        "byte-identical copy of books/lumen-2024-primer-geometrical-optics.pdf"
+      ],
+      "expect": {
+        "repeat_of": "6fab383f-5072-4992-9321-c2cc86506da6"
+      },
+      "sha256": "caef3b89acd96902937316ae3ab3b24bc8a5344f50c8752e094309e1dd1375e4",
+      "bytes": 6677,
+      "source": "synthetic",
+      "licence": "synthetic, made for this project (see README)"
+    }
+  ]
+}

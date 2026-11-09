@@ -1,2 +1,5 @@
 # Windows batch files need Windows line endings, whatever git does on other systems
 *.cmd text eol=crlf
+# PDFs (only the public test_library/ has any in git) are binary: never a line-ending change
+*.pdf binary
+*.PDF binary
