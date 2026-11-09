@@ -31,7 +31,7 @@
   const KEYS = {
     open: "myLibrary.notes.open",
     width: "myLibrary.notes.width",
-    last: `myLibrary.notes.last.${docId}`,
+    last: `myLibrary.notes.last.${window.MYLIBRARY_SCOPE || "none"}:${docId}`,  // per library
     readOnly: "myLibrary.notes.readonly",
     view: "myLibrary.notes.view",
   };

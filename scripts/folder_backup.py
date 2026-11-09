@@ -5,9 +5,15 @@ library page's backup for everyone without git (e.g. the ready-to-use package).
 
 Each backup is a dated zip of everything you made: notes, reading progress, vocabulary and
 review progress, topic notes, glossaries, catalog, shelves, scripts, code ("<library name>
-2026-11-06 1530.zip"; the newest KEEP are kept). The PDFs are big and don't change, so they
-don't go into every zip: with "backup_pdfs" they're copied once into "PDFs" next to the zips,
-and later only new or changed ones. A PDF removed from the library stays in the backup.
+[<key>] 2026-11-06 1530.zip"; the newest KEEP are kept). The PDFs are big and don't change, so
+they don't go into every zip: with "backup_pdfs" they're copied once into "PDFs" next to the
+zips, and later only new or changed ones. A PDF removed from the library stays in the backup.
+
+Several libraries can share one backup folder: each one's backups carry its key
+(libraries.scope: its library id and folder), so one library never counts, replaces or deletes
+another's, even when both have the same name. A library without a library id (made before
+libraries had ids) keeps the old names ("<library name> 2026-11-06 1530.zip", PDFs in
+"PDFs/"). The Test & Demo library is never backed up.
 
 The server backs up by itself once a day when it starts (auto_backup), and only when
 something changed since the last zip.
@@ -21,6 +27,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+import libraries
 import paths
 
 LIBRARY = paths.LIBRARY
@@ -31,16 +38,20 @@ PDF_FOLDERS = ("books", "papers", "theses")
 SKIP_TOP = {"archive", ".cache", ".git", "library.html"}
 SKIP_SUFFIXES = {".pdf", ".djvu", ".epub"}
 SKIP_ANYWHERE = {"__pycache__", ".pytest_cache", ".ipynb_checkpoints"}
+# The running server's lock and port note (libraries.hold_library): this computer's, and the
+# lock can't be read while held
+SKIP_FILES = {(".myLibrary", "server.lock"), (".myLibrary", "server.json")}
 ZIP_RE = re.compile(r" (\d{4}-\d{2}-\d{2} \d{4})(?:-\d+)?\.zip$")
 RESTORE = """myLibrary backup / 书库备份
 ================================
 
 这个 zip 里是你的笔记、阅读进度、生词本和书目。恢复：把它解压到书库文件夹里
-（设置 ⚙ Settings 里的 Library folder），再把 "PDFs" 文件夹里的 books、papers、theses
-复制回去，然后在书库页点 ⟳ Refresh（刷新）。
+（设置 ⚙ Settings 里的 Library folder），再把 "PDFs" 文件夹（或其中以本书库命名的文件夹）里的
+books、papers、theses 复制回去，然后在书库页点 ⟳ Refresh（刷新）。
 This zip holds your notes, reading progress, vocabulary and catalog. To restore: unzip it
 into your library folder (⚙ Settings, Library folder), copy books, papers and theses from
-the "PDFs" folder next to it back into that folder, then click ⟳ Refresh on the library page.
+the "PDFs" folder next to it (or its folder named like this zip) back into that folder,
+then click ⟳ Refresh on the library page.
 """
 
 
@@ -54,6 +65,19 @@ def library_name(library: Path) -> str:
     return name or "myLibrary"
 
 
+def backup_name(library: Path) -> str:
+    """The start of this library's backup names: its name, and its key when it has a library
+    id (libraries.scope; one library's backups never match another's)."""
+    name = library_name(library)
+    return f"{name} [{libraries.scope(library)}]" if libraries.info(library)["id"] else name
+
+
+def _pdf_folder(library: Path, dest: Path) -> Path:
+    if libraries.info(library)["id"]:
+        return dest / "PDFs" / backup_name(library)
+    return dest / "PDFs"
+
+
 def your_files(library: Path) -> list[Path]:
     """What goes into the zip: everything in the library but PDFs, archive and caches."""
     found = []
@@ -61,8 +85,10 @@ def your_files(library: Path) -> list[Path]:
         rel = path.relative_to(library)
         if not path.is_file() or rel.parts[0] in SKIP_TOP or path.suffix.lower() in SKIP_SUFFIXES:
             continue
-        if SKIP_ANYWHERE & set(rel.parts) or (
-            rel.parts[0] in PDF_FOLDERS and rel.name == ".gitkeep"
+        if (
+            SKIP_ANYWHERE & set(rel.parts)
+            or rel.parts in SKIP_FILES
+            or (rel.parts[0] in PDF_FOLDERS and rel.name == ".gitkeep")
         ):
             continue
         found.append(path)
@@ -70,11 +96,12 @@ def your_files(library: Path) -> list[Path]:
 
 
 def zips(dest: Path, library: Path) -> list[Path]:
-    """This library's backups in dest, oldest first."""
-    prefix = library_name(library) + " "
+    """This library's backups in dest, oldest first: exactly its name and a time (not those of
+    a library whose name only starts the same, "Physics" and "Physics 2")."""
+    ours_re = re.compile(re.escape(backup_name(library)) + ZIP_RE.pattern)
     if not dest.is_dir():
         return []
-    ours = [p for p in dest.glob("*.zip") if p.name.startswith(prefix) and ZIP_RE.search(p.name)]
+    ours = [p for p in dest.glob("*.zip") if ours_re.fullmatch(p.name)]
     return sorted(ours, key=lambda p: p.stat().st_mtime)
 
 
@@ -96,11 +123,11 @@ def _changed_since(files: list[Path], since: float) -> bool:
 
 
 def _copy_pdfs(library: Path, dest: Path) -> tuple[int, int]:
-    """New or changed PDFs into dest/PDFs/<folder>/; (files copied, bytes)."""
+    """New or changed PDFs into dest/PDFs/[<backup name>/]<folder>/; (files copied, bytes)."""
     copied = size = 0
     for folder in PDF_FOLDERS:
         for pdf in sorted((library / folder).glob("*.pdf")):
-            target = dest / "PDFs" / folder / pdf.name
+            target = _pdf_folder(library, dest) / folder / pdf.name
             info = pdf.stat()
             if target.exists():
                 there = target.stat()
@@ -124,6 +151,8 @@ def back_up(
     """Make a backup now: {"message", "file", "pdfs"}. Raises ValueError with a message the
     page can show when there's no folder or it can't be written."""
     library = library or LIBRARY
+    if libraries.is_test_library(library):
+        raise ValueError("the Test & Demo library isn't backed up (it can be reset instead)")
     settings = paths.load_settings()
     dest = Path(dest if dest is not None else settings.get("backup_folder") or "")
     pdfs = settings.get("backup_pdfs") if pdfs is None else pdfs
@@ -145,11 +174,11 @@ def back_up(
         files, previous[-1].stat().st_mtime
     )):  # fmt: skip
         stamp = datetime.now().strftime("%Y-%m-%d %H%M")
-        target = dest / f"{library_name(library)} {stamp}.zip"
+        target = dest / f"{backup_name(library)} {stamp}.zip"
         n = 1
         while target.exists():  # two backups in one minute
             n += 1
-            target = dest / f"{library_name(library)} {stamp}-{n}.zip"
+            target = dest / f"{backup_name(library)} {stamp}-{n}.zip"
         part = target.with_suffix(".zip.part")
         with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as z:
             z.writestr("RESTORE.txt", RESTORE)
@@ -184,7 +213,7 @@ def auto_backup(library: Path | None = None) -> str:
     library = library or LIBRARY
     settings = paths.load_settings()
     folder = settings.get("backup_folder")
-    if not folder:
+    if not folder or libraries.is_test_library(library):
         return ""
     dest = Path(folder)
     if not dest.is_dir():  # e.g. the USB stick isn't plugged in

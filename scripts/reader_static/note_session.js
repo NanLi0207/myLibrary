@@ -20,6 +20,12 @@
   const DRAFT_WRITE = 300;  // ms: drafts follow the typing closely, without one write per key
   const DRAFT_DAYS = 30;
   const DRAFT_PREFIX = "myLibrary.draft.";
+  // The library's key (libraries.scope: its id and folder), from the server: drafts are kept
+  // under it, so a copy of this library (the same document ids) or another library served on
+  // this port later never sees them. Drafts from before there was a key are shown only in the
+  // default library (MYLIBRARY_LEGACY_DRAFTS), the only one there was then.
+  const SCOPE = String(window.MYLIBRARY_SCOPE || "none");
+  const LEGACY = window.MYLIBRARY_LEGACY_DRAFTS === true;
 
   // --- requests ---------------------------------------------------------------------------
 
@@ -57,7 +63,8 @@
   }
 
   // --- recovery drafts (browser storage on this PC) ----------------------------------------
-  // One per tab and note: "myLibrary.draft.<document id>|<note key>|<tab id>". A reload keeps
+  // One per tab and note: "myLibrary.draft.<library key>:<document id>|<note key>|<tab id>"
+  // (before library keys: "myLibrary.draft.<document id>|<note key>|<tab id>"). A reload keeps
   // the tab id (sessionStorage), so a tab finds its own draft again. Storage may be refused
   // (private window, blocked, full): store() says so, and the panel shows it.
 
@@ -75,7 +82,8 @@
   })();
 
   const drafts = {
-    keyOf: (docId, noteKey, tab = tabId) => `${DRAFT_PREFIX}${docId}|${noteKey}|${tab}`,
+    keyOf: (docId, noteKey, tab = tabId) =>
+      `${DRAFT_PREFIX}${SCOPE}:${docId}|${noteKey}|${tab}`,
     store(docId, noteKey, draft) {
       try {
         localStorage.setItem(drafts.keyOf(docId, noteKey), JSON.stringify(draft));
@@ -95,10 +103,11 @@
     find(docId, noteKey) {
       const found = [];
       try {
-        const prefix = `${DRAFT_PREFIX}${docId}|${noteKey}|`;
+        const prefixes = [`${DRAFT_PREFIX}${SCOPE}:${docId}|${noteKey}|`];
+        if (LEGACY) prefixes.push(`${DRAFT_PREFIX}${docId}|${noteKey}|`);
         for (let i = 0; i < localStorage.length; i++) {
           const storageKey = localStorage.key(i);
-          if (!storageKey?.startsWith(prefix)) continue;
+          if (!prefixes.some((prefix) => storageKey?.startsWith(prefix))) continue;
           try {
             const draft = JSON.parse(localStorage.getItem(storageKey));
             if (typeof draft?.text === "string") found.push({ storageKey, draft });

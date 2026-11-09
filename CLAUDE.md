@@ -210,7 +210,8 @@ Example: `shannon-1997-art-science-optical-design`. The slug is the document's n
 identity (that's its `id`, see above). Inside the library it's the base of:
 
 - `books/<slug>.pdf` (the book itself; never commit or push a book: `.gitignore` excludes every
-  PDF, don't undo that)
+  PDF, don't undo that; its one narrow exception is the public, synthetic `test_library/`,
+  see docs/LIBRARIES.md and test_library/README.md)
 - `notes/<slug>/README.md` (metadata + reading progress, incl. the "Last read" line) and
   `notes/<slug>/chNN-<chapter>.md`
 - `examples/<slug>/` (plain Python scripts `chNN_<topic>.py`, created only when the user clicks

@@ -46,6 +46,7 @@ import book_search
 import catalog
 import find_online
 import folder_backup
+import libraries
 import library_jobs
 import library_page
 import notes_store
@@ -63,6 +64,12 @@ LIBRARY = paths.LIBRARY
 CATALOG = LIBRARY / "catalog.csv"
 CACHE = LIBRARY / ".cache" / "chapter_pages.json"
 TOKEN = secrets.token_urlsafe(24)
+_LIBRARY_LOCK = None  # the library's lock while this server runs (main, libraries.hold_library)
+# This library's key in the browser (recovery drafts: libraries.scope), and whether it's the
+# default library (the only one that can show drafts from before there were several)
+SCOPE = libraries.scope(LIBRARY)
+_default = libraries.configured_library()
+IS_DEFAULT = _default is not None and libraries.same_place(_default, LIBRARY)
 
 _cache_lock = threading.Lock()
 _book_locks: dict[str, threading.Lock] = {}
@@ -355,6 +362,8 @@ def change_settings(updates: dict) -> dict:
         if not folder.is_absolute():
             raise ValueError("choose a full folder path, e.g. D:\\Study\\My Library")
         if folder.resolve() != LIBRARY.resolve():
+            if libraries.is_test_library(folder):  # (its working copy or test_library/ itself)
+                raise ValueError("that's the Test & Demo library: open it with 📚 Library modes")
             paths.ensure_library(folder)
             clean["library"] = folder.as_posix()
             restart = True
@@ -367,7 +376,8 @@ def change_settings(updates: dict) -> dict:
 
 def startup_problem() -> str:
     """Why the library can't be opened as it is ("" if it can): a migration that didn't
-    finish, a catalog still in the old format, or broken ids. Never repaired behind your back."""
+    finish, a catalog still in the old format, or broken ids. Never repaired behind your back.
+    (The canonical Test & Demo library is refused before this, by paths.ensure_library.)"""
     import migrate_ids
 
     if unfinished := migrate_ids.unfinished(LIBRARY):
@@ -701,11 +711,17 @@ class Handler(BaseHTTPRequestHandler):
             # library_page appends "/<file>.pdf" to pdf_base
             api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE,
                    "backup": backup.available(),
-                   "folder_backup": bool(paths.load_settings().get("backup_folder"))}  # fmt: skip
+                   "folder_backup": bool(paths.load_settings().get("backup_folder"))
+                   and not libraries.is_test_library(LIBRARY),
+                   "library": page_library()}  # fmt: skip
             html = library_page.render(api, pdf_base=self.pdf_base)
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
+        if path == "/api/whoami":  # which library this is (libraries.server_at)
+            test = libraries.is_test_library(LIBRARY)
+            about = {"library": str(LIBRARY), "id": libraries.info(LIBRARY)["id"], "test": test}
+            return self._json(HTTPStatus.OK, about)
         if path == "/pdfjs/web/viewer.html" and reading_view.viewer_ready():
-            html = reading_view.viewer_html(TOKEN)
+            html = reading_view.viewer_html(TOKEN, SCOPE, legacy_drafts=IS_DEFAULT)
             return self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
         if found := reading_view.static_file(path):
             return self._send(HTTPStatus.OK, *found)
@@ -861,6 +877,8 @@ class Handler(BaseHTTPRequestHandler):
                     HTTPStatus.OK,
                     {"settings": settings, "editors": paths.EDITORS, "package": paths.IS_PACKAGE},
                 )
+            if self.path.startswith("/api/libraries"):
+                return self._json(HTTPStatus.OK, libraries_api(self.path, body))
             if self.path == "/api/pick-folder":
                 purpose = "backup" if body.get("purpose") == "backup" else "library"
                 return self._json(HTTPStatus.OK, {"folder": pick_folder(purpose)})
@@ -973,6 +991,50 @@ class Handler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": shown_error(e)})
 
 
+def page_library() -> dict:
+    """The library this server shows, for its page: Test & Demo or personal, and its label."""
+    try:
+        return libraries.current(LIBRARY)
+    except (libraries.LibraryError, safe_io.DamagedFile, OSError) as e:
+        print(f"  ! the list of libraries can't be read: {e}")
+        return {"mode": "test" if libraries.is_test_library(LIBRARY) else "personal",
+                "label": LIBRARY.name, "path": str(LIBRARY), "key": ""}  # fmt: skip
+
+
+def libraries_api(path: str, body: dict) -> dict:
+    """The library list (Switch library / 切换书库): /api/libraries[/<action>]. Errors come
+    back as {"error"} with the folder named in full: it's one you chose, on this computer."""
+    action = path.removeprefix("/api/libraries").strip("/")
+    key, folder = str(body.get("key") or ""), str(body.get("folder") or "").strip()
+    label = str(body.get("label") or "")
+    try:
+        if action == "":
+            test = libraries.TEST_CANONICAL.joinpath("library.toml").is_file()
+            listed, here = libraries.personal(), libraries.current(LIBRARY)
+            return {"current": here, "personal": listed, "test_available": test}
+        if action == "check":
+            return {"check": libraries.check(folder)}
+        if action == "register":
+            return {"library": libraries.register(folder, label)}
+        if action == "create":
+            return {"library": libraries.create(folder, label)}
+        if action == "rename":
+            return {"library": libraries.rename(key, label)}
+        if action == "unregister":
+            return {"library": libraries.unregister(key)}
+        if action == "relocate":
+            return {"library": libraries.relocate(key, folder)}
+        if action == "open":  # another server shows it; this one keeps running as it is
+            if body.get("mode") == "test":
+                return {"url": libraries.open_test()}
+            return {"url": libraries.open_personal(key)}
+    except (libraries.LibraryError, safe_io.DamagedFile) as e:
+        return {"error": str(e)}
+    except OSError as e:
+        return {"error": f"{e.strerror or e}: {e.filename or ''}".strip(": ")}
+    raise ValueError("unknown library action")
+
+
 def restart_later(server) -> None:
     """Start a fresh server (it reads the new settings) once this one has let go of its port;
     the page reloads itself when the new one answers."""
@@ -1068,13 +1130,37 @@ def main() -> None:
     )
     paths.add_argument(parser)
     args = parser.parse_args()
+    if args.no_download:  # the servers this one starts (another library) stay offline too
+        libraries.SERVER_ARGS.append("--no-download")
     paths.ensure_library()
+    # The library's lock, before anything else touches it (recovery included): a second
+    # server of this library, started at the same moment, opens the first one instead (L15)
+    global _LIBRARY_LOCK
+    _LIBRARY_LOCK, holder = libraries.hold_or_find(LIBRARY)
+    if _LIBRARY_LOCK is None:
+        if holder is not None:
+            print(f"myLibrary already shows this library at http://127.0.0.1:{holder}; opening it.")
+            if not args.no_browser:
+                webbrowser.open(f"http://127.0.0.1:{holder}")
+            return
+        sys.exit(
+            "This library is in use by another myLibrary that doesn't answer on any known port "
+            "(still starting, or started with an unusual --port). Quit it first, or wait and "
+            "try again."
+        )
     if problem := startup_problem():
         sys.exit(problem)
     for done in add_book.recover_operations():  # a rename an interruption left halfway
         print(f"  {done}")
 
     url = f"http://127.0.0.1:{args.port}"
+    # Already shown by a server on another port: open that one (two servers must never write
+    # the same library: their file locks don't see each other)
+    if (elsewhere := libraries.find_server(LIBRARY, skip=args.port)) is not None:
+        print(f"myLibrary already shows this library at http://127.0.0.1:{elsewhere}; opening it.")
+        if not args.no_browser:
+            webbrowser.open(f"http://127.0.0.1:{elsewhere}")
+        return
     if (running := already_running(args.port)) is not None:
         if not running or Path(running).resolve() != LIBRARY.resolve():
             sys.exit(
@@ -1091,6 +1177,7 @@ def main() -> None:
     except OSError as e:
         sys.exit(f"Port {args.port} is used by another program ({e}); try --port 8766")
     url = f"http://127.0.0.1:{server.server_port}"
+    libraries.note_port(LIBRARY, server.server_port)
     print(f"myLibrary at {url}  (Ctrl+C to stop)")
     threading.Thread(target=warm_cache, daemon=True).start()
     threading.Thread(target=auto_backup, daemon=True).start()

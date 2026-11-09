@@ -115,7 +115,8 @@ in a **minimized window**.
 | 操作 Action | 怎么做 How |
 |---|---|
 | 启动 Start | 双击 **myLibrary** 快捷方式，或运行 `uv run scripts/library_server.py`。书库页面会在浏览器中打开：`http://127.0.0.1:8765`。Double-click the **myLibrary** shortcut, or run `uv run scripts/library_server.py`. The library page opens in your browser at `http://127.0.0.1:8765`. |
-| 已经在运行时再次启动 Start again while running | 只会重新打开页面。如果另一个 myLibrary 正在用**另一个**书库运行，会提示你先退出它或换端口。It just opens the page again. If another myLibrary is running with a **different** library, it tells you to quit that one or use another port. |
+| 已经在运行时再次启动 Start again while running | 只会重新打开页面（该书库已在其他端口运行时也一样）。如果另一个 myLibrary 正在用**另一个**书库运行，会提示你先退出它或换端口。It just opens the page again (also when that library is already open on another port). If another myLibrary is running with a **different** library, it tells you to quit that one or use another port. |
+| 多个书库 Several libraries | 在源码目录中双击 **Start myLibrary Dev.cmd**，先选**书库模式**：私人书库 (Personal Libraries) 或 测试/示例书库 (Test & Demo)；书库页面上的 **📚 切换书库 (Switch library)** 也可以切换。见 [docs/LIBRARIES.md](docs/LIBRARIES.md)（也讲如何把整个书库复制到另一台电脑）。In a source checkout, double-click **Start myLibrary Dev.cmd** and choose a **Library Mode** first; **📚 Switch library** on the library page switches too. See [docs/LIBRARIES.md](docs/LIBRARIES.md) (also: copying a whole library to another computer). |
 | 停止 Stop | 书库页面上的 **Quit**；或关闭最小化的服务器窗口；在终端中按 Ctrl+C。你在每本书中的位置已经保存。**Quit** on the library page; or close the minimized server window; or Ctrl+C in the terminal. Your place in each book is already saved. |
 | 换端口 Another port | `uv run scripts/library_server.py --port 8766` |
 

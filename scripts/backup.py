@@ -15,6 +15,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import libraries
 import paths
 
 LIBRARY = paths.LIBRARY
@@ -38,7 +39,11 @@ def git(*args: str, check: bool = True) -> str:
 
 
 def available() -> bool:
-    """Is the library inside a git repository whose branch has a remote to push to?"""
+    """Is the library inside a git repository whose branch has a remote to push to? Never
+    for the Test & Demo library (its working copy sits in the tool's folder, but is no part of
+    the repository)."""
+    if libraries.is_test_library(LIBRARY):
+        return False
     try:
         git("rev-parse", "--show-toplevel")
         return bool(git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"))

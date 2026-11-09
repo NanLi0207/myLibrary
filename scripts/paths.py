@@ -22,6 +22,7 @@ import os
 import shutil
 import sys
 import tomllib
+import uuid
 from pathlib import Path
 
 import safe_io
@@ -172,8 +173,17 @@ def display(path: Path) -> str:
         return path.resolve().as_posix()
 
 
+# This computer's own records, next to the settings file and never inside a library or in git:
+# the list of your libraries (libraries.json), the Test & Demo library's working copy, the
+# logs of servers the launcher started (scripts/libraries.py)
+LOCAL_DIR = SETTINGS_FILE.parent / ".myLibrary-local"
+CANONICAL_TEST_LIBRARY = "test_library"  # in the tool's folder (libraries.TEST_CANONICAL)
+
 LIBRARY_TOML = """# This library's settings.
 name = "My library"
+# This library's own permanent id (its documents have their own, in catalog.csv). It travels
+# with the folder: a moved library is still the same one. Don't change it.
+id = "{id}"
 
 # Shelves group your books by subject; a book can be on several (catalog.csv, column
 # "shelves"). Each new item is put on its subject's shelf (from OpenAlex), and you can add
@@ -187,12 +197,23 @@ name = "My library"
 
 def ensure_library(library: Path | None = None) -> Path:
     """Create the library's folders if they're missing; a library chosen by default is
-    remembered in the settings file so the next start uses the same one."""
+    remembered in the settings file so the next start uses the same one. Never the canonical
+    Test & Demo library (test_library/, kept unchanged in git): only its working copy is used."""
     library = library or LIBRARY
+    canonical = os.path.normcase(str((APP / CANONICAL_TEST_LIBRARY).resolve()))
+    here = os.path.normcase(str(Path(library).resolve()))
+    if here == canonical or here.startswith(canonical + os.sep):
+        raise SystemExit(
+            "test_library/ is the canonical Test & Demo library, kept unchanged in git: open its "
+            "working copy instead (uv run scripts/launch_library.py --test)"
+        )
     for sub in ("books", "papers", "theses", "notes/topics", "glossaries", "examples"):
         (library / sub).mkdir(parents=True, exist_ok=True)
     if not (library / "library.toml").exists():
-        (library / "library.toml").write_text(LIBRARY_TOML, encoding="utf-8")
+        try:  # (never over one that appeared meanwhile)
+            safe_io.create_text(library / "library.toml", LIBRARY_TOML.format(id=uuid.uuid4()))
+        except FileExistsError:
+            pass
     if library == LIBRARY and LIBRARY_SOURCE == "default" and "library" not in _saved():
         save_settings({"library": library.as_posix()})
         print(f"New library created: {library}")

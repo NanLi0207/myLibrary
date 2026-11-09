@@ -425,6 +425,22 @@ dialog.find { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48
   padding: 0 6px; margin-left: 5px; }
 .tool .count[hidden] { display: none; }
 dialog.review { width: min(520px, calc(100vw - 32px)); }
+dialog.libraries { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+.libraries h2 small, .libraries .modes small { font-size: 13px; font-weight: normal; color: var(--muted); }
+.libraries .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.libraries .modes button { padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 16px; }
+.libraries ul { list-style: none; padding: 0; margin: 0 0 12px; }
+.libraries li { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.libraries li .where { color: var(--muted); font-size: 12px; word-break: break-all; }
+.libraries li .badge { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; margin-left: 6px; }
+.libraries li .row { margin-top: 6px; flex-wrap: wrap; }
+.libraries li.gone { opacity: 0.75; }
+.libraries .report { font-size: 12.5px; margin-top: 8px; }
+.libraries .report .bad { color: #b3261e; }
+.test-banner { background: #fff4ce; color: #3d3100; border: 1px solid #e5c44a; border-radius: 8px; padding: 6px 10px;
+  margin: 0 0 10px; font-size: 13.5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.test-banner button { font: inherit; font-size: 12.5px; cursor: pointer; }
+.test-banner[hidden] { display: none; }
 .review .top { display: flex; justify-content: space-between; align-items: center; gap: 10px;
   font-size: 13px; color: var(--muted); }
 .review .top h2 { margin: 0; }
@@ -489,6 +505,9 @@ code { font-size: 12.5px; }
 <body>
 <main>
   <header>
+    <div class="test-banner" id="testBanner" hidden><b>🧪 测试/示例书库 (Test &amp; Demo library)</b>
+      <span>这里的改动不会影响你的私人书库 (changes here never touch your personal libraries)</span>
+      <button type="button" id="bannerModes">书库模式 (Library modes)</button></div>
     <div class="topbar"><h1>myLibrary</h1><div class="tools" id="tools"></div></div>
     <p class="stats"><span id="stats"></span><button type="button" class="log-link" id="openLog" hidden></button></p>
   </header>
@@ -550,6 +569,32 @@ code { font-size: 12.5px; }
 <div class="dropzone" id="dropzone" hidden>
   <div>Drop PDFs here to add them<small>Books, papers and theses are recognised automatically</small></div>
 </div>
+<dialog id="librariesDialog" class="libraries">
+  <section id="libModes">
+    <h2>选择书库模式 <small>Choose a Library Mode</small></h2>
+    <div class="modes">
+      <button type="button" data-mode="personal"><b>私人书库</b><small>Personal Libraries</small></button>
+      <button type="button" data-mode="test"><b>测试/示例书库</b><small>Test &amp; Demo Library</small></button>
+    </div>
+  </section>
+  <section id="libPersonal" hidden>
+    <h2>私人书库 <small>Personal Libraries</small></h2>
+    <ul id="libList"></ul>
+    <label for="libFolder">文件夹 (Folder): 添加已有书库或新建书库 (to add an existing library, or create a new one)</label>
+    <div class="row"><input type="text" id="libFolder" placeholder="D:\Books\My library">
+      <button type="button" id="libPick">选择… (Choose…)</button></div>
+    <label for="libLabel">名称 (Label, optional)</label>
+    <input type="text" id="libLabel" placeholder="光学研究 Optics Research">
+    <div class="row" style="margin-top:10px">
+      <button type="button" id="libAdd">添加已有书库 (Add existing)</button>
+      <button type="button" id="libCreate">新建书库 (Create new)</button></div>
+    <p class="hint">添加只读取文件夹，不改动任何内容；移出列表也不会删除文件 (Adding only reads the folder;
+      removing from the list never deletes anything).</p>
+    <div class="report" id="libReport"></div>
+  </section>
+  <div class="row end"><button type="button" id="libBack">← 书库模式 (Library modes)</button>
+    <button type="button" id="libClose">关闭 (Close)</button></div>
+</dialog>
 <dialog id="settingsDialog">
   <form method="dialog" id="settingsForm">
     <h2>Settings</h2>
@@ -1264,7 +1309,8 @@ if (API) {
     <button type="button" class="tool" id="findOnline" title="Search for books, papers and theses online: DOI, title, author…">🔎 Find online</button>
     <button type="button" class="tool" id="openReview" title="复习生词 (Review words): the words you saved while reading, as cards (spaced repetition)">📇 Review words<span class="count" id="reviewCount" hidden></span></button>
     ${API.backup ? `<button type="button" class="tool" id="backup" title="Save your notes, progress and vocabulary to GitHub">☁ Back up</button>` : ""}
-    ${!API.backup || API.folder_backup ? `<button type="button" class="tool" id="folderBackup" title="Save your notes, progress and vocabulary (and the PDFs) to your backup folder">💾 Back up</button>` : ""}
+    ${API.library?.mode !== "test" && (!API.backup || API.folder_backup) ? `<button type="button" class="tool" id="folderBackup" title="Save your notes, progress and vocabulary (and the PDFs) to your backup folder">💾 Back up</button>` : ""}
+    <button type="button" class="tool" id="switchLibrary" title="${API.library?.mode === "test" ? "书库模式 (Library modes): personal libraries or Test &amp; Demo" : "切换书库 (Switch library): another of your personal libraries"}">📚 ${API.library?.mode === "test" ? "书库模式 Library modes" : "切换书库 Switch library"}</button>
     <button type="button" class="tool" id="openSettings">⚙ Settings</button>
     <button type="button" class="tool" id="quit" title="Stop myLibrary">Quit</button>`;
   // Add PDFs, from the ＋ Add button or dropped onto the page; other files are skipped
@@ -1452,6 +1498,129 @@ if (API) {
       if (folder) document.getElementById("setLibrary").value = folder;
     } catch (err) {
       toast(`Couldn't open the folder dialog: ${err.message}`);
+    }
+  });
+  // 📚 Libraries: personal libraries (switch, add, create, rename, remove from the list) and
+  // Test & Demo. Opening one starts (or finds) that library's own server; this one keeps
+  // running as it is, so nothing in progress here is cut off.
+  const libDialog = document.getElementById("librariesDialog");
+  const libReport = document.getElementById("libReport");
+  const current = API.library || {mode: "personal", key: "", path: ""};
+  document.getElementById("testBanner").hidden = current.mode !== "test";
+  function libLevel(level) {
+    document.getElementById("libModes").hidden = level !== "modes";
+    document.getElementById("libPersonal").hidden = level !== "personal";
+    document.getElementById("libBack").hidden = level === "modes";
+    if (!libDialog.open) libDialog.showModal();
+    if (level === "personal") showLibraries().catch(err => toast(`Couldn't list the libraries: ${err.message}`));
+  }
+  async function libCall(action, body) {
+    const r = await api(`/api/libraries/${action}`, body);
+    if (r.error) throw new Error(r.error);
+    return r;
+  }
+  async function showLibraries() {
+    const r = await api("/api/libraries", {});
+    if (r.error) throw new Error(r.error);
+    document.getElementById("libList").innerHTML = r.personal.map(l => {
+      const here = current.mode === "personal" && (l.key === current.key || l.path === current.path);
+      const badges = (l.default ? `<span class="badge">默认 default</span>` : "")
+        + (here ? `<span class="badge">当前 open here</span>` : "")
+        + (l.available ? "" : `<span class="badge">找不到 not found</span>`);
+      return `<li class="${l.available ? "" : "gone"}" data-key="${esc(l.key)}" data-label="${esc(l.label)}">
+        <b>${esc(l.label)}</b>${badges}<div class="where">${esc(l.path)}${l.problem ? ` — ${esc(l.problem)}` : ""}</div>
+        <div class="row">
+          ${l.available && !here ? `<button type="button" class="primary" data-lib="open">打开 (Open)</button>` : ""}
+          <button type="button" data-lib="rename">重命名 (Rename)</button>
+          ${l.available ? "" : `<button type="button" data-lib="relocate" title="用下面的文件夹 (uses the folder below)">重新定位 (Locate moved folder)</button>`}
+          ${l.default ? "" : `<button type="button" data-lib="unregister">移出列表 (Remove from list)</button>`}
+        </div></li>`;
+    }).join("") || `<li>还没有私人书库 (No personal libraries yet)</li>`;
+  }
+  function reportHtml(c) {
+    const docs = Object.entries(c.documents || {}).map(([k, n]) => `${n} ${k}`).join(", ");
+    return (c.errors || []).map(e => `<div class="bad">✗ ${esc(e)}</div>`).join("")
+      + (c.warnings || []).map(w => `<div>⚠ ${esc(w)}</div>`).join("")
+      + (c.ok ? `<div>✓ ${esc(c.name || "")} ${docs ? `(${esc(docs)})` : ""}</div>` : "");
+  }
+  async function openLibrary(body, what) {
+    toast(`正在打开 (Opening) ${what}…`);
+    try {
+      location.href = (await libCall("open", body)).url;
+    } catch (err) {
+      toast(`打不开 (Couldn't open): ${err.message}`);
+    }
+  }
+  document.getElementById("switchLibrary").addEventListener("click", () =>
+    libLevel(current.mode === "test" ? "modes" : "personal"));
+  document.getElementById("bannerModes").addEventListener("click", () => libLevel("modes"));
+  document.getElementById("libBack").addEventListener("click", () => libLevel("modes"));
+  document.getElementById("libClose").addEventListener("click", () => libDialog.close());
+  document.querySelector("#libModes .modes").addEventListener("click", e => {
+    const mode = e.target.closest("[data-mode]")?.dataset.mode;
+    if (mode === "personal") return libLevel("personal");
+    if (mode === "test") {
+      if (current.mode === "test") return libDialog.close();
+      openLibrary({mode: "test"}, "测试/示例书库 (Test & Demo library)");
+    }
+  });
+  document.getElementById("libPick").addEventListener("click", async () => {
+    const r = await api("/api/pick-folder", {purpose: "library"}).catch(() => ({}));
+    if (r.folder) document.getElementById("libFolder").value = r.folder;
+  });
+  const libFolder = () => document.getElementById("libFolder").value.trim();
+  const libLabel = () => document.getElementById("libLabel").value.trim();
+  document.getElementById("libAdd").addEventListener("click", async () => {
+    try {
+      const c = (await libCall("check", {folder: libFolder()})).check;
+      libReport.innerHTML = reportHtml(c);
+      if (!c.ok) return;
+      const notes = c.warnings.length ? `\n\n${c.warnings.join("\n")}` : "";
+      if (!confirm(`添加这个书库？(Add this library?)\n${c.path}${notes}\n\n文件夹不会被改动 (The folder isn't changed).`)) return;
+      const added = (await libCall("register", {folder: libFolder(), label: libLabel()})).library;
+      const twin = added.same_id?.length ? ` — 与“${added.same_id.join("”, “")}”书库标识相同：是副本或移动后的书库，不会合并 (same library id: a copy or a moved library; never merged)` : "";
+      toast(`已添加 (Added): ${added.label}${twin}`);
+      showLibraries();
+    } catch (err) {
+      libReport.innerHTML = `<div class="bad">✗ ${esc(err.message)}</div>`;
+    }
+  });
+  document.getElementById("libCreate").addEventListener("click", async () => {
+    if (!libFolder()) return toast("先选一个新的或空的文件夹 (Choose a new or empty folder first)");
+    if (!confirm(`在这里新建一个空书库？(Create a new, empty library here?)\n${libFolder()}`)) return;
+    try {
+      const made = (await libCall("create", {folder: libFolder(), label: libLabel()})).library;
+      toast(`已新建 (Created): ${made.label}`);
+      libReport.innerHTML = "";
+      showLibraries();
+    } catch (err) {
+      libReport.innerHTML = `<div class="bad">✗ ${esc(err.message)}</div>`;
+    }
+  });
+  document.getElementById("libList").addEventListener("click", async e => {
+    const button = e.target.closest("[data-lib]");
+    if (!button) return;
+    const item = button.closest("[data-key]");
+    const key = item.dataset.key, label = item.dataset.label;
+    try {
+      if (button.dataset.lib === "open") return openLibrary({key}, label);
+      if (button.dataset.lib === "rename") {
+        const name = prompt("新名称 (New label) — 文件夹不改名 (the folder keeps its name)", label);
+        if (!name) return;
+        await libCall("rename", {key, label: name});
+      }
+      if (button.dataset.lib === "unregister") {
+        if (!confirm(`把“${label}”移出列表？(Remove “${label}” from the list?)\n文件夹和其中的一切都保持不变 (The folder and everything in it stay as they are).`)) return;
+        await libCall("unregister", {key});
+      }
+      if (button.dataset.lib === "relocate") {
+        if (!libFolder()) return toast("先在下面填写书库的新文件夹 (Enter the library's new folder below first)");
+        const moved = (await libCall("relocate", {key, folder: libFolder()})).library;
+        toast(`已更新位置 (Location updated): ${moved.label}`);
+      }
+      showLibraries();
+    } catch (err) {
+      toast(err.message);
     }
   });
   document.getElementById("quit").addEventListener("click", async () => {

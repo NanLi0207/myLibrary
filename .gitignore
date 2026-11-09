@@ -16,9 +16,15 @@ library/papers/*
 !library/papers/.gitkeep
 library/theses/*
 !library/theses/.gitkeep
+# The one exception: the public Test & Demo library. Its PDFs are synthetic (or openly
+# licensed, each with its source and licence in test_library/README.md) and belong in git
+!/test_library/**/*.pdf
 
 # Which library the tool opens on this computer (see scripts/paths.py)
 local.toml
+# This computer's own records next to it: the list of your libraries, the Test & Demo
+# library's working copy, server logs (paths.LOCAL_DIR, scripts/libraries.py)
+/.myLibrary-local/
 
 # Local-only folders, in the tool and in any library:
 #   .cache/   rebuildable data (PDF viewer, dictionary, search index, chapter pages, OCR)

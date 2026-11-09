@@ -254,11 +254,19 @@ def _app() -> Path:
 def _discover(app: Path) -> list[str]:
     """Where the real library and settings are, as the app would find them now. Read-only: a
     separate process imports `paths` (which only reads its settings) and writes no bytecode."""
+    # (also this computer's own folder, LOCAL_DIR, and every personal library on its list:
+    # read from libraries.json directly, never through the app, which might write)
     code = (
         "import json, os, sys; sys.path.insert(0, sys.argv[1]); import paths; "
-        "s = paths.load_settings(); "
+        "s = paths.load_settings(); local = getattr(paths, 'LOCAL_DIR', None); listed = []\n"
+        "try:\n"
+        "    raw = json.loads((local / 'libraries.json').read_text(encoding='utf-8'))\n"
+        "    listed = [str(e['path']) for e in raw['libraries'] if e.get('path')]\n"
+        "except (OSError, TypeError, ValueError, KeyError):\n"
+        "    pass\n"
         "print(json.dumps({'library': str(paths.LIBRARY), 'settings': str(paths.SETTINGS_FILE), "
-        "'default': str(paths.DEFAULT_LIBRARY), 'backup': s.get('backup_folder') or ''}))"
+        "'default': str(paths.DEFAULT_LIBRARY), 'backup': s.get('backup_folder') or '', "
+        "'local': str(local or ''), 'listed': listed}))"
     )
     done = subprocess.run(
         [sys.executable, "-I", "-B", "-c", code, str(app / "scripts")],
@@ -270,7 +278,9 @@ def _discover(app: Path) -> list[str]:
             f"no test runs:\n{done.stdout}{done.stderr}"
         )
     found = json.loads(done.stdout.strip().splitlines()[-1])
-    places = [found["library"], found["settings"], found["default"]]
+    places = [found["library"], found["settings"], found["default"], *found["listed"]]
+    if found["local"]:
+        places.append(found["local"])
     if found["backup"]:
         backup = Path(found["backup"]).expanduser()
         places.append(str(backup if backup.is_absolute() else app / backup))
@@ -298,7 +308,9 @@ def start() -> dict:
         if chosen := os.environ.get("MYLIBRARY_LIBRARY"):
             places.append(chosen)
         appdata = os.environ.get("APPDATA")
-        places += [str(app / "library"), str(app / "local.toml")]
+        # (test_library/: the canonical Test & Demo library, only ever copied by tests)
+        places += [str(app / "library"), str(app / "local.toml"), str(app / "test_library"),
+                   str(app / ".myLibrary-local")]  # fmt: skip
         if appdata:
             places.append(str(Path(appdata) / "myLibrary"))
     with _lock:
@@ -322,7 +334,7 @@ def start() -> dict:
 
 # Paths that only name a real place without being used as the library here: where a library
 # would be made if none were chosen (one is: the run's). Still protected by the guard
-NAMES_ONLY = {"paths.DEFAULT_LIBRARY"}
+NAMES_ONLY = {"paths.DEFAULT_LIBRARY", "libraries.TEST_CANONICAL"}  # (test_library/: only read)
 
 
 def check_modules() -> None:

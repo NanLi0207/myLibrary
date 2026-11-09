@@ -19,6 +19,7 @@ import codecs
 import csv
 import hashlib
 import io
+import json
 import re
 import shutil
 import sqlite3
@@ -899,10 +900,16 @@ def save_marks(file: str, data: bytes, *, base: str, unconfirmed=()) -> dict:
 # --- serving the viewer -------------------------------------------------------------------
 
 
-def viewer_html(token: str) -> bytes:
+def viewer_html(token: str, scope: str = "", legacy_drafts: bool = False) -> bytes:
     """PDF.js's viewer page, with the lookup popup and the notes panel added (notes.js runs
     after lookup.js, whose helpers it uses, and after preview.js and markdown-it, when the
-    latter is installed: without it, the preview shows the plain text)."""
+    latter is installed: without it, the preview shows the plain text).
+
+    `scope` is the library's key in this browser (libraries.scope): recovery drafts and the
+    last note of a document are kept under it, so another library (a copy with the same
+    document ids, or another library later on the same port) never sees them.
+    `legacy_drafts`: drafts from before libraries had ids had no scope; only the default
+    library shows them (it was the only one then)."""
     html = (PDFJS / "web" / "viewer.html").read_text(encoding="utf-8-sig")
     library = (
         '<script src="/vendor/markdown-it/markdown-it.min.js" defer></script>\n'
@@ -912,7 +919,9 @@ def viewer_html(token: str) -> bytes:
     extra = (
         '<link rel="stylesheet" href="/reader/lookup.css">\n'
         '<link rel="stylesheet" href="/reader/notes.css">\n'
-        f"<script>window.MYLIBRARY_TOKEN = {token!r};</script>\n"
+        f"<script>window.MYLIBRARY_TOKEN = {token!r};"
+        f" window.MYLIBRARY_SCOPE = {json.dumps(scope)};"
+        f" window.MYLIBRARY_LEGACY_DRAFTS = {json.dumps(bool(legacy_drafts))};</script>\n"
         '<script src="/reader/lookup.js" defer></script>\n'
         '<script src="/reader/note_session.js" defer></script>\n'
         f"{library}"

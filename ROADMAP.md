@@ -46,6 +46,9 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   - D16 is fixed (glossary).
   - M5 revised into M5a–M5d (2026-11-08); M5a implemented, awaiting review.
   - No broad refactor: structural cleanup is optional and doesn't delay M5.
+- **Several libraries, Test & Demo library, portable libraries** (requested 2026-11-09, outside
+  the v0.3 order at the user's request; section 4b): implemented, not committed, awaiting
+  review. M5a's CI fixes on the other computer are untouched.
 - **Direction (2026-11-07):** a desktop app later, packaging-friendly code now (CLAUDE.md;
   section 8). Core features first: tasks 4, 5 and 6, then the packaging milestone.
 - **Not released yet:** `pyproject.toml` still says 0.2.5.
@@ -81,6 +84,14 @@ marked **C** were confirmed (code path traced, or reproduced in a scratch copy, 
   vocabulary entries and annotations have no ids of their own yet (task 5).
 - **Notes are edited outside the app.** `open_in_editor` opens VS Code, Notepad or a custom
   editor.
+- **Several libraries** (section 4b, `scripts/libraries.py`). A server still binds to one
+  library at start (`paths.LIBRARY`); each library gets its own server process and port, and
+  switching opens (or reuses) the other library's server, never hot-swapping a running one.
+  The list of personal libraries, the Test & Demo working copy and the launcher's server logs
+  are machine-local (`paths.LOCAL_DIR`, next to the settings file). A library's identity is
+  the optional `id` in its `library.toml` (new libraries get one); browser drafts and backup
+  names are scoped by `libraries.scope` (that id plus the folder). `test_library/` is the
+  canonical, git-tracked Test & Demo library, never opened directly.
 
 ## 2. Gap analysis
 
@@ -812,6 +823,33 @@ are to be fixed before M5, in small separate batches (B25 later, in its own revi
   write the notes README ("Last read", chapter ticks, under a file lock). If the README is
   open with unsaved edits in VS Code, VS Code reports the newer file when it saves, and the
   user chooses.
+- **L16 Browser state doesn't travel with a library.** Recovery drafts, the notes panel's
+  layout and the library page's filters live in the browser (`localStorage`, per port). Drafts
+  are scoped by `libraries.scope`, so they never appear in another library; drafts from before
+  library ids (no scope) are shown only in the default library (`reader.viewer_html`
+  `legacy_drafts`). The library page's filters (shelf, sort, view) are per port, not per
+  library.
+- **L17 Reset of the Test & Demo library is only in the launcher** (`launch_library.py` → 2 →
+  reset, or `libraries.py reset-test`), refused while its server runs. An in-page reset needs
+  the server to stop itself first (follow-up).
+- **L18 Chapter detection on the test corpus** (`book_toc`, recorded by
+  `tests/make_test_library.py`): a scan without bookmarks or a Contents page, and the short
+  hand-written PDF 1.3 file, get no chapter notes; on an OCR'd or mixed book without
+  bookmarks, the first section heading is run into the chapter title ("Means and Medians 1.1
+  The sample mean").
+- **L20 UNRESOLVED: one unidentified failure in the regular suite (2026-11-09).** One full
+  run during the section 4b hardening ended "1 failed, 467 passed, 9 skipped"; which test
+  failed, and why, is unknown. The run's output wasn't saved, `-rs` had replaced the default
+  `-rfE` summary (no `FAILED <node id>` line), and `-p no:cacheprovider` kept pytest from
+  recording `lastfailed`. Not reproduced afterwards: 4 further full runs (468 passed) and 6
+  runs of `tests/test_library_switching.py` (the subprocess and timing-sensitive tests), all
+  passing. It can't be attributed from this evidence; it may or may not be one of those
+  tests. Since then every run writes `test-results/pytest-junit.xml` (pyproject `addopts`:
+  node id, traceback and captured output of each failure). On the next failure:
+  `uv run pytest -rfE --tb=long` and keep that file.
+- **L19 A document with neither author nor year gets a slug with two hyphens**
+  (`add_book.Book.base_slug`: `unknown--field-notes-without-metadata`). It works and only
+  looks odd. Left as it is; the test corpus records it.
 
 ### Example library data (`library/`)
 
@@ -2887,7 +2925,7 @@ values, local, no CDN and no build step.
 
 - [ ] **Fix the backups:**
   - `backup.py` uses `-c core.quotepath=false`.
-  - `folder_backup.zips` matches the exact library name.
+  - [x] `folder_backup.zips` matches the exact library name (done in section 4b).
   - Clear archive keeps `before-marks/` and OCR originals unless they are ticked separately.
 - [ ] **"Restore from backup"** into a new folder, never over the current library.
 - [ ] **Tests:** back up and restore into a clean folder, then check the library opens with
@@ -2906,6 +2944,72 @@ values, local, no CDN and no build step.
 passes.
 
 ---
+
+## 4b. Several libraries, the Test & Demo library, portable libraries (2026-11-09)
+
+Requested by the user on 2026-11-09 as its own milestone; user guide in
+[docs/LIBRARIES.md](docs/LIBRARIES.md). Done, **not committed** (awaiting review):
+
+- [x] **Library identity:** optional `id` in `library.toml`, written for new libraries only
+  (`paths.ensure_library`); no migration of existing libraries. Document ids are untouched.
+- [x] **Read-only check of a folder** (`libraries.check`): refuses non-libraries, old-format
+  catalogs (`migrate_ids.py` as before), broken ids, the Test & Demo library; warns about
+  missing PDFs or notes folders, absolute or `..` paths, links and junctions out of the
+  library, journals, no library id. Never writes.
+- [x] **Machine-local list of personal libraries** (`.myLibrary-local/libraries.json`, via
+  `safe_io.update_json` with `.bak`): register, create, rename (label only), unregister (never
+  the folder), relocate a moved library (same library id required). The settings' library is
+  always listed as the default; duplicate folders refused; the same library id at two folders
+  is allowed and reported, never merged.
+- [x] **One server per library:** ports 8765 (default), 8766 (Test & Demo), 8767+ (others,
+  stored per entry); `/api/whoami`; a running server of the library is reused on any port, a
+  port showing another library is never used for it; `library_server.py` itself now opens the
+  running server of the same library instead of starting a second one.
+- [x] **L15 fixed (pre-commit hardening):** launches at the same moment. A server holds its
+  library's lock (`libraries.hold_library`: an operating-system lock on
+  `.myLibrary/server.lock`, released by the system however the process ends, so never
+  stale) from before recovery or any other write until it ends, and notes its port in
+  `.myLibrary/server.json` (a hint, always checked against `/api/whoami`). A second server
+  of the library waits for the holder and opens it (`hold_or_find`, retrying the lock all
+  along); the launcher waits for a start that lost its port to end before trying another
+  (`start_server`, `PortTaken`). Both files stay out of backups. Tests: four launchers at
+  once, three servers at once (fails without the lock), two libraries offered one port,
+  a holder killed, a server on an unusual port.
+- [x] **Stable corpus:** `tests/make_test_library.py` gives each document its fixed id
+  (`FIXED_IDS`), one date (`CORPUS_DATE`) and seeded encryption: two rebuilds were byte for
+  byte identical (64 files), and `test_test_library.py` checks the ids against the canonical
+  catalog.
+- [x] **Two-level selection:** `scripts/launch_library.py` (terminal; `--test`, `--personal`)
+  and `Start myLibrary Dev.cmd`; on the page, 📚 切换书库 (Switch library) → personal list,
+  ← 书库模式 (Library modes) → Personal / Test & Demo; Test & Demo banner. Both use the same
+  `libraries` functions.
+- [x] **Browser drafts scoped by library** (`note_session.js`, `notes.js` last note): no draft
+  crosses libraries, also not a copy with the same document ids on the same port.
+- [x] **Backups never mix libraries** (`folder_backup.backup_name`): names and PDF folders
+  carry the library's scope; exact-name matching (also the task 7 item "matches the exact
+  library name"); legacy names kept for libraries without an id; Test & Demo never backed up.
+- [x] **Canonical public test library** `test_library/` (18 documents: 9 books, 7 papers, 2
+  theses, of which 2 papers are real (PLOS: CC BY 4.0 and CC0, licences checked at the
+  source, provenance in `test_library/README.md` and `MANIFEST.json`); 4 negative fixtures;
+  about 3.5 MB; built by `tests/make_test_library.py --real-from <downloads>` through
+  `add_book`, offline). PDFs tracked through one `.gitignore` exception. Refused by
+  `paths.ensure_library` (every script) and by Settings.
+- [x] **Working copy** for Test & Demo mode, kept across restarts; explicit reset (launcher),
+  refused while served, previous copy kept once, never any other folder.
+- [x] **Tests:** `test_libraries.py` (check, list, portability incl. move, copy, spaces and
+  Chinese, another drive letter via `subst`, junctions, backups), `test_test_library.py`
+  (manifest, fixtures, working copy, reset, no backups), `test_library_switching.py` (servers,
+  reuse, canonical refused, launcher menu, page API, settings), browser
+  `test_library_scope.py` (draft isolation) and `test_library_switching.py` (the page
+  dialog: the first tests of `library_page.py`'s JavaScript). The isolation guard also
+  protects `test_library/`, `.myLibrary-local/` and every library on the real list.
+
+Follow-ups (not started):
+- **More real documents:** an open textbook (or chapter) and a thesis with a clearly
+  verified redistributable licence; none found on 2026-11-09 that was both small and
+  unambiguous (see `test_library/README.md`).
+- L17 (in-page reset).
+- Legacy `library/` stays as it is until a separately reviewed migration.
 
 ## 5. Design: notes and passages in the reader (task 4; approved 2026-11-07)
 
