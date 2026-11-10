@@ -342,18 +342,29 @@ no account, and no sync or mobile apps.
 **带日期的通知，不是产品功能 / Dated notices, not product features.** 下面的通知描述的是 2026 年秋季的一次过渡，
 不是 ReadPaper 长期的功能；日期过后应重新检查。The notices below describe a transition in autumn 2026, not
 lasting ReadPaper functionality; re-check them once the dates have passed.
-- [F] **11 月 15 日 / 15 November**（readpaper.com 首页"关站提醒"（site-closure reminder），检查于 2026-11-10，页面未写年份 no year
-  on the page）："ReadPaper将于11月15日正式切换为Agent新版，到期后旧版将关闭全部数据导出功能，无法再备份资料。"（11 月 15 日正式
-  切换为 Agent 新版，之后旧版关闭全部数据导出功能，无法再备份资料）；"请尽快导出、迁移你的文献与笔记。"（请尽快导出、迁移文献与笔记）。
-  可导出的内容和格式没有说明。ReadPaper switches to the new Agent version on 15 November; after
-  that the old version closes all data export and backups can no longer be made; users are
+- [S] **最初的计划：10 月 31 日关停 / The original plan: shutdown on 31 October.** 一份题为"ReadPaper 旧版站点关停通知"
+  （ReadPaper 旧版站点关停通知 / ReadPaper legacy site shutdown notice）、署名 ReadPaper 团队的通知说旧版站点计划在 10 月 31 日关停。用户
+  2026-11-10 在一个**第三方网站**上看到这份通知（[scigreat.com 上的副本 copy on scigreat.com](https://www.scigreat.com/?golink=aHR0cHM6Ly9yZWFkcGFwZXIuY29tLw%3D%3D&nonce=fb47db48a3)）；
+  同一天的自动检查从这个链接只得到"非法请求，正在返回首页..."（非法请求，正在返回首页），readpaper.com 上也已不再显示这份通知。所以它只是
+  第三方转载的、无法复查的资料，不是 ReadPaper 自己的页面；年份没有说明。A notice titled "ReadPaper 旧版站点关停通知"
+  (ReadPaper legacy site shutdown notice), signed by the ReadPaper team, describes a planned
+  shutdown of the legacy site on 31 October. The user saw it on 2026-11-10 on a **third-party
+  site**; an automated check the same day got only "illegal request, returning to the home page"
+  from that link, and readpaper.com no longer shows the notice. So it is a third-party copy that
+  couldn't be re-checked, not a ReadPaper page; no year is stated.
+- [F] **之后：临时重启导出，11 月 15 日最终截止 / Later: export temporarily reopened, final cutoff on 15 November**
+  （readpaper.com 首页和 /about 页面的"关站提醒"（site-closure reminder），检查于 2026-11-10，页面未写年份 no year on the
+  page）："为了给还未迁移的同学留出从容的准备时间，我们临时重启数据导出接口。"（为了给还未迁移的用户留出准备时间，临时重启数据导出接口）；
+  "ReadPaper将于11月15日正式切换为Agent新版，到期后旧版将关闭全部数据导出功能，无法再备份资料。"（11 月 15 日正式切换为 Agent 新版，
+  之后旧版关闭全部数据导出功能，无法再备份资料）；"请尽快导出、迁移你的文献与笔记。"（请尽快导出、迁移文献与笔记）。可导出的内容和格式没有
+  说明。"To give users who haven't migrated yet time to prepare, we have temporarily restarted the
+  data-export interface"; ReadPaper switches to the new Agent version on 15 November, after
+  which the old version closes all data export and backups can no longer be made; users are
   asked to export and migrate their literature and notes soon. What can be exported, and in
-  which formats, isn't stated. [readpaper.com](https://readpaper.com).
-- [S] **10 月 31 日 / 31 October**：用户 2026-11-10 的审阅报告说官方页面提到 10 月 31 日关闭（closure）。2026-11-10 检查 readpaper.com
-  和 downloads.readpaper.com 时**没有找到**这条通知，所以它的确切内容和页面地址还未核实；在找到原页面之前不要引用。The user's
-  review of 2026-11-10 reports that official pages mention a closure on 31 October. When
-  readpaper.com and downloads.readpaper.com were checked on 2026-11-10 that notice **was not
-  found**, so its exact wording and page are unverified; don't cite it until the page is found.
+  which formats, isn't stated. [readpaper.com/about](https://readpaper.com/about),
+  [readpaper.com](https://readpaper.com).
+- 这些日期是检查当天的通知内容，**不保证仍然有效**；之后可能再次改变。These dates are what the notices said on
+  the day they were checked and **are not guaranteed to stay current**; they may change again.
 - [F] downloads.readpaper.com 是 "ReadPaper Desktop" 的下载页："当前为 Alpha 测试版，使用前请备份重要文档"（当前为 Alpha
   测试版，使用前请备份重要文档）；Mac（Apple Silicon、Intel）和 Windows（x64、ARM64）安装程序；版本记录在检查时没有载入。
   A download page for "ReadPaper Desktop": currently an Alpha test version, "back up important
