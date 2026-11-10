@@ -124,6 +124,7 @@ not yet pushed.
 | B28 安全修复：Windows 编辑器经 `cmd.exe` 的命令注入（第 11 节）B28 security fix: editor command injection through `cmd.exe` on Windows (section 11) | ✅ 回归测试；隔离的真实 VS Code 验证 regression tests; isolated real VS Code check | 提交 commit "Fix Windows editor command injection in special-character paths" |
 | L21 修复：相同的 ISBN 不再证明是同一个 PDF（第 11 节）L21 fix: a shared ISBN no longer proves the same PDF (section 11) | ✅ L21 回归测试和数据安全测试通过；完整测试中有 B30 的间歇失败 L21 regression and data-safety tests pass; the full suite hit B30's intermittent failure | 提交 commit "Prevent ISBN-based replacement and merging of different PDFs" |
 | B29 修复：相同的 DOI 不再证明是同一个 PDF（第 11 节）B29 fix: a shared DOI no longer proves the same PDF (section 11) | ✅ B29/L21 回归测试、相关测试、一次完整测试和书库浏览器测试通过 B29/L21 regression tests, related tests, one full run and the library browser tests pass | 提交 commit "Prevent DOI-based replacement and merging of different PDFs" |
+| B30 修复：并发和先后加入同一个术语（第 11 节）B30 fix: the same glossary term added twice, at once or one after the other (section 11) | ✅ 术语表测试、并发重复运行、一次完整测试通过 glossary tests, repeated concurrent runs, one full run pass | 提交 commit "Fix glossary duplicate detection with stable term normalization" |
 | 双语用户手册 Bilingual user manual | ✅ 现为 now [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | `121c67b` |
 
 测试数量会随代码变化，这里不记录；以 CI 和本地运行的实际结果为准。**L20**（一次未识别的测试失败）仍未解决，见第 11 节。
@@ -150,13 +151,13 @@ a built package and the user's manual acceptance (section 1).
 
 **L21**（数据完整性 data integrity）：2026-11-10 复现并修复（第 11 节"已修复"）。Reproduced and fixed 2026-11-10
 (section 11, "Fixed"). **新发现 / Found on the way:** B29（DOI 的同类问题 the DOI analogue）、B30（术语表并发测试间歇失败，
-原因未明 an intermittent glossary concurrency failure, cause unknown）。
+原因已找到 an intermittent glossary concurrency failure, cause since found）。
 
 **接下来的顺序（用户 2026-11-10 定）/ Next, in this order (the user's decision, 2026-11-10):**
 1. B29 ✅（已修复 fixed）：DOI 造成的错误重复判断（添加和刷新）；方针：只有相同的 DOI 不能授权破坏性的重复处理，没有证明文件相同时保留各自的文档。B29: false
    duplicates by DOI (Add and Refresh); policy: a matching DOI alone never authorises destructive duplicate handling, and
    separate documents are kept unless the files are shown to be the same.
-2. B30：并发加入术语的间歇失败，单独调查根本原因（初步调查找不到原因时咨询一次 Fable 专家）。B30: the intermittent concurrent
+2. B30 ✅（已修复 fixed）：并发加入术语的间歇失败，单独调查根本原因（初步调查找不到原因时咨询一次 Fable 专家）。B30: the intermittent concurrent
    glossary insertion, its root cause investigated on its own (one Fable consultation if a first targeted look can't find it).
 3. 完整回归验证和 CI。Full regression verification and CI.
 4. 以上都审核后才继续 M5b。M5b resumes only after the above is reviewed.
@@ -637,7 +638,6 @@ in the history, section 3; this table is the current state.
 | B16 (S) | 尚未确认（见历史记录）。Not yet confirmed (see the history). | — |
 | B17 (S) | pdfium 提取文字时可能发生本地崩溃。A native fault in pdfium during text extraction. | — |
 | B21–B24 (C, audit) | OCR 中残留的按 slug 的键；没有完整超时的请求；服务器重启后 Ctrl+S 重试；相同文本之间的冲突。Slug-keyed leftovers in OCR; requests without a full timeout; Ctrl+S retries after a restart; a conflict between identical texts. | Task 8 |
-| **B30** (C, 间歇 intermittent, 2026-11-10) | `tests/test_glossary_terms.py::test_the_same_term_twice_at_once_is_added_once` 间歇失败：两个同时的请求加入"veiling glare"和"veiling glares"（同一个术语）时两个都成功，术语表中就有了重复的术语。单独运行 30 次中失败 11 次（有 L21 改动）和 7 次（在 `610c858`，没有 L21 改动），所以早已存在，与 L21 无关。`reader._add_glossary_row` 在锁内用 `tokens()` 重新检查，而 `tokens()` 对两者给出相同的结果，原因还没找到（可能是线程间词形还原的差异或锁本身）。可能就是 L20 那次未识别的失败，但没有证据。JUnit 文件已保存。An intermittent failure: two simultaneous requests adding "veiling glare" and "veiling glares" (the same term) both succeed, so the glossary gets the term twice. 11 of 30 isolated runs failed (with the L21 change) and 7 of 30 at `610c858` (without it): pre-existing, unrelated to L21. `reader._add_glossary_row` re-checks under the lock with `tokens()`, which gives both the same result; the root cause isn't found yet (perhaps lemmatising across threads, or the lock itself). It may be L20's unidentified failure; there is no evidence of that. The JUnit file was kept. | 单独调查 separate investigation |
 | B27 (C, test only) | 浏览器测试夹具用普通 `read_text` 读取阅读记录。The browser fixture reads the reading log with a plain `read_text`. | Task 8 |
 | L1 | 只有书、论文、学位论文三种类型。Only book, paper and thesis types. | Task 6 |
 | L9 | 中文文档：第N章、中文章节名、中文在线目录。Chinese documents: 第N章 contents, Chinese chapter titles, a Chinese online catalogue. | v0.5-6 |
@@ -650,6 +650,7 @@ in the history, section 3; this table is the current state.
 | L18 | 测试语料上的章节检测限制。Chapter detection limits on the test corpus. | Task 6 |
 | L19 | 没有作者和年份的文档，名字中有两个连字符。A document without author or year gets a slug with two hyphens. | — |
 | L22 | 安装包的启动器 `package/launch.py` 自己计算 `%APPDATA%/myLibrary`（日志），而不是用 `platform_services.user_data_dir()`；两者目前一致，但改其中一个时要同时改另一个。The package launcher computes `%APPDATA%/myLibrary` (its log) itself rather than through `platform_services.user_data_dir()`; they agree today, but changing one means changing the other. | 第 9 节 section 9 |
+| L23 (S, 推导而来，未单独复现 derived, not reproduced on its own) | 查词也用随术语表内容变化的词形（B30 的同一原因，未改）：术语表中只有"veiling glares"时，它的键是 (veiling, glares)，所以文中的"veiling glare"查不到它（与 B30 修复前的重复检查完全相同的计算，那次检查确实漏掉了它）。Lookup uses the same contents-dependent word forms (B30's cause, unchanged): with only "veiling glares" in a glossary its key is (veiling, glares), so the text "veiling glare" doesn't find it (exactly the computation of the duplicate check before the B30 fix, which did miss it). | — |
 
 **已修复（历史记录中仍列为未解决）/ Fixed (still listed as open in the history)**
 - **B3** 💾 备份按名称前缀匹配会互相删除 zip：在 `2b0ff96` 中修复（精确名称，按书库区分的名称）。Zips pruned by
@@ -658,6 +659,14 @@ in the history, section 3; this table is the current state.
   fixed in `0692189`.
 - **L15** 同时两次启动为一个书库启动两个服务器：在 `2b0ff96` 中修复（书库锁）。Two launches at once starting two
   servers for one library: fixed in `2b0ff96` (the library lock).
+
+**已修复的数据完整性问题 / Fixed data-integrity issue**
+- **B30**（C，2026-11-10）同一个术语被加入两次 / The same glossary term added twice.
+  在提交 "Fix glossary duplicate detection with stable term normalization"（2026-11-10）中修复。Fixed in the commit "Fix glossary duplicate detection with stable term normalization" (2026-11-10).
+  - **原因（有证据）/ Cause (with evidence):** 不是缺少锁：`reader._add_glossary_row` 在文件锁内重新读取并检查，锁和缓存都正常（记录线程进出锁、比较的键和术语表词汇的探测显示了这一点）。重复检查用 `tokens()`，而 `lemma()` 优先采用术语表已经使用的词形：只有"veiling glares"时，"glares"就是它自己的基本形式，键 (veiling, glares) 与"veiling glare"的 (veiling, glare) 不同，于是两者都被写入。结果取决于哪一个先写入：12 次并发运行中，复数先写入的 2 次全都重复，单数先写入的 10 次全都正确；**不需要并发**，先加复数再加单数也会重复（应用中的真实错误，不只是测试问题）。它在 `610c858` 上同样出现（30 次中 7 次）。没有证据表明它是 L20。Not a missing lock: `reader._add_glossary_row` re-reads and checks under the file's lock, and the lock and the caches behaved correctly (a probe logging each thread entering and leaving the lock, the keys compared and the glossary vocabulary showed it). The duplicate check uses `tokens()`, and `lemma()` prefers a word form a glossary already uses: with only "veiling glares" stored, "glares" is its own base form, the key (veiling, glares) differs from "veiling glare"'s (veiling, glare), and both were written. The outcome depended on which was written first: of 12 concurrent runs, the 2 with the plural first all duplicated, the 10 with the singular first were all right; **no concurrency needed**: the plural, then the singular, one after the other, duplicated too (a real application bug, not only a test issue). Also at `610c858` (7 of 30 runs). No evidence links it to L20.
+  - **修复 / Fix** (`scripts/reader.py`: `lemma`, `tokens`, `_add_glossary_row`): 锁内的重复检查按术语表加入这个术语**之后**的状态判断：把新术语的词算作术语表的词（`lemma`/`tokens` 新的可选参数 `also`，默认行为不变），于是不论哪个先存，两者都得到共同的基本形式。另外删除了 `add_glossary_term` 中锁外的提前检查：它用缓存的术语表、不含新术语的词，是另一种"同一个术语"，会错误拒绝锁内检查会加入的术语（词典把"data"的基本形式给成"datum"，术语表中有"datum"时"data"被拒绝）；现在只由锁内的检查决定一次。查词、缓存、锁、原子写入、BOM 和换行都没有改。Also removed: the early check outside the lock in `add_glossary_term`: on the cached glossary and without the new term's words it was another "same term", and refused terms the check under the lock adds (the dictionary gives "data" the base form "datum", so with "datum" in the glossary "data" was refused); now the check under the lock decides, once. The duplicate check under the lock judges by the glossary as it will be **once the term is in it**: the new term's words count as glossary words (a new optional `also` for `lemma`/`tokens`, the default unchanged), so both get their shared base form whichever was stored first. Lookup, caches, the lock, atomic writes, BOM and line endings unchanged.
+  - **验证 / Verification:** `tests/test_glossary_terms.py` 新增 5 个测试（两种先后顺序、强制复数先写入的并发顺序、真正不同的术语仍然都保留、datum/data 只由一种定义决定）；其中两个在没有修复的 `0624ec9` 上确定地失败，datum/data 测试在只恢复提前检查时失败；并发测试的同步点移到 `glossary_files`（删除提前检查后原来的同步点不再被调用）；并发测试重复 20 次 0 次失败；原来的间歇测试修复后单独运行 30 次 0 次失败（修复前 11 次和 7 次）；查词、术语表、读取器、safe_io 等测试 128 个通过；完整测试一次：549 个通过、9 个跳过。5 new tests (both orders, the concurrent order with the plural forced first, really different terms still both kept, datum/data decided by one definition); two of them fail deterministically on the unfixed `0624ec9`, and the datum/data test fails with only the early check restored; the concurrent tests' meeting point moved to `glossary_files` (the old one was no longer called once the early check was gone); the concurrent tests 0 of 20 repeated runs failed; the original intermittent test 0 of 30 isolated runs failed with the fix (11 and 7 before); lookup, glossary, reader and safe_io tests 128 passed; the full suite once: 549 passed, 9 skipped.
+  - **限制 / Limitations:** 已经写入的重复行不会被清理（查找时第一行优先，如前）；查词中的同类不一致见 L23；只在同一个术语表文件内查重复（设计如此）。Duplicate rows already written aren't cleaned up (lookup uses the first row, as before); the same inconsistency in lookup is L23; duplicates are checked within one glossary file (by design).
 
 **已修复的数据完整性问题 / Fixed data-integrity issue**
 - **B29**（C，数据完整性 data integrity，2026-11-10）相同的 DOI 被当作同一个 PDF 的证明 / A shared DOI taken as proof of the same PDF.

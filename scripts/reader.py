@@ -444,13 +444,14 @@ IRREGULAR_PLURALS = {
 }
 
 
-def lemma(word: str) -> str:
+def lemma(word: str, also: frozenset[str] = frozenset()) -> str:
     """Base form of a word. A form a glossary uses wins over the dictionary's choice:
-    ECDICT gives "lenses" -> "lense", but the optics glossary says "lens"."""
+    ECDICT gives "lenses" -> "lense", but the optics glossary says "lens". `also`: words to
+    count as glossary words too (a term about to be added, B30)."""
     word = word.lower()
     if word in IRREGULAR_PLURALS:
         return IRREGULAR_PLURALS[word]
-    vocab = _glossary_words()
+    vocab = _glossary_words() | also if also else _glossary_words()
     for guess in _guesses(word):  # before the word itself: "fringes" -> "fringe"
         if guess in vocab:
             return guess
@@ -460,8 +461,8 @@ def lemma(word: str) -> str:
     return _lemma(word, db_key)
 
 
-def tokens(text: str) -> list[str]:
-    return [lemma(t) for t in re.findall(r"[a-z0-9]+", text.lower())]
+def tokens(text: str, also: frozenset[str] = frozenset()) -> list[str]:
+    return [lemma(t, also) for t in re.findall(r"[a-z0-9]+", text.lower())]
 
 
 _glossary_cache: tuple[tuple, dict] | None = None
@@ -657,9 +658,15 @@ def _add_glossary_row(path: Path, term: str, row: list[str], label: str) -> None
         bom = data.startswith(codecs.BOM_UTF8)
         text = data[len(codecs.BOM_UTF8) :].decode("utf-8") if bom else data.decode("utf-8")
         eol = "\r\n" if "\r\n" in text else "\n"
-        wanted = tuple(tokens(term))  # the same "same term" as the glossary lookup's
+        # The same "same term" as the glossary lookup's, as the glossary will be once this term
+        # is in it (B30): lemma prefers a form a glossary uses, so with only "veiling glares"
+        # stored, "glares" is its own base form and "veiling glare" looked like another term.
+        # Counting the new term's words as glossary words gives both their shared base form,
+        # whichever was stored first; that is the state lookup will see after the write.
+        also = frozenset(re.findall(r"[a-z0-9]+", term.lower()))
+        wanted = tuple(tokens(term, also))
         for existing in csv.DictReader(io.StringIO(text)):
-            if tuple(tokens(existing.get("term") or "")) == wanted:
+            if tuple(tokens(existing.get("term") or "", also)) == wanted:
                 raise ValueError(f"“{term}” is already in the {label} glossary")
         if not text.strip():
             text = "term,zh,note,definition" + eol
@@ -696,8 +703,9 @@ def add_glossary_term(
     else:
         path = GLOSSARIES / f"{NEW_GLOSSARY}.csv"
         target = {"name": NEW_GLOSSARY, "label": NEW_GLOSSARY, "path": path}
-    if any(e["glossary"] == target["name"] for e in glossary().get(tuple(tokens(term)), [])):
-        raise ValueError(f"“{term}” is already in the {target['label']} glossary")
+    # Whether it's already there is decided once, under the file's lock, by _add_glossary_row
+    # (B30): an earlier check here, on the cached glossary and without the new term's words,
+    # used another "same term" and could refuse a term that check would add (focusing / focus)
     path = target["path"]
     _add_glossary_row(path, term, [term, zh, note, definition], target["label"])
     return {
