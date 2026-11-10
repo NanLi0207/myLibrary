@@ -9,9 +9,12 @@ specification** (the original requirements brief) is kept unchanged in
 [docs/history/DEVELOPMENT_SPEC_v1.md](docs/history/DEVELOPMENT_SPEC_v1.md), and its requirements
 that still apply are carried into this file.
 
-**标记 / Markers:** **[已有 Existing]** = 当前代码中已实现（2026-11-09，`d6c1a5d`）implemented in the current
-code · **[计划 Planned]** = 尚未实现，见 ROADMAP not implemented yet, see the ROADMAP · **[建议 Proposed]** =
-本文件提出，需批准 proposed here, needs approval.
+**标记 / Markers:** **[已有 Existing]** = 已在代码中实现（最近核对的提交和 CI 见 [ROADMAP.md 第 1 节](ROADMAP.md)）
+implemented in the code (the last checked commit and CI are in ROADMAP section 1) ·
+**[计划 Planned]** = 尚未实现，见 ROADMAP not implemented yet, see the ROADMAP · **[建议 Proposed]** =
+本文件提出，需批准 proposed here, needs approval. G1、X1、U1–U3 于 2026-11-10 作为**规划方向**获批，但**都没有实现，也没有开始**；
+开始工作需要用户另行同意。G1, X1 and U1–U3 were approved as **planning directions** on 2026-11-10, but
+**none is implemented or started**; starting work needs the user's separate go-ahead.
 
 ---
 
@@ -33,9 +36,40 @@ ordinary folder that belongs to the user.
 **myLibrary — 阅读、理解、实践、验证、掌握。**
 **myLibrary — Read. Understand. Implement. Verify. Remember.**
 
-一个将文档、笔记、知识与可执行代码连接起来的本地优先学习与研究工作空间。
-A local-first learning and research workspace connecting documents, notes, knowledge and
-executable code.
+一个本地优先的知识与实践工作空间，用于从技术文档中深入学习。
+A local-first knowledge and practice workspace for deep learning from technical documents.
+
+**首要承诺 / The primary promise:** 低摩擦、可追溯的阅读和笔记：读长 PDF，一步把一段变成 Markdown 笔记，再从笔记回到原文那一段。
+这条最简单的路径不依赖编程、AI 或高级知识管理。Low-friction, traceable reading and note-taking: read
+long PDFs, turn a passage into a Markdown note in one step, and go from the note back to that
+passage. This simplest path depends on no programming, AI or advanced knowledge management.
+
+**独特的高级工作流（可选）/ The distinctive advanced workflow (optional):**
+PDF/来源 source → Markdown 笔记 note → 代码或实验 code or experiment → 结果 result → 原文 original source.
+
+| 环节 Link | 现状 Status |
+|---|---|
+| PDF → 笔记 note | [计划 Planned] M6（现在：手动复制 today: copy by hand） |
+| 笔记 → 原文 note → source | [已有 Existing] 页面级 page level (`/read/<id>?page=N`)；[计划 Planned] 段落级 passage level M7，稳定锚点 stable anchors task 5 |
+| 来源 → 代码 source → code | [已有 Existing] 每章的脚本 a script per chapter；[建议 Proposed] 段落链接 passage links E1 |
+| 代码 → 结果 → 笔记 code → result → note | [建议 Proposed] E2, E3 |
+
+**定位和标语的决定（2026-11-10）/ Positioning and tagline decision (2026-11-10).** 标语
+"阅读、理解、实践、验证、掌握 / Read. Understand. Implement. Verify. Remember." **保持不变**：它描述了完整的学习循环，是已有的品牌。
+改变的是标语下面的描述句，原来是"一个将文档、笔记、知识与可执行代码连接起来的本地优先学习与研究工作空间"。改的原因：原句把可执行代码与
+文档和笔记并列，好像它是核心；新句子说出首要的读者（深入学习技术文档的人）和承诺（知识与实践），而可执行学习仍然是可选的。
+"技术文档"说的是市场重点，不是功能限制：工具对任何学科都可用（原则 11）。**建议：**标语中的"实践、验证"是否会让不编程的读者觉得
+这个工具不适合他们，是一个待检验的问题（U1、U3）；在有证据之前不改标语。
+The tagline "Read. Understand. Implement. Verify. Remember." **stays**: it describes the whole
+learning loop and is the established brand. What changed is the descriptive line under it,
+formerly "A local-first learning and research workspace connecting documents, notes, knowledge
+and executable code". The reason: the old line set executable code beside documents and notes
+as if it were core; the new one names the primary audience (people learning in depth from
+technical documents) and the promise (knowledge and practice), while executable learning stays
+optional. "Technical documents" states the market focus, not a limit on the tool: it stays
+usable for any subject (principle 11). **Recommendation:** whether "Implement. Verify." in the
+tagline makes non-programming readers think the tool isn't for them is an open question (U1,
+U3); the tagline isn't changed without that evidence.
 
 ### 2.1 三个支柱 / Three pillars
 
@@ -81,16 +115,52 @@ own.
     (`scripts/`) assumes no subject; subject knowledge belongs to a library (glossaries, `code/`).
 12. **已实现与计划分清 / Implemented and planned kept apart** in every document.
 
+### 2.4 核心任务 / Core jobs to be done
+
+2026-11-10 的市场研究（公开资料的桌面研究，见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)）找出的高优先级工作流。
+它们的重要性是**假设**，由第 16 节检验。用户现在把 Zotero、Obsidian、VS Code、Jupyter 等工具组合起来使用；myLibrary 的机会是**减少
+这些学习工作流之间的摩擦**，而不是复制这些应用的每个功能。
+The high-priority workflows found by the market review of 2026-11-10 (desk research of public
+sources, see the competitive analysis). Their importance is a **hypothesis**, tested in section
+16. Users today combine tools such as Zotero, Obsidian, VS Code and Jupyter; myLibrary's
+opportunity is to **reduce the friction between these learning workflows**, not to duplicate
+every feature of those applications.
+
+| # | 任务 Job | 现状 Status | 路线图 Roadmap |
+|---|---|---|---|
+| J1 | 不受打扰地读长 PDF Read long PDFs without unnecessary distractions | [已有 Existing] PDF.js 阅读器、继续阅读、可关闭的笔记面板 the reader, resume, a closable notes panel | M8（小屏幕、提示 small screens, chips）, v0.4-7（大 PDF large PDFs） |
+| J2 | 很快把 PDF 选区变成 Markdown 笔记 Turn a PDF selection into a Markdown note quickly | [计划 Planned] | **M6** |
+| J3 | 从笔记回到原文的确切段落 Return from a note to the exact original passage | [已有 Existing] 页面级 page level；[计划 Planned] 段落级 passage level | **M7**, task 5 |
+| J4 | 在多个 PDF、笔记和标注中找到知识 Find knowledge across PDFs, notes and annotations | [已有 Existing] PDF 全文搜索、主题笔记 full-text search of PDFs, topic notes；[计划 Planned] 笔记和标注的统一搜索 unified search of notes and annotations | v0.4-4, v0.4-5, v0.4-6, task 5 |
+| J5 | 数据本地拥有、开放、可移植 Keep data locally owned, open and portable | [已有 Existing] 普通文件、UUID、可迁移书库、💾 备份 plain files, UUIDs, portable libraries, backups；[计划 Planned] 从备份恢复 restore | task 7 |
+| J6 | 可选：把来源与外部代码、计算、实验、图和结果联系起来 Optionally associate sources with external code, calculations, experiments, plots and results | [已有 Existing] 章节脚本、`code/` chapter scripts, `code/`；[建议 Proposed] 链接和结果 links and results | E1–E4 |
+
+**J1–J3 和 J5 是最简单的路径，从不依赖编程、AI 或高级知识管理**（FR-E3）。**J1–J3 and J5 are the simplest path and
+never depend on programming, AI or advanced knowledge management.**
+
 ---
 
 ## 3. 目标用户与应用场景 / Target users and use cases
 
-| 用户 User | 场景 Use case | 主要功能 Main features |
-|---|---|---|
-| 阅读英文教材的中文学习者 Chinese learners reading English textbooks | 读书、查专业术语、记生词、每章笔记 read, look up terms, keep vocabulary, notes per chapter | 术语表优先的查词、生词复习、章节笔记 glossary-first lookup, vocabulary review, chapter notes |
-| 研究生和科研人员 Graduate students and researchers | 读论文、比较不同来源、引用 read papers, compare sources, cite | 论文识别（DOI、arXiv）、全文搜索、主题笔记、BibTeX；[计划] 精确来源链接 paper identification (DOI, arXiv), full-text search, topic notes, BibTeX; [planned] precise source links |
-| 工程师和技术学科的学生 Engineers and students of technical subjects | 复现例题、公式和算法 reproduce worked examples, equations, algorithms | 章节脚本、`code/`（可执行学习）chapter scripts, `code/` (executable learning) |
-| 有多个领域资料的人 People with material in several fields | 每个领域一个书库，或在两台电脑之间搬书库 one library per field, or libraries moved between computers | 多个书库、可迁移书库 several libraries, portable libraries |
+myLibrary 仍然是学科中立的本地优先应用；**初期的目标市场**集中在下面四类用户，按优先级排列。这是 2026-11-10 根据桌面研究做出的
+**产品重点决定，不是测量过的市场**：每个用户群的需要都是第 16 节要检验的假设。重点只决定先做什么和用什么例子，**从不导致在工具中写死
+工程或光学的假设**（原则 11）。
+myLibrary stays a subject-neutral, local-first application; its **initial target market**
+focuses on the four groups below, in priority order. This is a **product-focus decision made on
+2026-11-10 from desk research, not a measured market**: each group's needs are hypotheses for
+section 16 to test. The focus decides only what comes first and which examples are used; it
+**never leads to engineering or optics assumptions hard-coded into the tool** (principle 11).
+
+| 优先级 Priority | 用户 Users | 他们做什么 What they do | 最相关的任务 Most relevant jobs | 主要功能 Main features |
+|---|---|---|---|---|
+| **A. 首要 Primary** | 深入学习技术教材的人：说中文的理工科研究生；自学工程、数学、物理、计算机等技术学科的人 Deep technical-textbook learners: Chinese-speaking STEM graduate students; self-directed learners of engineering, mathematics, physics, computing and other technical subjects | 系统地逐章学习教材、习题、公式和章节笔记 work systematically through textbooks, exercises, equations and chapter notes | J1, J2, J3, J5；部分人 some: J6 | 阅读器、术语表优先的英汉查词、章节笔记、生词复习、阅读记录；[计划] 公式（M5b）、引用到笔记、回到原文 the reader, glossary-first English–Chinese lookup, chapter notes, vocabulary review, reading log; [planned] maths (M5b), quote to note, back to the passage |
+| **B. 其次 Secondary** | 执业工程师和技术专业人员 Practising engineers and technical professionals | 反复查阅技术书、论文、手册和参考资料；把理论与计算、仿真和实际实现联系起来 consult technical books, papers, manuals and references again and again; connect theory with calculations, simulations and implementations | J3, J4, J6 | 全文搜索、主题笔记、章节脚本、`code/`；[计划] 统一搜索、E1–E4 full-text search, topic notes, chapter scripts, `code/`; [planned] unified search, E1–E4 |
+| **C. 以后 Later** | 学术文献研究者 Academic literature researchers | 管理论文、比较结论、在文档之间追溯证据 manage papers, compare findings, trace evidence across documents | J3, J4 | 论文识别（DOI、arXiv）、BibTeX；[计划] 连接来源的主题、标注面板 paper identification, BibTeX; [planned] topics linking sources, the annotation panel。**不试图取代 Zotero 完整的文献管理生态。Not an attempt to replace Zotero's reference-management ecosystem.** |
+| **D. 以后扩展 Later expansion** | 一般的深度读者 General deep readers | 想要有结构的阅读和笔记，不需要编程功能 want structured reading and notes without programming features | J1, J2, J3, J5 | 同 A，Python 功能关闭（安装包中默认关闭）as A, with the Python features off (off by default in the package) |
+
+**仍然支持的场景 / Use cases still supported:** 有多个领域资料的人可以每个领域一个书库，或在两台电脑之间搬书库（多个书库、可迁移书库，
+[docs/LIBRARIES.md](docs/LIBRARIES.md)）。People with material in several fields keep one library per field, or
+move libraries between computers (several libraries, portable libraries).
 
 **两种工作方式 / Two ways of working** (from the first spec): **读书**（阅读、生词、章节笔记、复习）和**论文研究**（元数据、
 技术概念、标注、跨论文比较、引用）共用同一个书库、阅读器、搜索和笔记；以后可以是同一数据上的两套默认设置（v0.5-8），不是两个
@@ -103,13 +173,27 @@ never two applications.
 
 ## 4. 竞品定位 / Competitive positioning
 
-详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)（来源和核实日期 2026-11-09）。Details, sources
-and verification dates in the competitive analysis.
+详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)（来源和核实日期 2026-11-09、2026-11-10；已核实的事实、二手资料、
+推断和假设分开标记）。Details, sources and verification dates (2026-11-09, 2026-11-10) in the
+competitive analysis, with verified facts, secondary sources, inferences and hypotheses labelled
+apart.
 
-- **借鉴 / Learn from:** BookxNote Pro：一步把选区变成笔记（→ M6）；MarginNote 5：跨文档重组、按步骤精简工具（→ v0.4-5/6）；
-  Zotero 10：精确、稳定、可恢复的来源引用（→ 任务 5）。BookxNote Pro: one step from selection to note
-  (→ M6); MarginNote 5: cross-document reorganisation, step-focused tools (→ v0.4-5/6); Zotero 10:
-  precise, stable, recoverable source references (→ task 5).
+- **借鉴 / Learn from:** BookxNote Pro：高效的 PDF 摘录和笔记整理（→ M6）；MarginNote 5：面向任务的学习和知识重组（→ v0.4-5/6）；
+  Zotero 10：可靠的文献管理、标注和引用，精确、稳定、可恢复的来源引用（→ 任务 5）；Obsidian（常与 Zotero 组合使用）：开放的 Markdown
+  知识管理和互操作（→ 普通 `.md` 笔记和普通链接）；Readwise Reader：低摩擦的捕捉、高亮和回顾（→ M6/M7，以后 R1–R3）；ReadPaper：
+  中文学术阅读工作流，并提醒可移植性和数据所有权的重要（→ 查词和术语表，DS-4）。BookxNote Pro: efficient PDF
+  extraction and note organisation (→ M6); MarginNote 5: task-oriented study and restructuring
+  knowledge (→ v0.4-5/6); Zotero 10: reliable literature management, annotation and citation,
+  precise, stable, recoverable source references (→ task 5); Obsidian (often combined with
+  Zotero): open Markdown knowledge management and interoperability (→ plain `.md` notes and
+  ordinary links); Readwise Reader: low-friction capture, highlighting and revisiting (→ M6/M7,
+  later R1–R3); ReadPaper: Chinese academic-reading workflows, and a reminder of why portability
+  and data ownership matter (→ lookup and glossaries, DS-4).
+- **与已有工具并存 / Coexisting with existing tools:** myLibrary 减少 Zotero、Obsidian、VS Code、Jupyter 等工具之间的摩擦，
+  而不是取代它们：笔记在任何 Markdown 编辑器中可读，代码在用户自己的编辑器中写和运行，引用可以导出为 BibTeX。myLibrary reduces
+  the friction between tools such as Zotero, Obsidian, VS Code and Jupyter rather than replacing
+  them: notes readable in any Markdown editor, code written and run in the user's own editor,
+  citations exported as BibTeX.
 - **差异 / Differentiation:** 不是别人做不到，而是把这些放进一个简单的本地工作流：用户管理的本地 PDF 书库、普通 Markdown
   笔记、稳定的文档身份、可配置的外部编辑器、章节代码示例、可复用的科学计算；[计划] 精确来源链接和跨文档知识组织。Not that
   others can't, but one simple local workflow: user-managed local PDF libraries, plain Markdown
@@ -301,6 +385,61 @@ identity.
 them by `/NM` and never rewrites or deletes them; when a PDF is replaced, a different fingerprint
 shows it, the resolution order applies, and the user's comments are never dropped.
 
+### 9.4 文档结构：评估 / Document structure: an assessment [建议 Proposed] G1
+
+本节是评估和设计原则，**不是数据模型**；具体设计要等用户研究（假设 H7）之后，并在实现之前单独评审和批准。G1 于 2026-11-10 作为规划方向
+获批：它的设计评估要在 M6/M7 确定来源锚点的假设之前完成，现在不改变文档 UUID 模型；尚未开始。This section is an assessment and
+a set of design principles, **not a data model**; a concrete design waits for user research
+(hypothesis H7) and gets its own review and approval before any implementation. G1 was approved
+as a planning direction on 2026-11-10: its design assessment comes before M6/M7 commit to their
+source-anchor assumptions, without changing the document UUID model now; it hasn't started.
+
+**现在 / Today** [已有 Existing]: 目录中的一行 = 一个 PDF 文件 = 一个 UUID。章节从这个 PDF 中检测（书签，否则印刷的目录页，扫描件用 OCR）；
+每个检测到的章节一个笔记模板 `notes/<slug>/chNN-*.md`；阅读记录、PDF 中的标注和（计划中的）锚点都指向文档 id 和这个文件中的页索引。
+One catalog row = one PDF file = one UUID. Chapters are detected from that PDF (bookmarks, else
+the printed contents pages, OCR for scans); one note template per detected chapter; the reading
+log, marks in the PDF and the (planned) anchors all point at the document id and a page index in
+that file.
+
+| 情况 Case | 现在 Today | 缺少什么 What's missing |
+|---|---|---|
+| 一个 PDF 是整本书 One PDF, a whole book | 支持（设计时的情况）Supported (the case it was designed for) | — |
+| 一个 PDF 只有一章 One PDF, one chapter | 作为独立的文档登记；章节检测（`book_toc`）在书签标题带章号时用它，否则从 1 开始编号，所以章节 PDF 的书签可能被当作"章节"（未用真实文件测试）；带有整本书 ISBN 的章节 PDF 可能被当作这本书的重复（L21）Registered as a document of its own; chapter detection (`book_toc`) uses a chapter number in a bookmark title when there is one and otherwise counts from 1, so a chapter PDF's section bookmarks may become its "chapters" (not tested with a real file); a chapter PDF carrying the book's ISBN may be taken as a repeat of the book (L21) | 章号；与书的关系 The chapter number; the relation to the book |
+| 一个 PDF 有几章 One PDF, several chapters | 同上 As above | 章节范围 The chapter range |
+| 同一本书的多个 PDF Several PDFs of one logical book | 各自是独立的文档，彼此没有关系；进度、章节勾选和搜索结果按文件 Each its own document, unrelated; progress, chapter ticks and search results per file | 分组和顺序 A grouping and an order |
+| 缺章、不同的页码、按顺序的部分覆盖 Chapter gaps, differing page numbering, ordered partial coverage | 链接用页索引；印刷页码不显示在笔记中 Links use the page index; printed page numbers aren't shown in notes | 印刷页码标签；哪些章节缺少 Printed page labels; which chapters are missing |
+
+**与现有模型共存的原则 / Principles for coexisting with the existing model:**
+1. **每个 PDF 文件的 UUID 仍然是被阅读和被锚定的身份。** 标注、锚点（文档 + 页索引 + 指纹）、阅读记录、搜索索引继续指向文件所属的文档；
+   分组从不取代它们，所以已有的引用从不需要改写（没有锚点迁移）。**Each PDF file's UUID stays the identity of
+   what is read and anchored.** Marks, anchors (document + page index + fingerprint), the reading
+   log and the search index keep pointing at the file's document; a grouping never replaces
+   them, so no existing reference is ever rewritten (no anchor migration).
+2. **如果得到验证，最小的增加是一个可选的、由用户确认的分组记录**：一个逻辑上的书，有自己的 UUID，按顺序列出成员文档的 id 和每个成员覆盖的
+   章节（允许并显示缺章）。它是用户数据，经过 `safe_io` 写入；成员仍是普通文档；删除分组从不删除成员。**If validated, the smallest
+   addition is an optional, user-confirmed grouping record**: a logical book with its own UUID,
+   listing its member documents' ids in order with the chapters each covers (gaps allowed and
+   shown). It is user data, written through `safe_io`; members stay ordinary documents; removing
+   a group never removes a member.
+3. **章节笔记留在各成员文档的文件夹中**，按书的视图按顺序列出它们。把笔记移到分组的文件夹是 DS-3 意义上的迁移，需要单独同意。**Chapter
+   notes stay in each member document's folder**; a book-level view lists them in order. Moving
+   notes into a group folder would be a migration in the sense of DS-3 and needs separate
+   agreement.
+4. **章号和章节标题**：任务 6 的 `chapters.json`（用户的章节编辑）是记录成员章号的自然位置；任务 6 的设计不应排除这一点。**Chapter
+   numbers and titles:** task 6's `chapters.json` (the user's chapter editor) is the natural
+   place for a member's chapter numbers; task 6's design shouldn't rule that out.
+5. **页码只用于显示**：显示印刷页码（PDF 有 `/PageLabels` 时用它，否则用用户设置的偏移）；链接和锚点仍用页索引。**Page numbers
+   for display only:** show printed page labels (the PDF's `/PageLabels` where present, else an
+   offset the user sets); links and anchors keep the page index.
+6. **重复的证据**：仅凭相同的 ISBN 不应让章节 PDF 成为整本书的重复（L21）。改变 `add_book.repeat_of` 的证据规则会影响 FR-L3，需要
+   测试和单独批准。**Evidence for repeats:** the same ISBN alone shouldn't make a chapter PDF a
+   repeat of its book (L21). Changing `add_book.repeat_of`'s evidence rule touches FR-L3 and needs
+   tests and its own approval.
+
+**未决定 / Not decided:** 分组是目录中的一行还是单独的文件；搜索和阅读记录怎样按书汇总；阅读器中怎样在成员之间移动。Whether a
+group is a catalog row or a separate file; how search and the reading log add up per book; how
+the reader moves between members.
+
 ---
 
 ## 10. 数据安全与可迁移性 / Data safety and portability
@@ -359,8 +498,11 @@ shows it, the resolution order applies, and the user's comments are never droppe
 | NF-7 | 支持 Windows 长路径、空格和中文路径。Long Windows paths, spaces and Chinese in paths. | `test_long_paths.py`, portability tests |
 | NF-8 | 大 PDF（500 MB 以上）的性能（计划，v0.4-7）：先测量再改进；本文件不写未测量的数字。Large-PDF (500 MB+) performance (planned, v0.4-7): measured before improving; no unmeasured numbers here. | 计划 planned |
 
-平台：在 Windows 上开发和测试；macOS 和 Linux 未测试。Platform: developed and tested on Windows; macOS and
-Linux untested.
+平台：在 Windows 上开发和测试；macOS 和 Linux 未测试，也不承诺支持。核心工作流可靠之后有一个有边界的 macOS 可行性评估
+（ROADMAP 的 X1，2026-11-10 作为规划方向获批，未开始，不授权移植）。Platform: developed and tested on Windows; macOS and Linux are untested and
+not promised. A bounded macOS feasibility assessment follows once the core workflow is reliable
+(ROADMAP X1, approved as a planning direction on 2026-11-10, not started, no porting
+authorised).
 
 ---
 
@@ -391,12 +533,19 @@ Linux untested.
 
 ## 14. 长期产品方向 / Future product direction
 
-按顺序（ROADMAP 第 0.2 节）：完成笔记工作流（P0）→ 稳定的来源锚点（P1）→ 跨文档知识（P2）→ 可执行学习的扩展（P3）→
-主动学习（P4）→ 可选的高级功能和 AI（P5）→ 桌面应用。AI 始终可选、注重隐私、生成内容与原文清楚区分、只引用实际检索到的来源。
-In order (ROADMAP section 0.2): finish the notes workflow (P0) → stable source anchors (P1) →
-cross-document knowledge (P2) → more executable learning (P3) → active learning (P4) → optional
-advanced features and AI (P5) → a desktop app. AI stays optional, privacy-conscious, with
-generated text clearly apart from the source and citing only what was actually retrieved.
+按产品价值的顺序（ROADMAP 第 0.2 节）：可靠的阅读和笔记，包括存储、恢复、好用的界面和可安装性（P0）→ 可信的来源引用（P1）→
+统一检索和跨文档知识（P2）→ 可选的可执行学习（P3）→ 主动学习（P4）→ 可选的高级功能和 AI（P5）→ 桌面应用；文档结构（G1）和 macOS
+可行性（X1）是有边界的规划方向（2026-11-10 获批，未开始）。P4、P5 以及间隔重复、AI、高级可视化和广泛的集成都取决于用户验证（第 16 节）。AI 始终可选、注重隐私、
+生成内容与原文清楚区分、只引用实际检索到的来源。
+In order of product value (ROADMAP section 0.2): reliable reading and note-taking, with storage,
+recovery, a usable interface and installability (P0) → trustworthy source references (P1) →
+unified retrieval and cross-document knowledge (P2) → optional executable learning (P3) →
+active learning (P4) → optional advanced features and AI (P5) → a desktop app; document
+structure (G1) and macOS feasibility (X1) are bounded planning directions (approved
+2026-11-10, not started). P4, P5 and spaced repetition,
+AI, advanced visualisation and broad integrations depend on user validation (section 16). AI
+stays optional, privacy-conscious, with generated text clearly apart from the source and citing
+only what was actually retrieved.
 
 ---
 
@@ -404,9 +553,113 @@ generated text clearly apart from the source and citing only what was actually r
 
 DjVu 或 EPUB；笔记本（notebook）；影子图书馆来源；书或书中文字进入 git；云托管、账户或订阅；强制 AI；替换 Python 后端或
 浏览器界面（除非有具体理由并经批准）；内置 IDE；自动运行从文档中提取的代码；为了功能列表照搬其他产品（MarginNote 的模板系统、
-Zotero 完整的引用管理、思维导图优先的工作流）；完整的 Anki 替代品。
+Zotero 完整的引用管理、思维导图优先的工作流）；完整的 Anki 替代品；取代 Zotero 的文献管理生态；应用内分析、云端遥测或强制账户。
 DjVu or EPUB; notebooks; shadow-library sources; books or book text in git; cloud hosting,
 accounts or subscriptions; mandatory AI; replacing the Python backend or browser interface
 (unless justified and approved); a built-in IDE; running code extracted from documents
 automatically; copying other products for a feature list (MarginNote's template system,
-Zotero's complete citation management, a mind-map-first workflow); a full Anki replacement.
+Zotero's complete citation management, a mind-map-first workflow); a full Anki replacement;
+replacing Zotero's reference-management ecosystem; in-app analytics, cloud telemetry or
+mandatory accounts.
+
+---
+
+## 16. 用户验证计划 / User validation plan
+
+**这是计划，不是已完成的研究。** 下面的样本量和成功标准是**提议的决策规则**，不是市场统计；在任何一轮实际完成之前，第 3 节的用户群和
+第 2.4 节的任务都只是假设（[COMPETITIVE_ANALYSIS.md 第 9 节](docs/COMPETITIVE_ANALYSIS.md#9-需要用户研究检验的假设--hypotheses-for-user-research)
+的 H1–H8，**未经验证的市场假设**）。ROADMAP 中的编号是 U1–U3（2026-11-10 作为规划活动获批，尚未开始；开始需要用户另行同意）。
+**This is a plan, not completed research.** The sample sizes and success criteria below are
+**proposed decision rules**, not market statistics; until a round has actually been done, the
+groups in section 3 and the jobs in section 2.4 remain hypotheses (H1–H8 in the competitive
+analysis, section 9, **unverified market hypotheses**). Their ROADMAP ids are U1–U3 (approved as
+planned activities on 2026-11-10, not started; starting needs the user's separate go-ahead).
+
+**共同规则 / Shared rules.** 没有应用内分析、云端遥测或强制账户：证据来自访谈、观察和参与者自己选择分享的东西（例如一个笔记文件夹或日志
+文件，由他们自己查看后发送）。录音和记录事先征得同意，分析后匿名化。参与者用自己的 PDF，书和书中文字从不被收集；需要共同材料时用公开的
+测试/示例书库。No in-app analytics, cloud telemetry or mandatory accounts: evidence comes from
+interviews, observation and what participants choose to share (e.g. a notes folder or a log
+file they look at before sending). Recordings and notes only with consent, anonymised for
+analysis. Participants use their own PDFs and no book or book text is collected; shared material
+uses the public Test & Demo library.
+
+### 16.1 U1 — 定性访谈 / Qualitative interviews（现在就可以，不需要代码 possible now, no code）
+- **对象 Who:** 8–12 人：6–8 位技术教材学习者（A），3–5 位执业工程师（B）；尽量包括已经组合使用 Zotero、Obsidian、VS Code 或 Jupyter
+  的人，以及用 macOS 的人。8–12 people: 6–8 technical-textbook learners (A), 3–5 practising
+  engineers (B); including where possible people who already combine Zotero, Obsidian, VS Code
+  or Jupyter, and macOS users.
+- **问什么 What:** 最近一次认真学一章的经过（工具、切换、在哪里丢了上下文）；怎样回到原文；笔记存在哪里、是否丢过；是否用代码检查书中的
+  结果，以及代码怎样找回它对应的段落；PDF 是整本、按章还是分成几份（H7）；平台（H8）。问过去的具体行为，而不是"你想要什么功能"。The
+  last time they studied a chapter seriously (tools, switches, where context got lost); how they
+  get back to the source; where notes live and whether they ever lost any; whether they check a
+  book's results in code, and how the code finds its passage again; whether PDFs come whole, per
+  chapter or split (H7); platform (H8). Ask about specific past behaviour, not "which features
+  would you like".
+- **输出 Output:** 每个假设 H1–H8 的证据摘要（支持、反对、不清楚），引用具体的访谈而不是百分比。An evidence summary per
+  hypothesis H1–H8 (supports, contradicts, unclear), citing specific interviews rather than
+  percentages.
+
+### 16.2 U2 — 观察真实的 PDF → 笔记 → 原文工作流 / Observing real PDF → note → source workflows（在 M7 之后 after M7）
+- **对象 Who:** 5–8 位参与者（多数来自 A），每人一次 45–60 分钟的观察，用他们自己的一章。5–8 participants (mostly A),
+  one 45–60 minute observed session each, on a chapter of their own.
+- **任务 Tasks:** 读几页；把三段引用到笔记；写自己的笔记；第二天（或会话结束时）从笔记回到这三段；对使用代码的人：从脚本回到它对应的段落。
+  Read a few pages; quote three passages into a note; write their own note; next day (or at the
+  end) go back to those three passages from the note; for those who use code: from the script
+  back to its passage.
+- **数据恢复检查 Data-recovery checks:** 在测试/示例书库或参与者的副本上（从不在他们唯一的书库上）：写到一半强制关闭浏览器、两个标签页编辑同一笔记、
+  断网、替换 PDF，然后记录能否看到草稿、冲突提示和"只能找到页面"的说明。On the Test & Demo library or a copy of
+  the participant's library (never their only one): force-close the browser mid-edit, edit one
+  note in two tabs, go offline, replace the PDF; record whether the draft, the conflict notice
+  and the "only the page could be found" message are seen and understood.
+- **提议的成功标准 Proposed success criteria:** 至少 80% 的引用不需要帮助就完成；至少 80% 的回到原文落到正确段落，或清楚说明只能到页面；
+  恢复检查中**没有任何笔记文字丢失**（任何丢失都是阻塞问题，不论比例）；每个参与者遇到的主要摩擦被记录并归入路线图条目。At least
+  80% of quotes completed without help; at least 80% of returns land on the right passage or say
+  plainly that only the page could be found; **no note text lost** in the recovery checks (any
+  loss is a blocker, whatever the rate); each participant's main friction recorded and mapped to
+  a roadmap item.
+
+### 16.3 U3 — 小规模 Windows 试用 / A small Windows beta（在 M8 的安装包测试之后 after M8's package test）
+- **对象 Who:** 10–20 位 Windows 参与者（A 和 B），2–4 周，用现成安装包或源码安装。10–20 Windows participants (A
+  and B) for 2–4 weeks, with the ready-to-use package or a source install.
+- **怎样收集 How collected:** 开始和结束时的短访谈；每周一次几道题的问卷（是否这周用过、卡在哪里、有没有丢东西）；参与者自愿分享的笔记文件夹
+  结构或日志。没有遥测。A short interview at the start and the end; a few-question weekly
+  check-in (used it this week? stuck where? lost anything?); a notes-folder layout or log the
+  participant chooses to share. No telemetry.
+- **提议的成功标准 Proposed success criteria:** 安装和第一次添加 PDF 不需要帮助就完成的人至少 80%；第二周以后仍每周使用的人至少一半；
+  没有确认的数据丢失；参与者能说出一件 myLibrary 比他们原来的组合更省事的事（或者明确说没有，这也是证据）。At least 80% install
+  and add a first PDF without help; at least half still use it weekly after week two; no
+  confirmed data loss; participants can name one thing myLibrary makes easier than their old
+  combination (or say plainly that nothing does, which is evidence too).
+
+### 16.4 来源 → 代码 → 结果是否值得做 / Is source → code → result worth building?
+在批准 E1–E4 之前回答。现在已经可以不写新代码地试：参与者在章节脚本的注释中手工粘贴 `/read/<id>?page=N` 链接，把结果图手工放进笔记。
+Answered before E1–E4 are approved. It can be tried now without new code: participants paste
+`/read/<id>?page=N` links into a chapter script's comments by hand and put result plots into
+the note by hand.
+- **看什么 Look for:** 多少参与者本来就用代码检查书中的内容（U1）；他们多久需要从代码或结果回到原文；手工链接在试用中是否真的被用到（U2、U3）。
+  How many participants already check book content in code (U1); how often they need to get
+  from code or a result back to the source; whether the hand-made links are actually used in the
+  trial (U2, U3).
+- **提议的决策规则 Proposed decision rule:** 只有当使用代码的参与者中至少一半说这是经常出现的问题、并且在试用中实际用了手工链接时，才建议开始
+  E1；否则 E1–E4 保持为建议，章节脚本保持现状。E1 is recommended only if at least half of the
+  code-using participants call it a frequent problem and actually used the hand-made links in
+  the trial; otherwise E1–E4 stay proposals and chapter scripts stay as they are.
+
+### 16.5 改变优先级的证据标准 / Evidence for changing priorities
+- 改变顺序是**用户的决定**；验证结果只是提议的依据，写进 ROADMAP 时附上证据摘要。A change of order is **the user's
+  decision**; validation results are only grounds for a proposal, recorded in the ROADMAP with the
+  evidence summary.
+- **数据丢失或无法恢复**的报告总是优先于新功能，不论有几个人遇到。Reports of **data loss or unrecoverable
+  state** always come before new features, however few people hit them.
+- 一个假设只有在**多数相关参与者**（例如 U1 中 A 组的多数）的具体行为支持时，才用来提前某项工作；只来自一两个人的要求记录下来，但不改变顺序。
+  A hypothesis moves work forward only when the concrete behaviour of **most relevant
+  participants** (e.g. most of group A in U1) supports it; a request from one or two people is
+  recorded but doesn't reorder the plan.
+- 如果 H7（多 PDF 的书）得到支持，G1 的数据模型和实现可以提议与任务 6 一起做（G1 的设计评估本来就在 M6/M7 之前）；如果 H8（macOS）
+  得到支持，X1 可以提议排在 v0.3 完成之后的第一个位置。If H7 (multi-PDF books) is supported, G1's data model
+  and implementation can be proposed together with task 6 (G1's design assessment comes before
+  M6/M7 anyway); if H8 (macOS) is supported, X1 can be proposed for the first slot after v0.3.
+- 如果 U1 已经做过，而 J2/J3 的摩擦（H1、H2）**没有**得到支持，在开始 M6 之前和用户一起重新审视 P0 的范围，而不是悄悄继续。没有做
+  U1 时，已批准的顺序照常进行。If U1 has run and the J2/J3 friction (H1, H2) is **not** supported,
+  P0's scope is reviewed with the user before M6 starts, rather than carrying on silently.
+  Without U1, the approved order goes ahead as it is.

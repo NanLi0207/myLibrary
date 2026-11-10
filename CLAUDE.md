@@ -20,8 +20,11 @@ learning (chapter scripts, `code/`) is an optional differentiator, never a requi
 - `DEVELOPMENT_SPEC.md`: the product and technical spec (pillars, requirements FR-*, the
   anchor model, data safety, non-goals); `docs/history/DEVELOPMENT_SPEC_v1.md` is the original
   brief.
-- `docs/COMPETITIVE_ANALYSIS.md`: the qualified comparison with BookxNote Pro, MarginNote 5 and
-  Zotero 10 (sources, verification dates). Don't add competitor claims without a source.
+- `docs/COMPETITIVE_ANALYSIS.md`: the qualified comparison with BookxNote Pro, MarginNote 5,
+  Zotero 10, Zotero + Obsidian, Readwise Reader and ReadPaper (sources, verification dates;
+  facts, secondary sources, inferences and hypotheses labelled apart). Don't add competitor
+  claims without a source, and never present a hypothesis as proven demand: it is desk
+  research, not a user survey (validation plan: DEVELOPMENT_SPEC section 16).
 - `docs/USER_GUIDE.md`: the user manual (formerly the README); `docs/LIBRARIES.md`: several
   libraries and the Test & Demo library.
 
@@ -29,7 +32,8 @@ At the start of any development session, read ROADMAP.md, and DEVELOPMENT_SPEC.m
 goals, principles and constraints (local-first, offline-first, optional network and AI, no
 destructive migrations, no rewrites). Work through the current milestone (ROADMAP section 2)
 in order; don't start the next milestone, the later priorities (P2–P5) or the proposed new
-items (E1–E4, R1–R3), or features outside it, unless the user asks; a competitor's feature is
+items (E1–E4, R1–R3; G1, X1, U1–U3 are approved planning directions, not started), or features
+outside it, unless the user asks; a competitor's feature is
 no reason to change the order. Keep ROADMAP.md current in the same change as the code: tick
 finished items with their commit, add bugs and limitations you find to section 11 (name the
 function or file; line numbers drift), move ones you fix to "fixed", and update DEVELOPMENT_SPEC

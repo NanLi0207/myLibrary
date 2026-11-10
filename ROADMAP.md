@@ -57,17 +57,25 @@ A milestone is done only when all of these hold:
   2026-11-09 提出的**建议**，开始前需要用户批准。Only work no existing item covers gets a new id:
   E1–E4 (executable learning), R1–R3 (review). They are **proposals** from 2026-11-09 and need
   the user's approval before work starts.
+- **2026-11-10 的新条目 / New items of 2026-11-10**（市场研究之后 after the market review；用户在 2026-11-10 把它们作为
+  **规划方向**批准，**不是开始实现的授权**；开始任何工作都需要用户另行同意 approved by the user on 2026-11-10 as
+  **planning directions, not authorisation to implement**; starting any of them needs the user's
+  separate go-ahead）：G1 文档结构评估 document-structure assessment（第 4 节 section 4）；X1 macOS 可行性 macOS
+  feasibility（第 9 节 section 9）；U1–U3 用户验证 user validation（第 2 节，计划在
+  [DEVELOPMENT_SPEC.md 第 16 节](DEVELOPMENT_SPEC.md#16-用户验证计划--user-validation-plan) the plan in DEVELOPMENT_SPEC
+  section 16）。已有编号都没有改变。No existing id changed.
 
 | 优先级 Priority | 内容 Content | 已有条目 Existing items | 新条目 New |
 |---|---|---|---|
-| P0 | 完成阅读与笔记工作流 Finish the reading and notes workflow | 任务 4：M5b–M8 Task 4: M5b–M8 | — |
-| P1 | 稳定的来源锚点与结构化标注 Stable source anchors, structured annotations | 任务 5（基于 M6/M7 的锚点）Task 5 (on M6/M7's anchors) | — |
-| P0/P1 支撑 support | v0.3 收尾：数据可靠性 v0.3 completion: data reliability | 任务 6、7、8 Tasks 6, 7, 8 | — |
-| P2 | 跨文档知识组织 Cross-document knowledge | v0.4-4、v0.4-5、v0.4-6 | — |
+| P0 | 可靠的阅读与笔记 Reliable reading and note-taking | 任务 4：M5b–M8 Task 4: M5b–M8 | — |
+| P1 | 可信的来源引用 Trustworthy source references | 任务 5（基于 M6/M7 的锚点）Task 5 (on M6/M7's anchors) | — |
+| P0/P1 支撑 support | v0.3 收尾：存储、恢复、可安装性 v0.3 completion: storage, recovery, installability | 任务 6、7、8 Tasks 6, 7, 8 | G1（评估 assessment） |
+| P2 | 统一检索与跨文档知识 Unified retrieval and cross-document knowledge | v0.4-4、v0.4-5、v0.4-6 | — |
 | P3 | 可执行学习（可选）Executable learning (optional) | 已有章节脚本 existing chapter scripts | E1–E4 |
-| P4 | 主动学习与复习 Active learning and review | v0.4-3（生词 vocabulary） | R1–R3 |
-| P5 | 可选的高级功能 Optional advanced features | v0.5-1–8；v0.4-1、2、7、8 | — |
-| 以后 Later | 桌面应用 Desktop app | 历史记录第 8 节 History section 8 | — |
+| P4 | 主动学习与复习 Active learning and review（取决于验证 depends on validation） | v0.4-3（生词 vocabulary） | R1–R3 |
+| P5 | 可选的高级功能 Optional advanced features（取决于验证 depends on validation） | v0.5-1–8；v0.4-1、2、7、8 | — |
+| 并行 In parallel | 用户验证（不写代码）User validation (no code) | — | U1–U3 |
+| 以后 Later | macOS 可行性；桌面应用 macOS feasibility; desktop app | 历史记录第 8 节 History section 8 | X1 |
 
 **顺序 / Order.** v0.3 的顺序（用户 2026-11-06 定）不变：任务 4 → 5 → 6，然后 7 和 8。v0.4 在 v0.3 完成后开始，
 v0.5 在 v0.4 之后。P3、P4 的新条目不会排到 v0.3 之前，除非用户另行决定。
@@ -75,17 +83,28 @@ The v0.3 order (set by the user, 2026-11-06) stays: task 4 → 5 → 6, then 7 a
 when v0.3 is done, v0.5 after v0.4. The new P3 and P4 items don't jump ahead of v0.3 unless the
 user decides so.
 
+**2026-11-10 的市场研究没有改变顺序 / The market review of 2026-11-10 doesn't change the order.**
+它建议的产品价值顺序（可靠的阅读和笔记 → 可信的来源引用 → 统一检索 → 可选的可执行学习）与上面的 P0–P3 一致，所以只更新了名称和说明；
+**没有提出顺序变化**。M5b 仍然是下一个待批准的里程碑。复习、AI、高级可视化和广泛的集成（P4、P5）在用户验证（U1–U3）给出证据之前不提前。
+Its recommended order of product value (reliable reading and notes → trustworthy source
+references → unified retrieval → optional executable learning) matches P0–P3 above, so only
+names and descriptions were updated; **no sequencing change is proposed**. M5b stays the next
+milestone awaiting approval. Review, AI, advanced visualisation and broad integrations (P4, P5)
+don't move forward until user validation (U1–U3) gives evidence.
+
 ---
 
-## 1. 现状（2026-11-09）/ Where things stand (2026-11-09)
+## 1. 现状（2026-11-10）/ Where things stand (2026-11-10)
 
-`main` 在 `d6c1a5d`，与 GitHub 同步；CI（Windows：测试和 Edge 浏览器测试）在该提交上全部通过（运行
-42634276040）。本地只有用户自己的两个书库文件有未提交的改动（`library/notes/reading-log.json` 和一条章节笔记），
-它们不属于任何开发提交。
-`main` is at `d6c1a5d`, in step with GitHub; CI (Windows: tests and browser tests in Edge) is
-green on it (run 42634276040). Locally, only two of the user's own library files have
-uncommitted changes (`library/notes/reading-log.json` and one chapter note); they belong to no
-development commit.
+本节是带日期的快照，其他各节不写当前的提交号。截至 2026-11-10：最近推送的提交是 `1c16f25`（保护冻结的示例书库、分开个人数据），
+它的 GitHub Actions 运行 42650820367 的测试和浏览器两个任务都通过（据用户 2026-11-10 的报告）。之前的 `d6c1a5d` 在运行 42634276040
+中通过。2026-11-10 的市场研究文档更新只是本地提交，尚未推送。
+This section is a dated snapshot; no other section records the current commit. As of
+2026-11-10: the last pushed commit is `1c16f25` (protecting the frozen showcase libraries,
+separating personal data), and its GitHub Actions run 42650820367 passed both the test and the
+browser jobs (as reported by the user on 2026-11-10). The earlier `d6c1a5d` passed in run
+42634276040. The documentation update after the market review of 2026-11-10 is a local commit,
+not yet pushed.
 
 | 工作 Work | 状态 Status | 提交 Commits |
 |---|---|---|
@@ -100,6 +119,7 @@ development commit.
 | M5a Markdown 预览 M5a Markdown preview | 👀 已提交，CI 自 `d6c1a5d` 全绿。**未完成：**安装包中的离线预览从未验证；用户的人工验收没有记录。Committed; CI green since `d6c1a5d`. **Open:** the preview inside a built package is unverified; the user's manual acceptance isn't recorded. | `b9323dc`, `001b10f` |
 | 第 4b 节：多个书库、测试/示例书库、可迁移书库 Section 4b: several libraries, Test & Demo library, portable libraries | ✅ 含 L15 修复 with the L15 fix | `2b0ff96`, `4094dc4` |
 | 页面重新载入时连接被拒（监听队列 5 → 64）Connections refused on reload (listen backlog 5 → 64) | ✅ | `d6c1a5d` |
+| 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
 | 双语用户手册 Bilingual user manual | ✅ 现为 now [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | `121c67b` |
 
 测试数量会随代码变化，这里不记录；以 CI 和本地运行的实际结果为准。**L20**（一次未识别的测试失败）仍未解决，见第 11 节。
@@ -116,20 +136,56 @@ M5a is committed; **next is M5b, which needs the user's approval before work sta
 of 2026-11-08: M5b–M5d are each approved separately).
 
 在用户批准之前，开发会话只做：已批准工作的收尾（例如 M5a 的安装包验证）、经同意的第 11 节错误修复；不开始新的里程碑，
-也不开始 P2–P5 或新条目 E/R。
+也不开始 P2–P5 或新条目 E/R/G/X/U。
 Until the user approves it, a development session only does: finishing approved work (e.g.
 M5a's package check) and fixes from section 11 with agreement; no new milestone, nothing from
-P2–P5, none of the new E/R items.
+P2–P5, none of the new E/R/G/X/U items.
+
+**仍未完成 / Still open:** M5a 在安装包中的离线预览验证和用户的人工验收（第 1 节）。M5a's offline-preview check in
+a built package and the user's manual acceptance (section 1).
+
+**优先调查 / Priority investigation: L21**（2026-11-10 用户决定 the user's decision）。怀疑的数据完整性错误，**未复现 NOT
+REPRODUCED**（第 11 节）。下一步是一次有边界的调查：在临时书库中用合成的 PDF 复现，并写回归测试；不推迟到任务 8。调查和任何修复都要用户
+另行同意才开始；现有的归档和恢复行为保持不变。A suspected data-integrity bug, **NOT REPRODUCED** (section
+11). The next step is a bounded investigation: a synthetic reproduction in a temporary library
+and a regression test; not deferred to task 8. The investigation and any fix start only with
+the user's go-ahead; the existing archive and recovery behaviour stays as it is.
+
+### 用户验证 / User validation (U1–U3) 📋 方向已批准 direction approved 2026-11-10，未开始 not started
+
+与开发并行，不写代码，不改变里程碑顺序。U1 访谈可以早做；U2 在 PDF → 笔记 → 原文工作流（M6、M7）之后；U3 需要稳定的 Windows
+测试版。完整计划、样本量和提议的成功标准见
+[DEVELOPMENT_SPEC.md 第 16 节](DEVELOPMENT_SPEC.md#16-用户验证计划--user-validation-plan)。In parallel with development,
+with no code and no change to the milestone order. U1 interviews may happen early; U2 follows
+the PDF → note → source workflow (M6, M7); U3 needs a stable Windows beta. The full plan, sample
+sizes and proposed success criteria are in DEVELOPMENT_SPEC section 16.
+
+| 条目 Item | 内容 Content | 最早 Earliest |
+|---|---|---|
+| U1 | 8–12 次定性访谈（技术教材学习者和工程师）Qualitative interviews (textbook learners and engineers) | 现在 now |
+| U2 | 5–8 次 PDF → 笔记 → 原文的观察，加数据恢复检查 Observed PDF → note → source sessions, with data-recovery checks | M7 之后 after M7 |
+| U3 | 10–20 人、2–4 周的 Windows 试用 A Windows beta, 10–20 people, 2–4 weeks | M8 的安装包测试之后 after M8's package test |
+
+没有应用内分析、云端遥测或强制账户。No in-app analytics, cloud telemetry or mandatory accounts.
 
 ---
 
-## 3. P0 — 完成阅读与笔记工作流 / Finish the reading and notes workflow
+## 3. P0 — 可靠的阅读与笔记 / Reliable reading and note-taking
 
 **目标 / Goal.** 一个可靠的 PDF → 笔记 → PDF 工作流：在 PDF 旁边写笔记、预览、公式、格式、截图；把 PDF 中的一段
 引用到笔记；再从笔记回到原文那一段。可靠比功能多更重要。
 A reliable PDF → note → PDF workflow: notes beside the PDF with preview, maths, formatting and
 screenshots; a passage quoted from the PDF into a note; from the note back to that passage.
 Reliability matters more than more features.
+
+**P0 包括 / P0 includes** 可靠的存储和恢复、好用的界面和可安装性：任务 4 的里程碑，加上第 4 节中支撑它们的任务 7（备份与恢复）和任务 8
+（剩余修复、安装包测试）。**M6 和 M7 是最重要的产品里程碑 ★**：它们实现核心任务 J2（选区 → 笔记）和 J3（笔记 → 原文段落），见
+[DEVELOPMENT_SPEC.md 第 2.4 节](DEVELOPMENT_SPEC.md#24-核心任务--core-jobs-to-be-done)。本节的顺序和依赖不变，下一个是 M5b（待批准）。
+Reliable storage and recovery, a usable interface and installability: task 4's milestones,
+plus tasks 7 (backup and recovery) and 8 (remaining fixes, the package test) in section 4 that
+support them. **M6 and M7 are the key product milestones ★**: they deliver the core jobs J2
+(selection → note) and J3 (note → the passage), see DEVELOPMENT_SPEC section 2.4. This
+section's order and dependencies are unchanged; next is M5b (awaiting approval).
 
 **共同约束 / Shared constraints** (history, task 4 and section 5, approved 2026-11-07/08)：
 `.md` 文件是唯一的权威；所有视图都用 M4 的 `NoteSession`（自动保存、冲突、草稿、离开提醒）；PDF.js 的阅读、标注、
@@ -200,7 +256,7 @@ step.
 - **验收 Acceptance:** 粘贴的截图立刻显示并已在磁盘上；任何链接或 `..` 都不能写到笔记文件夹之外。A pasted
   screenshot shows at once and is on disk; no link or `..` can write outside the notes folder.
 
-### M6 — 引用到笔记（PDF → 笔记）/ Quote to note (PDF → note) 📋
+### M6 — 引用到笔记（PDF → 笔记）/ Quote to note (PDF → note) 📋 ★ J2
 
 - **目标 Objective:** 选中 PDF 中的一段，一步插入带来源链接的引用。Select a passage and insert a quotation
   with its source link in one step.
@@ -227,7 +283,7 @@ step.
   selection in the test set inserts the right text and a working link; the tool never writes
   long book text into notes on its own.
 
-### M7 — 回到原文（笔记 → PDF）/ Back to the passage (note → PDF) 📋
+### M7 — 回到原文（笔记 → PDF）/ Back to the passage (note → PDF) 📋 ★ J3
 
 - **目标 Objective:** 点击笔记中的来源链接，回到 PDF 中那一段并临时标出。Click a source link in a note and
   land on that passage, outlined for a moment.
@@ -264,7 +320,13 @@ translate (v0.4/v0.5); notes search across the library (v0.4); more than one not
 
 ---
 
-## 4. P1 — 稳定的来源锚点与结构化标注 / Stable source anchors and structured annotations
+## 4. P1 — 可信的来源引用 / Trustworthy source references
+
+稳定的锚点、无歧义的段落定位、文档 UUID，以及 PDF 丢失或改变时的平稳恢复（核心任务 J3）。M6 已批准的隐私、版权和引用存储设计
+（短的可见引用，完整锚点只在 `.myLibrary/references/`）保持不变。Stable anchors, unambiguous passage resolution,
+document UUIDs and graceful recovery from missing or changed PDFs (core job J3). M6's approved
+privacy, copyright and reference-storage design (a short visible quote, the full anchor only in
+`.myLibrary/references/`) stays as it is.
 
 ### 任务 5 / Task 5 📋 在任务 4 之后 after task 4
 
@@ -324,12 +386,41 @@ translate (v0.4/v0.5); notes search across the library (v0.4); more than one not
 | 7 备份与恢复 Backup and recovery | `backup.py` 使用 `core.quotepath=false`（B2）；清空归档默认保留 `before-marks/` 和 OCR 原件（B13）；"从备份恢复"到新文件夹，从不覆盖当前书库。（"zip 名称精确匹配"已在第 4b 节完成。）`backup.py` with `core.quotepath=false` (B2); Clear archive keeps `before-marks/` and OCR originals by default (B13); "Restore from backup" into a new folder, never over the current library. ("Exact zip name match" is already done, in 4b.) | 备份后恢复到干净的文件夹，书库能打开，笔记、记录和复习状态都在；git 备份支持非 ASCII 文件名。Backed up and restored into a clean folder, the library opens with notes, log and review state; git backup handles non-ASCII names. |
 | 8 剩余修复与发布检查 Remaining fixes, release check | 第 11 节中的错误（B4、B5、B7–B12、B14、`ocr_pdf.replace_pdf` 的顺序）；L11 中未测试的路由；安装包的干净环境测试，然后一次添加五个 PDF 再退出；整理示例书库（需用户同意）。Section 11's bugs (B4, B5, B7–B12, B14, the `ocr_pdf.replace_pdf` order); L11's untested routes; the package clean-environment test, then five PDFs added at once and Quit; tidying the example library (with the user's agreement). | **v0.3 完成**：本节和第 3 节的所有条目完成，全部测试和安装包测试通过。**v0.3 is done** when every item here and in section 3 is done and every test, the package test included, passes. |
 
+### G1 — 文档结构 / Document structure 📋 方向已批准 direction approved 2026-11-10，未开始 not started
+
+- **目标 Objective:** 一次面向未来的兼容性评估：由一个或多个 PDF 组成的逻辑上的书。评估怎样支持：一个 PDF 是整本书；一个 PDF 只有一章；一个 PDF 有几章；同一本书的多个 PDF；缺章、不同的页码、按顺序的部分覆盖。
+  A forward-looking compatibility assessment of logical books made of one or more PDFs.
+  Assess how to support: one PDF holding a whole book; one PDF holding one chapter; one PDF
+  holding several chapters; several PDFs of one logical book; chapter gaps, differing page
+  numbering and ordered partial coverage.
+- **现在的交付物只有评估 / The deliverable now is the assessment only:**
+  [DEVELOPMENT_SPEC.md 第 9.4 节](DEVELOPMENT_SPEC.md#94-文档结构评估--document-structure-an-assessment-建议-proposed-g1)
+  （现状、缺口、与 UUID、章节笔记、目录和锚点共存的原则）。**不做推测性的数据模型，不写代码。**（the current state, the gaps,
+  principles for coexisting with UUIDs, chapter notes, the catalog and anchors). **No speculative
+  data model, no code.**
+- **依赖与顺序 Dependencies and order:** **设计评估要在 M6/M7 确定来源锚点的假设之前完成**（用户 2026-11-10 的决定），以便锚点
+  格式不排除由多个 PDF 组成的书；它不改变现在的文档 UUID 模型。任务 6 的 `chapters.json` 设计也要考虑它（不排除成员章号）。具体的数据
+  模型和实现需要 U1 对 H7 的证据、单独的设计评审和批准。不改变任务 4–8 的顺序，M5b 仍是下一个。**The design assessment
+  is done before M6/M7 commit to their source-anchor assumptions** (the user's decision,
+  2026-11-10), so that the anchor format doesn't rule out books made of several PDFs; it doesn't
+  change the document UUID model now. Task 6's `chapters.json` design takes it into account too
+  (not ruling out members' chapter numbers). A concrete data model and implementation need U1's
+  evidence on H7, their own design review and approval. It doesn't change the order of tasks
+  4–8; M5b is still next.
+- **数据 Data:** 原则：每个 PDF 的 UUID 仍然是被锚定的身份；分组（如果有）是可选的、由用户确认的附加记录；已有的引用和笔记从不改写或移动。
+  Principles: each PDF's UUID stays the anchored identity; a grouping, if any, is an optional,
+  user-confirmed extra record; existing references and notes are never rewritten or moved.
+- **相关问题 Related:** L21（第 11 节 section 11）.
+
 ---
 
-## 5. P2 — 跨文档知识组织 / Cross-document knowledge (v0.4) 📋
+## 5. P2 — 统一检索与跨文档知识 / Unified retrieval and cross-document knowledge (v0.4) 📋
 
-**在 v0.3 完成后开始。Starts when v0.3 is done.** 思维导图最多是以后的一个可选视图，从不是组织知识的前提。
-A mind map is at most a later optional view, never a prerequisite for organising knowledge.
+**在 v0.3 完成后开始。Starts when v0.3 is done.** 在 PDF、Markdown 笔记和标注中统一搜索；主题笔记和有来源支持的跨文档关系（核心任务
+J4）。思维导图最多是以后的一个可选视图，从不是组织知识的前提，也从不强迫用户使用。Unified search across PDFs,
+Markdown notes and annotations; topic notes and source-backed relations across documents (core
+job J4). A mind map is at most a later optional view, never a prerequisite for organising
+knowledge and never forced on users.
 
 | 条目 Item | 内容 Content | 验收 Acceptance |
 |---|---|---|
@@ -373,12 +464,19 @@ code extracted from documents is never run automatically.
 → open the script → run it → result in the note → back to the passage"; no path runs code
 unless the user chooses to.
 
+**批准前的检验 / Check before approval** (2026-11-10): 来源 → 代码 → 结果的链接是否真的解决一个重要问题，先用现有的章节脚本和手工
+链接检验（[DEVELOPMENT_SPEC.md 第 16.4 节](DEVELOPMENT_SPEC.md#164-来源--代码--结果是否值得做--is-source--code--result-worth-building)）。
+与外部 IDE 集成，不内置 IDE。Whether source → code → result links really solve an important problem is
+first tested with the existing chapter scripts and hand-made links (DEVELOPMENT_SPEC section
+16.4). Integration with external IDEs, never an embedded IDE.
+
 ---
 
 ## 7. P4 — 主动学习与复习 / Active learning and review 📋
 
 **在来源链接和知识组织可靠之后。After source links and knowledge organisation are reliable.** 不做完整的
-Anki 替代品。Not a full Anki replacement.
+Anki 替代品。是否值得做取决于用户验证（U1–U3）。Not a full Anki replacement. Whether it's worth doing
+depends on user validation (U1–U3).
 
 | 条目 Item | 内容 Content |
 |---|---|
@@ -391,8 +489,9 @@ Anki 替代品。Not a full Anki replacement.
 
 ## 8. P5 — 可选的高级功能 / Optional advanced features (v0.4, v0.5) ⏸
 
-全部可选、默认关闭；阅读、笔记、生词从不依赖它们。All optional and off by default; reading, notes and
-vocabulary never depend on them.
+全部可选、默认关闭；阅读、笔记、生词从不依赖它们。AI、高级可视化和广泛的集成取决于用户验证（U1–U3）。All optional
+and off by default; reading, notes and vocabulary never depend on them. AI, advanced
+visualisation and broad integrations depend on user validation (U1–U3).
 
 - v0.4-1 语境查词和提供者接口（`assist.py`：显示将发送的内容，从不发送整本书）；v0.4-2 选区工具栏中的翻译和解释。
   Context-aware lookup and a provider interface (`assist.py`: shows exactly what is sent, never
@@ -425,6 +524,28 @@ section 8 (to compare: PyInstaller or similar, pywebview with WebView2, a Window
 Until then no EXE, installer, window wrapper or licence code; new code follows CLAUDE.md's
 packaging-friendly rules. The existing ready-to-use zip package (`build_package.py`, 9.9 RMB)
 stays as it is.
+
+### X1 — macOS 可行性与验证 / macOS feasibility and validation 📋 方向已批准 direction approved 2026-11-10 ⏸ 在 v0.3 稳定之后 after v0.3 stabilises
+
+不授权任何移植或跨平台实现。No porting or cross-platform implementation is authorised.
+
+- **目标 Objective:** 在核心工作流可靠之后，用有边界的工作弄清楚 myLibrary 在 macOS 上缺什么。**不承诺 macOS 支持，现在不开始移植。**
+  Once the core workflow is reliable, find out with bounded work what myLibrary lacks on macOS.
+  **No promise of macOS support, and no porting now.**
+- **交付物 Deliverables:** 在 macOS CI 运行器上运行 `uv run pytest` 并记录失败；检查已知的平台相关代码：`libraries.py` 的书库锁
+  （Windows 用 `msvcrt`，其他系统用 `fcntl`，后者从未测试）、`library_server.open_in_editor`（macOS 上用 `open`）、只适用于 Windows 的
+  `make_shortcut.py` 和安装包、只用 Edge 的浏览器测试；有 Mac 时做一次手工冒烟测试；一份书面报告，发现的问题写进第 11 节。Run
+  `uv run pytest` on a macOS CI runner and record the failures; review the known platform-specific
+  code: `libraries.py`'s library lock (`msvcrt` on Windows, `fcntl` elsewhere, the latter never
+  tested), `library_server.open_in_editor` (`open` on macOS), the Windows-only `make_shortcut.py`
+  and package, the Edge-only browser tests; a manual smoke test when a Mac is available; a
+  written report, with the issues found added to section 11.
+- **不做 Not:** 移植、macOS 安装包、签名或公证、文档中的支持声明。Porting, a macOS package, signing or
+  notarisation, any claim of support in the docs.
+- **验收 Acceptance:** 报告完成，用户根据它决定是否开始移植。The report is done, and the user decides from it
+  whether porting starts.
+- **顺序 Order:** v0.3 完成之后；如果 U1 显示首要用户中很多人用 macOS（H8），可以由用户决定提前。After v0.3; the user
+  may move it earlier if U1 shows that many primary users are on macOS (H8).
 
 ---
 
@@ -461,6 +582,7 @@ in the history, section 3; this table is the current state.
 | ID | 问题 Issue | 计划在 Planned in |
 |---|---|---|
 | **L20** | **未解决 UNRESOLVED.** 2026-11-09 一次完整运行中有一个未识别的失败，之后没能复现。现在每次运行都写 `test-results/pytest-junit.xml`；下次失败时运行 `uv run pytest -rfE --tb=long` 并保留该文件。One unidentified failure in one full run (2026-11-09), not reproduced since. Every run now writes `test-results/pytest-junit.xml`; on the next failure run `uv run pytest -rfE --tb=long` and keep that file. | — |
+| **L21** (S) | **未复现 NOT REPRODUCED.** 怀疑的数据完整性错误，读代码发现。一本书已在书库中时，带有同一 ISBN 的单章或几章 PDF 被当作重复（`add_book.repeat_of`：非论文的相同 ISBN）。通常它移入 `archive/`，无法作为章节加入。`handle_repeat` 只在三个条件都满足时才用 `replace_pdf` 取代书库的 PDF：新文件更“丰富”（`info_score`：先比文字层）、书名一致（`titles_agree`）、书库的 PDF 没有用户的标注（`PdfMarked`）。这些保护降低但不一定消除风险：章节 PDF 经 ISBN 识别时可能得到整本书的书名，于是书名一致；如果书库中的那本书是没有文字层、没有标注的扫描件，整本书的 PDF 可能被一个只有一章的文件取代（旧文件进 `archive/`，不丢失，但笔记和页码从此对着那一章）。A suspected data-integrity bug, found by reading the code. A one- or few-chapter PDF carrying the ISBN of a book already in the library is treated as a repeat (`add_book.repeat_of`: same ISBN for non-papers). Usually it goes to `archive/` and can't be added as chapters. `handle_repeat` replaces the library's PDF through `replace_pdf` only when the new file scores “richer” (`info_score`, text layer first), the titles agree (`titles_agree`) and the library's PDF has no user marks (`PdfMarked`). These protections reduce the risk but don't necessarily remove it: a chapter PDF identified through its ISBN may get the whole book's title, so the titles agree; if the library's copy is an unmarked scan without a text layer, the whole book's PDF could be replaced by a one-chapter file (the old file goes to `archive/`, nothing is lost, but notes and page numbers then face that chapter). | **优先调查 priority investigation**（第 2 节 section 2）：合成复现和回归测试，不推迟到任务 8；修复需单独批准 synthetic reproduction and a regression test, not deferred to task 8; a fix needs its own approval |
 | D18 (C, latent) | 重命名失败时可能丢失恢复日志（`add_book.rename_document`）。A failed rename can lose its recovery journal. | Task 8 |
 | B2 (C) | ☁ 备份不支持非 ASCII 文件名。☁ Back up fails with non-ASCII file names. | Task 7 |
 | B4 (C) | 设置了 `MYLIBRARY_LIBRARY` 时更换书库可能悄悄不生效。A library change can silently not take effect when `MYLIBRARY_LIBRARY` is set. | Task 8 |
@@ -504,9 +626,12 @@ in the history, section 3; this table is the current state.
 
 DjVu 或 EPUB；笔记本（notebook）；影子图书馆来源；书或书中文字进入 git；云托管、账户或订阅；强制使用 AI；替换 Python
 后端或基于浏览器的界面（Electron、React、Qt 或原生界面只在有具体理由并经用户批准时）；内置 IDE；自动运行从文档中提取的
-代码；复制 BookxNote、MarginNote 或 Zotero 的完整功能。
+代码；复制 BookxNote、MarginNote 或 Zotero 的完整功能；取代 Zotero 的文献管理生态；应用内分析、云端遥测或强制账户；在 X1 之前承诺
+macOS 支持。
 DjVu or EPUB; notebooks; shadow-library sources; books or book text in git; cloud hosting,
 accounts or subscriptions; mandatory AI; replacing the Python backend or the browser-based
 interface (Electron, React, Qt or a native UI only with a specific reason and the user's
 approval); a built-in IDE; running code extracted from documents automatically; copying the
-full feature set of BookxNote, MarginNote or Zotero.
+full feature set of BookxNote, MarginNote or Zotero; replacing Zotero's reference-management
+ecosystem; in-app analytics, cloud telemetry or mandatory accounts; promising macOS support
+before X1.

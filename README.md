@@ -3,9 +3,8 @@
 **myLibrary — 阅读、理解、实践、验证、掌握。**
 **myLibrary — Read. Understand. Implement. Verify. Remember.**
 
-一个将文档、笔记、知识与可执行代码连接起来的本地优先学习与研究工作空间。
-A local-first learning and research workspace connecting documents, notes, knowledge and
-executable code.
+一个本地优先的知识与实践工作空间，用于从技术文档中深入学习。
+A local-first knowledge and practice workspace for deep learning from technical documents.
 
 > **完整的使用说明 / The complete manual:** [docs/USER_GUIDE.md](docs/USER_GUIDE.md)（安装、每个功能、设置、命令、
 > 常见问题 / installation, every feature, settings, commands, troubleshooting）。
@@ -22,6 +21,18 @@ look up technical terms and words, write Markdown notes beside the PDF, track pr
 review. Everything stays on your own computer, in your own folder. The three pillars are
 **learning, reading and note-taking**; for technical subjects you can also reproduce the
 book's examples in code (**executable learning**, optional).
+
+**为谁设计 / Who it's for.** 首先是系统学习技术教材的人：说中文的理工科研究生，以及自学工程、数学、物理、计算机等学科的人；其次是
+反复查阅技术书、论文和手册的工程师。它对任何学科都可用，不编程也能完整使用阅读和笔记。First, people working systematically
+through technical textbooks: Chinese-speaking STEM graduate students and self-directed learners
+of engineering, mathematics, physics, computing and similar subjects; next, engineers who
+consult technical books, papers and manuals again and again. It works for any subject, and
+reading and notes are complete without any programming.
+
+**首要承诺 / The promise:** 低摩擦、可追溯的阅读和笔记。Low-friction, traceable reading and note-taking.
+读 PDF → 写 Markdown 笔记 → 回到原文（引用到笔记和段落级的回到原文在计划中）；可选地：笔记 → 代码或实验 → 结果 → 原文。
+Read the PDF → write a Markdown note → go back to the source (quote to note and passage-level
+return are planned); optionally: note → code or experiment → result → source.
 
 **不包含任何书籍**：请使用你自己的 PDF。**No books are included**: bring your own PDFs.
 
@@ -102,10 +113,14 @@ takes particular care of Chinese readers of English academic material.
 | 代码 Code | 内置章节脚本工作流 built-in chapter-script workflow | 外部工具 external tools | 外部工具 external tools | 外部工具、插件 external tools, plugins |
 | 平台 Platforms | Windows（已测试 tested） | Windows, Linux | Apple 平台 Apple platforms | 桌面和移动端 desktop and mobile |
 
-每款产品都有自己的长处（例如 Zotero 的引用管理、MarginNote 的复习和思维导图）。详细的、注明来源和核实日期的比较见
-[docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)。
+每款产品都有自己的长处（例如 Zotero 的引用管理、MarginNote 的复习和思维导图）。myLibrary 不打算取代 Zotero、Obsidian、VS Code
+或 Jupyter，而是减少它们之间的切换：笔记是普通 Markdown，代码在你自己的编辑器中。详细的、注明来源和核实日期的比较（也包括
+Zotero + Obsidian 组合、Readwise Reader 和 ReadPaper）见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)。
 Each product has its own strengths (e.g. Zotero's citation management, MarginNote's review and
-mind maps). A detailed comparison with sources and verification dates is in
+mind maps). myLibrary doesn't aim to replace Zotero, Obsidian, VS Code or Jupyter, but to cut the
+switching between them: notes are plain Markdown, code lives in your own editor. A detailed
+comparison with sources and verification dates (also covering the Zotero + Obsidian
+combination, Readwise Reader and ReadPaper) is in
 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md).
 
 ## 当前状态 / Current status
@@ -144,7 +159,7 @@ library folder that `git pull` never touches. Details in the user guide, section
 |---|---|
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 完整的双语使用说明 The complete bilingual manual |
 | [docs/LIBRARIES.md](docs/LIBRARIES.md) | 多个书库、测试/示例书库、把书库搬到另一台电脑 Several libraries, the Test & Demo library, moving a library |
-| [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) | 与 BookxNote Pro、MarginNote 5、Zotero 10 的比较 Comparison with BookxNote Pro, MarginNote 5, Zotero 10 |
+| [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) | 与 BookxNote Pro、MarginNote 5、Zotero 10、Zotero + Obsidian、Readwise Reader、ReadPaper 的比较 Comparison with BookxNote Pro, MarginNote 5, Zotero 10, Zotero + Obsidian, Readwise Reader, ReadPaper |
 | [DEVELOPMENT_SPEC.md](DEVELOPMENT_SPEC.md) | 产品与技术规格 Product and technical specification |
 | [ROADMAP.md](ROADMAP.md) | 当前计划和进度 Active plan and progress |
 | [docs/history/](docs/history/) | 以前的路线图和规格（完整保留）Earlier roadmap and specification (kept in full) |
@@ -154,11 +169,14 @@ library folder that `git pull` never touches. Details in the user guide, section
 
 ## 路线图 / Roadmap
 
-按顺序：完成笔记工作流（公式、格式、截图、引用到笔记、回到原文）→ 稳定的来源锚点和结构化标注 → 跨文档知识组织 → 更多可执行
-学习 → 复习 → 可选的高级功能和 AI → 桌面应用。见 [ROADMAP.md](ROADMAP.md)。
-In order: finish the notes workflow (maths, formatting, screenshots, quote to note, back to the
-passage) → stable source anchors and structured annotations → cross-document knowledge → more
-executable learning → review → optional advanced features and AI → a desktop app. See
+按顺序：可靠的阅读和笔记（公式、格式、截图、引用到笔记、回到原文、恢复、安装包）→ 可信的来源引用和结构化标注 → PDF、笔记和标注的
+统一搜索与跨文档知识 → 可选的可执行学习 → 复习 → 可选的高级功能和 AI → 桌面应用。复习和 AI 取决于用户反馈；macOS 支持目前不承诺。
+见 [ROADMAP.md](ROADMAP.md)。
+In order: reliable reading and note-taking (maths, formatting, screenshots, quote to note, back
+to the passage, recovery, the package) → trustworthy source references and structured
+annotations → unified search of PDFs, notes and annotations and cross-document knowledge →
+optional executable learning → review → optional advanced features and AI → a desktop app.
+Review and AI depend on user feedback; macOS support isn't promised for now. See
 [ROADMAP.md](ROADMAP.md).
 
 ## 贡献 / Contributing
