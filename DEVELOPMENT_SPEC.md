@@ -324,6 +324,7 @@ chapter or passage.
 | 写入 Writing | 全部经过 `safe_io`：原子写入、按文件加锁、损坏文件不被覆盖（`.bak`、`DamagedFile`）、退出时等待关键操作。Everything through `safe_io`: atomic writes, per-file locks, damaged files never replaced (`.bak`, `DamagedFile`), Quit waits for critical operations. |
 | 后台任务 Jobs | `library_jobs.py`：每个任务一个线程，在安全点检查停止。One thread per job, stopping at safe points. |
 | 工具与书库 Tool and library | 工具（`scripts/`、`tests/`、文档）与书库（个人数据）分开；`paths.py` 决定使用哪个书库；机器本地记录在 `.myLibrary-local/`。The tool and a library (personal data) are kept apart; `paths.py` chooses the library; machine-local records in `.myLibrary-local/`. |
+| 平台服务 Platform services | `platform_services.py`：用设置中的编辑器打开文件（`.py` 从不用默认程序打开）、系统的文件夹对话框（结果：chosen / cancelled / unsupported / error）、安装包的用户数据文件夹（Windows `%APPDATA%/myLibrary`；将来的 macOS 安装包 `~/Library/Application Support/myLibrary`）。Windows 的行为不变；程序只接收参数列表，不经过 shell；macOS 分支只用模拟测试。Opening a file with the chosen editor (a `.py` never with its default app), the system folder dialog (results chosen / cancelled / unsupported / error), the package's user-data folder (Windows `%APPDATA%/myLibrary`; a future macOS package `~/Library/Application Support/myLibrary`). Windows behaviour unchanged; programs get argument lists, never a shell; the macOS branches are tested with mocks only. |
 | 测试 Tests | pytest（每次运行都有自己的临时书库和设置，隔离保护拒绝写真实数据）、Edge 浏览器测试、Windows CI。pytest (each run with its own temporary library and settings; an isolation guard refuses writes to real data), browser tests in Edge, Windows CI. |
 
 ### 8.2 建议的架构变化 / Proposed architecture changes
@@ -498,9 +499,11 @@ the reader moves between members.
 | NF-7 | 支持 Windows 长路径、空格和中文路径。Long Windows paths, spaces and Chinese in paths. | `test_long_paths.py`, portability tests |
 | NF-8 | 大 PDF（500 MB 以上）的性能（计划，v0.4-7）：先测量再改进；本文件不写未测量的数字。Large-PDF (500 MB+) performance (planned, v0.4-7): measured before improving; no unmeasured numbers here. | 计划 planned |
 
-平台：在 Windows 上开发和测试；macOS 和 Linux 未测试，也不承诺支持。核心工作流可靠之后有一个有边界的 macOS 可行性评估
+平台：在 Windows 上开发和测试；macOS 和 Linux 未测试，也不承诺支持。与操作系统有关的操作集中在 `platform_services.py`
+（macOS 分支已写好但只用模拟测试）。核心工作流可靠之后有一个有边界的 macOS 可行性评估
 （ROADMAP 的 X1，2026-11-10 作为规划方向获批，未开始，不授权移植）。Platform: developed and tested on Windows; macOS and Linux are untested and
-not promised. A bounded macOS feasibility assessment follows once the core workflow is reliable
+not promised. Operating-system-dependent operations are gathered in `platform_services.py`
+(macOS branches written but tested with mocks only). A bounded macOS feasibility assessment follows once the core workflow is reliable
 (ROADMAP X1, approved as a planning direction on 2026-11-10, not started, no porting
 authorised).
 

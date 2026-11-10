@@ -51,6 +51,7 @@ import library_jobs
 import library_page
 import notes_store
 import paths
+import platform_services
 import reader as reading_view
 import reading_log
 import safe_io
@@ -263,19 +264,8 @@ def open_in_editor(*files: Path) -> bool:
             return True
         editor = "system"  # VS Code isn't installed (any more): fall back
     try:
-        for f in files:
-            command = settings.get("editor_command", "").strip()
-            if editor == "custom" and command:
-                if "{file}" not in command:
-                    command += ' "{file}"'
-                subprocess.Popen(command.replace("{file}", str(f)))
-            elif editor == "notepad" or f.suffix == ".py":
-                # never "open" a .py with its default app: on Windows that can *run* it
-                subprocess.Popen(["notepad.exe", str(f)])
-            elif hasattr(os, "startfile"):
-                os.startfile(f)  # Windows: the app set for .md files (e.g. Typora, Notepad)
-            else:
-                subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(f)])
+        for f in files:  # (a .py is never opened with its default app: platform_services)
+            platform_services.open_for_editing(f, editor, settings.get("editor_command", ""))
         return True
     except OSError:
         return False
@@ -286,29 +276,14 @@ def python_features() -> bool:
     return bool(paths.load_settings().get("python_features"))
 
 
-def pick_folder(purpose: str = "library") -> str | None:
-    """Ask for a folder with Windows' own folder dialog (the server runs on this computer)."""
+def pick_folder(purpose: str = "library") -> platform_services.FolderChoice:
+    """Ask for a folder with the system's own folder dialog (the server runs on this computer):
+    Windows (and, untested on a Mac, macOS); elsewhere "unsupported"."""
     description = {
         "library": "Choose the folder for your library (books and notes)",
         "backup": "Choose the folder for your backups (e.g. on OneDrive or a USB stick)",
     }[purpose]
-    if sys.platform != "win32":
-        return None
-    script = (
-        "Add-Type -AssemblyName System.Windows.Forms;"
-        "$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true};"
-        "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
-        f"$d.Description = '{description}';"
-        "$d.ShowNewFolderButton = $true;"
-        "if ($d.ShowDialog($owner) -eq 'OK') { $d.SelectedPath }"
-    )
-    done = subprocess.run(
-        ["powershell", "-NoProfile", "-STA", "-Command", script],
-        capture_output=True,
-        text=True,
-        timeout=900,
-    )
-    return done.stdout.strip() or None
+    return platform_services.pick_folder(description)
 
 
 def auto_backup() -> None:
@@ -883,7 +858,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, libraries_api(self.path, body))
             if self.path == "/api/pick-folder":
                 purpose = "backup" if body.get("purpose") == "backup" else "library"
-                return self._json(HTTPStatus.OK, {"folder": pick_folder(purpose)})
+                choice = pick_folder(purpose)
+                if choice.status in ("chosen", "cancelled"):  # cancelled: folder is null
+                    return self._json(
+                        HTTPStatus.OK, {"folder": choice.folder, "status": choice.status}
+                    )
+                # No dialog here, or it failed: the page shows the message (type the folder)
+                return self._json(
+                    HTTPStatus.NOT_IMPLEMENTED
+                    if choice.status == "unsupported"
+                    else HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "folder": None,
+                        "status": choice.status,
+                        "detail": choice.message,  # (the page words the rest itself)
+                        "error": f"No folder dialog ({choice.message}): type the folder instead",
+                    },
+                )
             if self.path == "/api/folder-backup":  # 💾 Back up: a zip (+ PDFs) in a folder
                 return self._json(HTTPStatus.OK, folder_backup.back_up())
             if self.path == "/api/quit":

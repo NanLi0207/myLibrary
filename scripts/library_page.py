@@ -975,8 +975,26 @@ async function api(path, body) {
     body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || response.statusText);
+  if (!response.ok) throw Object.assign(new Error(data.error || response.statusText), {data});
   return data;
+}
+
+// The system's folder dialog (/api/pick-folder): the folder chosen, or null when cancelled or
+// it failed. A failure is said in a toast; the caller's field is left as it was either way.
+async function askFolder(purpose, button) {
+  if (button) button.disabled = true;
+  try {
+    const r = await api("/api/pick-folder", {purpose});
+    return r.status === "chosen" && r.folder ? r.folder : null;  // cancelled: nothing to say
+  } catch (err) {
+    const detail = err.data ? err.data.detail : err.message;  // no data: the server didn't answer
+    toast(err.data?.status === "unsupported"
+      ? "这个系统上没有文件夹对话框，请直接输入文件夹路径 (Folder selection isn't available on this system: type the folder path instead)"
+      : `文件夹对话框打不开 (Couldn't open the folder dialog)${detail ? `: ${detail}` : ""}`);
+    return null;
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 const bookOf = el => books.find(b => b.id === el.closest("[data-id]").dataset.id);
@@ -1467,13 +1485,9 @@ if (API) {
   document.getElementById("setEditor").addEventListener("change", e => {
     document.getElementById("customRow").hidden = e.target.value !== "custom";
   });
-  document.getElementById("pickBackup").addEventListener("click", async () => {
-    try {
-      const {folder} = await api("/api/pick-folder", {purpose: "backup"});
-      if (folder) document.getElementById("setBackup").value = folder;
-    } catch (err) {
-      toast(`Couldn't open the folder dialog: ${err.message}`);
-    }
+  document.getElementById("pickBackup").addEventListener("click", async e => {
+    const folder = await askFolder("backup", e.currentTarget);
+    if (folder) document.getElementById("setBackup").value = folder;
   });
   document.getElementById("folderBackup")?.addEventListener("click", async e => {
     if (!API.folder_backup) {
@@ -1492,13 +1506,9 @@ if (API) {
       button.disabled = false;
     }
   });
-  document.getElementById("pickFolder").addEventListener("click", async () => {
-    try {
-      const {folder} = await api("/api/pick-folder", {});
-      if (folder) document.getElementById("setLibrary").value = folder;
-    } catch (err) {
-      toast(`Couldn't open the folder dialog: ${err.message}`);
-    }
+  document.getElementById("pickFolder").addEventListener("click", async e => {
+    const folder = await askFolder("library", e.currentTarget);
+    if (folder) document.getElementById("setLibrary").value = folder;
   });
   // 📚 Libraries: personal libraries (switch, add, create, rename, remove from the list) and
   // Test & Demo. Opening one starts (or finds) that library's own server; this one keeps
@@ -1564,9 +1574,9 @@ if (API) {
       openLibrary({mode: "test"}, "测试/示例书库 (Test & Demo library)");
     }
   });
-  document.getElementById("libPick").addEventListener("click", async () => {
-    const r = await api("/api/pick-folder", {purpose: "library"}).catch(() => ({}));
-    if (r.folder) document.getElementById("libFolder").value = r.folder;
+  document.getElementById("libPick").addEventListener("click", async e => {
+    const folder = await askFolder("library", e.currentTarget);
+    if (folder) document.getElementById("libFolder").value = folder;  // else left as it was
   });
   const libFolder = () => document.getElementById("libFolder").value.trim();
   const libLabel = () => document.getElementById("libLabel").value.trim();

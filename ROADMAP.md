@@ -120,6 +120,7 @@ not yet pushed.
 | 第 4b 节：多个书库、测试/示例书库、可迁移书库 Section 4b: several libraries, Test & Demo library, portable libraries | ✅ 含 L15 修复 with the L15 fix | `2b0ff96`, `4094dc4` |
 | 页面重新载入时连接被拒（监听队列 5 → 64）Connections refused on reload (listen backlog 5 → 64) | ✅ | `d6c1a5d` |
 | 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
+| 平台准备：`scripts/platform_services.py`（打开编辑器、文件夹对话框、用户数据文件夹），见 X1 Platform groundwork: `scripts/platform_services.py` (opening editors, the folder dialog, the user-data folder), see X1 | 🧪 macOS 部分只用模拟测试 macOS branches tested with mocks only | — |
 | 双语用户手册 Bilingual user manual | ✅ 现为 now [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | `121c67b` |
 
 测试数量会随代码变化，这里不记录；以 CI 和本地运行的实际结果为准。**L20**（一次未识别的测试失败）仍未解决，见第 11 节。
@@ -533,13 +534,41 @@ stays as it is.
   Once the core workflow is reliable, find out with bounded work what myLibrary lacks on macOS.
   **No promise of macOS support, and no porting now.**
 - **交付物 Deliverables:** 在 macOS CI 运行器上运行 `uv run pytest` 并记录失败；检查已知的平台相关代码：`libraries.py` 的书库锁
-  （Windows 用 `msvcrt`，其他系统用 `fcntl`，后者从未测试）、`library_server.open_in_editor`（macOS 上用 `open`）、只适用于 Windows 的
+  （Windows 用 `msvcrt`，其他系统用 `fcntl`，后者从未测试）、`platform_services`（下面的准备工作）、只适用于 Windows 的
   `make_shortcut.py` 和安装包、只用 Edge 的浏览器测试；有 Mac 时做一次手工冒烟测试；一份书面报告，发现的问题写进第 11 节。Run
   `uv run pytest` on a macOS CI runner and record the failures; review the known platform-specific
   code: `libraries.py`'s library lock (`msvcrt` on Windows, `fcntl` elsewhere, the latter never
-  tested), `library_server.open_in_editor` (`open` on macOS), the Windows-only `make_shortcut.py`
-  and package, the Edge-only browser tests; a manual smoke test when a Mac is available; a
-  written report, with the issues found added to section 11.
+  tested), `platform_services` (the groundwork below), the Windows-only `make_shortcut.py` and
+  package, the Edge-only browser tests; a manual smoke test when a Mac is available; a written
+  report, with the issues found added to section 11.
+- **已做的准备（2026-11-10，未提交）/ Groundwork done (2026-11-10, not committed):** X1 本身**没有完成**。
+  `scripts/platform_services.py` 集中了与操作系统有关的三件事，Windows 的行为与以前相同：X1 itself is **not done**.
+  `scripts/platform_services.py` gathers three OS-dependent things, with Windows behaving as before:
+  - 用设置中的编辑器打开文件：macOS 用 `open`，`.py` 和 "Notepad" 用 `open -t`（默认文本编辑器，从不运行）；macOS 上的自定义命令拆成参数，
+    路径是一个参数，不经过 shell。Opening a file with the chosen editor: `open` on macOS, `open -t`
+    (the default text editor, never run) for a `.py` and for "Notepad"; a custom command on macOS
+    split into arguments, the path one argument, no shell.
+  - 文件夹对话框：macOS 用 `osascript` 的 "choose folder"（提示作为参数传入）；结果是 chosen / cancelled / unsupported / error，
+    `/api/pick-folder` 对后两种返回错误。书库页面的三个"选择…"按钮（📚 书库对话框和 ⚙ 设置）都用同一个 `askFolder`：取消时不提示，
+    不可用或失败时用已有的提示说明；字段保持原样，不保存、不添加、不切换书库（浏览器测试 `test_folder_picker.py`）。The folder
+    dialog: `osascript` "choose folder" on macOS (the prompt passed as an argument); results chosen
+    / cancelled / unsupported / error, and `/api/pick-folder` answers the last two with an error.
+    The library page's three "Choose…" buttons (📚 Libraries dialog and ⚙ Settings) share one
+    `askFolder`: silent on a cancel, the existing toast when unavailable or failing; the field
+    keeps its value and nothing is saved, added or switched (browser test
+    `test_folder_picker.py`).
+  - 用户数据文件夹 `user_data_dir()`：Windows `%APPDATA%/myLibrary`（不变）；将来的 macOS 安装包
+    `~/Library/Application Support/myLibrary`。现有的设置都不迁移。The user-data folder: Windows
+    `%APPDATA%/myLibrary` (unchanged); a future macOS package `~/Library/Application
+    Support/myLibrary`. No existing settings are moved.
+  - **只用模拟测试 / Tested with mocks only** (`tests/test_platform_services.py`): 所有 macOS 分支（`open`、`open -t`、
+    `osascript`、取消码 -128、Application Support）从没有在 Mac 上运行过。Every macOS branch (`open`, `open -t`,
+    `osascript`, the -128 cancel code, Application Support) has never run on a Mac.
+  - **仍只适用于 Windows / Still Windows-only:** `make_shortcut.py`、`build_package.py` 和 `package/launch.py`
+    （它自己计算 `%APPDATA%/myLibrary`，与 `user_data_dir()` 目前一致，L22）、Edge 浏览器测试、`libraries.start_server` 的分离进程标志。
+    `make_shortcut.py`, `build_package.py` and `package/launch.py` (it computes
+    `%APPDATA%/myLibrary` itself, which agrees with `user_data_dir()` today, L22), the Edge
+    browser tests, `libraries.start_server`'s detached-process flags.
 - **不做 Not:** 移植、macOS 安装包、签名或公证、文档中的支持声明。Porting, a macOS package, signing or
   notarisation, any claim of support in the docs.
 - **验收 Acceptance:** 报告完成，用户根据它决定是否开始移植。The report is done, and the user decides from it
@@ -600,10 +629,11 @@ in the history, section 3; this table is the current state.
 | B16 (S) | 尚未确认（见历史记录）。Not yet confirmed (see the history). | — |
 | B17 (S) | pdfium 提取文字时可能发生本地崩溃。A native fault in pdfium during text extraction. | — |
 | B21–B24 (C, audit) | OCR 中残留的按 slug 的键；没有完整超时的请求；服务器重启后 Ctrl+S 重试；相同文本之间的冲突。Slug-keyed leftovers in OCR; requests without a full timeout; Ctrl+S retries after a restart; a conflict between identical texts. | Task 8 |
+| B28 (S, 读代码发现 found by reading the code) | Windows 上 VS Code 的命令是批处理文件 `code.CMD`，`library_server.open_in_editor` 把工作区和笔记路径作为参数传给它时经过 `cmd.exe`；没有空格的参数不加引号（`subprocess.list2cmdline`），所以书库路径中的 `&` 等字符可能被 `cmd.exe` 解释。笔记文件名来自 slug（只有字母、数字、连字符），风险在用户自选的书库文件夹名。未复现；不是这次平台改动引入的。On Windows VS Code's command is the batch file `code.CMD`; `library_server.open_in_editor` passes the workspace and note paths to it through `cmd.exe`, and an argument without spaces isn't quoted (`subprocess.list2cmdline`), so `&` and similar characters in a library path may be interpreted by `cmd.exe`. Note file names come from slugs (letters, digits, hyphens); the risk is a library folder name the user chose. Not reproduced; not introduced by the platform change. | 需决定 needs a decision |
 | B27 (C, test only) | 浏览器测试夹具用普通 `read_text` 读取阅读记录。The browser fixture reads the reading log with a plain `read_text`. | Task 8 |
 | L1 | 只有书、论文、学位论文三种类型。Only book, paper and thesis types. | Task 6 |
 | L9 | 中文文档：第N章、中文章节名、中文在线目录。Chinese documents: 第N章 contents, Chinese chapter titles, a Chinese online catalogue. | v0.5-6 |
-| L11 | 测试缺口：部分路由；书库页面的 JavaScript 中只有书库对话框有浏览器测试。Test gaps: some routes; of the library page's JavaScript only the library dialog has browser tests. | Task 8 |
+| L11 | 测试缺口：部分路由；书库页面的 JavaScript 中只有书库对话框和"选择…"文件夹按钮有浏览器测试。Test gaps: some routes; of the library page's JavaScript only the library dialog and the "Choose…" folder buttons have browser tests. | Task 8 |
 | L12 | 强制关闭浏览器会丢失未保存的标注。Force-closing the browser loses unsaved marks. | — |
 | L13 | 阅读时间最多可能少算一分钟。Reading time can lose up to a minute. | — |
 | L14 | 笔记也可以在外部编辑器中打开（写 README 时由编辑器提示冲突）。Notes also open in an outside editor (the editor reports a newer README). | — |
@@ -611,6 +641,7 @@ in the history, section 3; this table is the current state.
 | L17 | 测试/示例书库只能在启动器中重置。The Test & Demo library resets only from the launcher. | — |
 | L18 | 测试语料上的章节检测限制。Chapter detection limits on the test corpus. | Task 6 |
 | L19 | 没有作者和年份的文档，名字中有两个连字符。A document without author or year gets a slug with two hyphens. | — |
+| L22 | 安装包的启动器 `package/launch.py` 自己计算 `%APPDATA%/myLibrary`（日志），而不是用 `platform_services.user_data_dir()`；两者目前一致，但改其中一个时要同时改另一个。The package launcher computes `%APPDATA%/myLibrary` (its log) itself rather than through `platform_services.user_data_dir()`; they agree today, but changing one means changing the other. | 第 9 节 section 9 |
 
 **已修复（历史记录中仍列为未解决）/ Fixed (still listed as open in the history)**
 - **B3** 💾 备份按名称前缀匹配会互相删除 zip：在 `2b0ff96` 中修复（精确名称，按书库区分的名称）。Zips pruned by

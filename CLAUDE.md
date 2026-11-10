@@ -175,7 +175,10 @@ Rules for all new code:
 system / custom + `editor_command` with `{file}`), `python_features`. Stored in `local.toml`, or
 in the package in `%APPDATA%/myLibrary/settings.toml`. Notes always open through
 `library_server.open_in_editor()`, never a hard-wired editor; never open a `.py` with its default
-app (that can run it). The library page's ⚙ Settings edits them; changing the library restarts
+app (that can run it). Anything that differs between operating systems (opening a file for
+editing, the folder dialog, the package's user-data folder `user_data_dir()`) goes in
+`scripts/platform_services.py`: Windows behaviour stays as it is, programs get argument lists
+(no shell), and its macOS branches are tested with mocks only (ROADMAP X1). The library page's ⚙ Settings edits them; changing the library restarts
 the server (`restart_later`).
 
 **The library page does everything without a terminal**: ＋ Add (upload →

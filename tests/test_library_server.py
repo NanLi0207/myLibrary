@@ -457,3 +457,46 @@ def test_a_burst_of_connections_is_never_refused():
         server.shutdown()
         server.server_close()
     assert results == [200] * burst, [r for r in results if r != 200]
+
+
+def test_pick_folder_answers(library, monkeypatch):
+    """/api/pick-folder: a folder or a cancel is a normal answer (folder null when cancelled);
+    no dialog on this system, or a failing one, is an error the page shows as a message."""
+    import platform_services
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), library_server.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    asked = []
+
+    def answer(choice):
+        monkeypatch.setattr(
+            library_server.platform_services,
+            "pick_folder",
+            lambda prompt: asked.append(prompt) or choice,
+        )
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/pick-folder",
+            data=json.dumps({"purpose": "backup"}).encode(),
+            headers={"Content-Type": "application/json", "X-Library-Token": library_server.TOKEN},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5) as r:
+                return r.status, json.load(r)
+        except urllib.error.HTTPError as e:
+            return e.code, json.load(e)
+
+    try:
+        Choice = platform_services.FolderChoice
+        assert answer(Choice("chosen", "D:/书库 Backups")) == (
+            200, {"folder": "D:/书库 Backups", "status": "chosen"}
+        )  # fmt: skip
+        assert "backups" in asked[-1]
+        assert answer(Choice("cancelled")) == (200, {"folder": None, "status": "cancelled"})
+        code, data = answer(Choice("unsupported", message="no folder dialog on this system"))
+        assert code == 501 and data["folder"] is None and "type the folder" in data["error"]
+        code, data = answer(Choice("error", message="PowerShell failed"))
+        assert code == 500 and "PowerShell failed" in data["error"]
+        assert data["status"] == "error" and data["detail"] == "PowerShell failed"
+    finally:
+        server.shutdown()

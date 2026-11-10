@@ -10,11 +10,12 @@ glossaries and chapter scripts. Which library, in this order:
      (ensure_library(), called by library_server.py and add_book.py) and remembered there
 
 The settings file is local.toml in the tool's folder (not in git), or, in the ready-to-use
-package (a package.toml next to scripts/), %APPDATA%/myLibrary/settings.toml, so a new version
-of the package keeps them. Besides the library, it holds which editor opens notes and whether
-the Python features (chapter scripts) are shown; see SETTINGS_DEFAULTS. The MYLIBRARY_SETTINGS
-environment variable names another settings file instead (the browser tests use a temporary
-one, so they never read or change the real settings).
+package (a package.toml next to scripts/), %APPDATA%/myLibrary/settings.toml on Windows
+(platform_services.user_data_dir), so a new version of the package keeps them. Besides the
+library, it holds which editor opens notes and whether the Python features (chapter scripts)
+are shown; see SETTINGS_DEFAULTS. The MYLIBRARY_SETTINGS environment variable names another
+settings file instead (the browser tests use a temporary one, so they never read or change the
+real settings).
 A relative library path is relative to the tool's folder.
 """
 
@@ -25,6 +26,7 @@ import tomllib
 import uuid
 from pathlib import Path
 
+import platform_services
 import safe_io
 
 APP = Path(__file__).resolve().parent.parent
@@ -33,9 +35,11 @@ ENV_VAR = "MYLIBRARY_LIBRARY"
 SETTINGS_VAR = "MYLIBRARY_SETTINGS"
 
 
-def _settings_file() -> Path:
-    """The settings file: MYLIBRARY_SETTINGS if set (tests, a desktop wrapper), else
-    %APPDATA%/myLibrary/settings.toml in the package, else local.toml in the tool's folder.
+def _settings_file(is_package: bool | None = None, platform: str | None = None) -> Path:
+    """The settings file: MYLIBRARY_SETTINGS if set (tests, a desktop wrapper), else in the
+    package settings.toml in this computer's user-data folder (Windows: %APPDATA%/myLibrary;
+    a future macOS package: ~/Library/Application Support/myLibrary; see
+    platform_services.user_data_dir), else local.toml in the tool's folder (development).
     A file named by MYLIBRARY_SETTINGS must exist: falling back to the usual settings would
     open the usual library and write there."""
     if chosen := os.environ.get(SETTINGS_VAR):
@@ -46,8 +50,8 @@ def _settings_file() -> Path:
                 f"Create it (it may be empty), or unset {SETTINGS_VAR} to use the usual settings."
             )
         return path
-    if IS_PACKAGE:
-        return Path(os.environ.get("APPDATA") or Path.home()) / "myLibrary" / "settings.toml"
+    if IS_PACKAGE if is_package is None else is_package:
+        return platform_services.user_data_dir(platform) / "settings.toml"
     return APP / "local.toml"
 
 
