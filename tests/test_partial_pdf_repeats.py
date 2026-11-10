@@ -357,35 +357,156 @@ def test_the_users_work_survives(library, monkeypatch):
     assert MY_NOTE in state(library, before["row"]["id"])["notes"].values()
 
 
-# --- the same question for a DOI: evidence only, behaviour unchanged (a separate decision) -----
+# --- B29: the same question for a DOI ----------------------------------------------------------
+# A DOI names a work (an article), not a PDF: the article, its supplementary material, an
+# accepted manuscript, an erratum can all print it. Only an identical file proves a repeat.
 
 DOI = "10.1364/oe.27.1"
 ARTICLE = {"type": "journal-article", "title": ["Freeform Surfaces in Optical Design"],
            "author": [{"given": "Jane", "family": "Doe"}], "issued": {"date-parts": [[2019]]},
-           "container-title": ["Optics Express"]}  # fmt: skip
+           "container-title": ["Optics Express"], "volume": "27", "page": "1-8"}  # fmt: skip
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DOI analogue of L21 (2026-11-10): a PDF printing an article's DOI (e.g. its "
-    "supplementary material) is taken for the article; DOI behaviour unchanged pending a decision",
-)
-def test_a_pdf_that_prints_an_articles_doi_never_replaces_the_article(library, monkeypatch):
+@pytest.fixture
+def crossref(monkeypatch):
+    """Crossref knows the article by its DOI; nothing else is found online."""
+
     def get_json(url, *a, **k):
         if "api.crossref.org/works/" in url and DOI.split("/")[1] in url.lower():
             return {"message": ARTICLE}
         return None
 
     monkeypatch.setattr(book_meta, "_get_json", get_json)
-    found = Meta(title=ARTICLE["title"][0], author="Jane Doe", year="2019", doi=DOI, kind="paper")
+
+
+def article_pdf(pages: int = 8) -> bytes:
+    return searchable(pages, [ARTICLE["title"][0], "Jane Doe", f"doi:{DOI}"])
+
+
+def supplement_pdf(pages: int = 20) -> bytes:
+    return searchable(pages, ["Supplementary material", f"for {ARTICLE['title'][0]}", f"doi:{DOI}"])
+
+
+def the_article(library, monkeypatch, data: bytes) -> dict:
+    """The article, added through the add job, with the user's own notes and place in it."""
+    found = Meta(title=ARTICLE["title"][0], author="Jane Doe", year="2019", doi=DOI,
+                 kind="paper", journal="Optics Express")  # fmt: skip
     with monkeypatch.context() as m:
         m.setattr(library_jobs, "identify", lambda path, online, **kw: found)
-        article = add("article.pdf", searchable(8, [ARTICLE["title"][0], f"doi:{DOI}"]))
-    assert article["status"] == "done"
-    before = state(library, article["doc_id"])
-    supplement = searchable(
-        20, ["Supplementary material", f"for {ARTICLE['title'][0]}", f"doi:{DOI}"]
-    )
-    job = add("supplement.pdf", supplement)
-    after = state(library, article["doc_id"])
-    assert after["pdf_sha"] == before["pdf_sha"], job["message"]
+        done = add("article.pdf", data)
+    assert done["status"] == "done", done
+    notes = library["root"] / catalog.load(library["root"] / "catalog.csv")[done["doc_id"]]["notes"]
+    (notes / "notes.md").write_text(MY_NOTE, encoding="utf-8")
+    readme = notes / "README.md"
+    readme.write_text(readme.read_text(encoding="utf-8") + "\nLast read: page 3\n", "utf-8")
+    before = state(library, done["doc_id"])
+    before["chapter_cache"] = chapter_cache(library, done["doc_id"])
+    return before
+
+
+SHARING_A_DOI = [
+    pytest.param(article_pdf, supplement_pdf, id="1-supplement"),
+    pytest.param(
+        article_pdf,
+        lambda: searchable(8, ["Accepted manuscript", f"doi:{DOI}"]),
+        id="3-similar-pages",
+    ),  # fmt: skip
+    pytest.param(lambda: marked(article_pdf()), supplement_pdf, id="4-annotated-article"),
+]
+
+
+@pytest.mark.parametrize("article, incoming", SHARING_A_DOI)
+def test_pdfs_that_only_share_a_doi_are_kept_apart(
+    library, monkeypatch, crossref, article, incoming
+):
+    """B29: a PDF printing the article's DOI (identified through Crossref as the article, so the
+    title check passes) never replaces, archives or merges with it: it becomes a document of its
+    own, with a message saying it shares the DOI; the article stays exactly as it was."""
+    before = the_article(library, monkeypatch, article())
+    job = add("incoming.pdf", incoming())
+    kept_as_it_was(library, before)
+    new = kept_apart(library, before, job)
+    assert f"shares its DOI with {before['row']['slug']}" in job["message"]
+    assert "duplicate" not in job["status"] and new["doi"] == DOI
+
+
+def test_the_supplement_first_then_the_article(library, monkeypatch, crossref):
+    """2: the supplementary material came first; the article never takes its place."""
+    first = add("supplement.pdf", supplement_pdf())
+    assert first["status"] == "done"
+    before = state(library, first["doc_id"])
+    job = add("article.pdf", article_pdf())
+    after = state(library, first["doc_id"])
+    assert job["status"] == "done" and job["doc_id"] != first["doc_id"]
+    assert "shares its DOI" in job["message"]
+    assert after["row"] == before["row"] and after["pdf_sha"] == before["pdf_sha"]
+    assert after["archived"] == before["archived"] == []
+
+
+def test_a_missing_pdf_is_never_reattached_by_its_doi(library, monkeypatch, crossref):
+    """5: the article's PDF is missing (another computer, a restore): a PDF with its DOI becomes
+    its own document; the entry keeps its id, notes and place, still waiting for its own PDF."""
+    before = the_article(library, monkeypatch, article_pdf())
+    root = library["root"]
+    (root / before["row"]["file"]).unlink()
+    before = state(library, before["row"]["id"]) | {"chapter_cache": before["chapter_cache"]}
+    job = add("incoming.pdf", article_pdf(9))
+    kept_as_it_was(library, before)
+    assert not (root / before["row"]["file"]).exists()
+    kept_apart(library, before, job)
+
+
+def test_a_missing_pdf_is_not_reattached_even_by_the_identical_file(library, monkeypatch, crossref):
+    """With the PDF missing there is nothing to compare a file with, and no fingerprint of it is
+    kept (the hashes in .cache/ are this computer's, by path and date): even the very same bytes
+    become a document of their own. Automatic re-attachment is not possible; the entry waits."""
+    data = article_pdf()
+    before = the_article(library, monkeypatch, data)
+    root = library["root"]
+    (root / before["row"]["file"]).unlink()
+    before = state(library, before["row"]["id"]) | {"chapter_cache": before["chapter_cache"]}
+    job = add("incoming.pdf", data)  # byte for byte the PDF the entry had
+    kept_as_it_was(library, before)
+    assert not (root / before["row"]["file"]).exists()
+    kept_apart(library, before, job)
+
+
+def test_an_identical_file_with_the_doi_is_still_a_repeat(library, monkeypatch, crossref):
+    """6: the same bytes again: a repeat, kept in archive/, the article untouched."""
+    data = article_pdf()
+    before = the_article(library, monkeypatch, data)
+    job = add("incoming.pdf", data)
+    assert job["status"] == "duplicate" and "identical file" in job["message"]
+    after = state(library, before["row"]["id"])
+    assert after["ids"] == before["ids"] and after["pdf_sha"] == before["pdf_sha"]
+    assert after["archived"] == ["books/incoming.pdf"]  # (uploads arrive in books/)
+
+
+def test_refresh_never_merges_documents_that_only_share_a_doi(library, monkeypatch, crossref):
+    """7: two registered documents with one DOI, Refresh twice: both stay, with their PDFs,
+    notes and ids; no repeat is reported; nothing is retired."""
+    before = the_article(library, monkeypatch, article_pdf())
+    other = add("supplement.pdf", supplement_pdf())
+    states = {d: state(library, d) for d in (before["row"]["id"], other["doc_id"])}
+    for _ in range(2):
+        _refresh(library)
+        for doc_id, was in states.items():
+            now = state(library, doc_id)
+            assert now["row"]["id"] == doc_id and now["pdf_sha"] == was["pdf_sha"]
+            assert now["notes"] == was["notes"] and now["archived"] == was["archived"]
+            assert now["tombstones"] == {}
+    assert not [j for j in library_jobs.list_jobs() if j["kind"] == "repeat"]
+
+
+def test_doi_details_and_citations_still_work(library, monkeypatch, crossref):
+    """9: the DOI still identifies the work: the PDF added second gets the article's details
+    from Crossref through its DOI, and both documents cite with it."""
+    import citation
+
+    before = the_article(library, monkeypatch, article_pdf())
+    job = add("supplement.pdf", supplement_pdf())
+    rows = catalog.load(library["root"] / "catalog.csv")
+    new = rows[job["doc_id"]]
+    assert new["type"] == "paper" and new["doi"] == DOI and new["journal"] == "Optics Express"
+    for row in (rows[before["row"]["id"]], new):
+        assert DOI in citation.bibtex(row) and DOI in citation.ris(row)

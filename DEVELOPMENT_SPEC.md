@@ -228,9 +228,11 @@ apart.
   UUID4 identity; the slug is only the file and folder name.
 - **FR-L2** [已有] 识别书、论文、学位论文的元数据并记录每个字段的来源。Identify metadata of books, papers and
   theses and record where each field came from.
-- **FR-L3** [已有] 重复必须有证据（DOI、相同文件的 SHA-256）；仅凭名字、标题或相同的 ISBN 从不算重复（ISBN 标识出版物，不是 PDF
-  的内容范围，L21）。A repeat needs proof (DOI, identical file by SHA-256); a name, a title or a
-  shared ISBN alone never is (an ISBN names a publication, not what a PDF covers, L21).
+- **FR-L3** [已有] 重复必须有证据：相同文件的 SHA-256，只有它；仅凭名字、标题、相同的 ISBN 或 DOI 从不算重复（它们标识出版物或作品，
+  不是 PDF 的内容范围，L21、B29），只共享它们的 PDF 是各自的文档，从不被自动替换、归档或合并。A repeat needs proof: an
+  identical file by SHA-256, and only that; a name, a title, a shared ISBN or DOI alone never is
+  (they name a publication or a work, not what a PDF covers, L21, B29): PDFs that only share them
+  are separate documents, never replaced, archived or merged automatically.
 - **FR-L4** [已有] 移除的文档进入书库的 `archive/`，留下墓碑记录。Removed documents go to the library's
   `archive/` and leave a tombstone.
 - **FR-L5** [计划 task 6] 在页面上修正元数据和章节；用户的修改从不被自动步骤覆盖。Correct metadata and chapters

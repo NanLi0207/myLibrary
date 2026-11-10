@@ -389,26 +389,27 @@ Open Library title search.
 
 ### 4.3 重复的文档 / Repeats
 
-同一份作品不会被添加两次，无论从哪里进来（＋ Add、拖放、Find online、⟳ Refresh、`add_book.py`）。只有以下情况算**重复**：**相同的 DOI**，或**内容完全相同的文件**。仅仅标题或名称相同不算重复，**相同的 ISBN 也不算**：一章、几章和整本书都带有书的 ISBN，所以只共享 ISBN 的 PDF 作为各自的文档保留，消息会说明它与哪本书共享 ISBN；如果它们其实是同一个，删除其中一个即可。
-The same work is never added twice, however it comes in (＋ Add, dragging, Find online,
-⟳ Refresh, `add_book.py`). Only these count as a **repeat**: the **same DOI**, or an **identical
-file**. The same title or name alone is not a repeat, and **nor is the same ISBN**: one chapter,
-several chapters and the whole book all carry the book's ISBN, so PDFs that only share an ISBN
-are kept as documents of their own, and the message names the book they share it with; if they
-are in fact the same, remove one.
+同一个文件不会被添加两次，无论从哪里进来（＋ Add、拖放、Find online、⟳ Refresh、`add_book.py`）。只有**内容完全相同的文件**才算**重复**：它被移到 `archive/`，书库条目缺少的信息（期刊……）会补上，History 会说明发生了什么。
+The same file is never added twice, however it comes in (＋ Add, dragging, Find online,
+⟳ Refresh, `add_book.py`). Only an **identical file** counts as a **repeat**: it's moved to
+`archive/`, details the library's entry lacked (the journal, ...) are added, and the History
+says what happened.
 
-保留**信息更多**的那一份：先看是否有可搜索的文字（而不是纯扫描），再看信息（DOI、ISBN、期刊、关键词……），然后是书签，最后是页数。
-The copy with **more information** is kept: searchable text (rather than a bare scan) first,
-then more details (DOI, ISBN, journal, keywords, ...), then bookmarks, then more pages.
+**相同的 DOI 或 ISBN 不算重复**，仅仅标题或名称相同也不算：一章、几章和整本书都带有书的 ISBN，一篇文章和它的补充材料、接受稿都带有文章的 DOI。
+所以只共享 DOI 或 ISBN 的 PDF 作为**各自的文档**保留（各自的笔记和进度），从不被替换、移走或合并，消息会说明它与哪个文档共享 DOI 或 ISBN。
+更好的副本（例如有文字层的版本代替扫描件）也不会自动替换：两者都保留，由你决定；如果它们其实是同一个，删除不需要的那个即可。
+**The same DOI or ISBN is not a repeat**, nor is the same title or name: one chapter, several
+chapters and the whole book all carry the book's ISBN; an article, its supplementary material
+and its accepted manuscript all carry the article's DOI. So PDFs that only share a DOI or ISBN
+are kept as **documents of their own** (each with its own notes and progress), never replaced,
+moved or merged, and the message names the document they share it with. A better copy (e.g. a
+searchable version of a scan) doesn't replace the other automatically either: both are kept,
+and you decide; if they are in fact the same, remove the one you don't need.
 
-- 新的一份更好：它**替换书库中的 PDF**（同名），你的笔记和进度保留，旧 PDF 移到 `archive/`。
-  The new copy is better: it **replaces the library's PDF** (same name), keeping your notes and
-  progress; the old PDF moves to `archive/`.
-- 新的一份不更好：它被移到 `archive/`。
-  It isn't: it's moved to `archive/`.
-- 两种情况下，书库条目缺少的信息（DOI、期刊……）都会补上，History 会说明发生了什么。
-  Either way, details the library's entry lacked (a DOI, the journal, ...) are added, and the
-  History says what happened.
+⟳ Refresh 发现同一个文件登记了两次时，保留**信息更多**的那一条（信息、书签、页数），把另一条的笔记、勾选、进度、生词和脚本移过去，再把它移到 `archive/`；两条都有你的工作时只报告，不动。
+When ⟳ Refresh finds the same file entered twice, it keeps the entry with **more information**
+(details, bookmarks, pages), moves the other's notes, ticks, progress, words and scripts to it,
+and moves the other to `archive/`; if both hold your work, it only reports them.
 
 ### 4.4 从终端添加 / Adding from the terminal
 

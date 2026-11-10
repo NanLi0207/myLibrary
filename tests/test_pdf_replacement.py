@@ -323,28 +323,22 @@ def test_new_bookmarks_never_replace_a_pdf_marked_meanwhile(lib, monkeypatch):
     assert pdf.read_bytes() == mine and archived_books(lib) == [] and leftovers(lib) == []
 
 
-def test_a_better_copy_never_replaces_a_pdf_marked_meanwhile(lib, monkeypatch):
-    """A searchable copy of the scanned book (same DOI) would replace its PDF, but the marks
-    are saved between the check for marks and the replacement: the PDF stays, with them; the
-    copy goes to the archive."""
+def test_a_better_copy_never_replaces_a_pdf_marked_meanwhile(lib):
+    """replace_pdf (kept for a replacement the user confirms, task 6) looks for marks again
+    under the PDF's own lock: marks saved after a caller checked, before the swap, keep the PDF
+    as it is, with them, and the copy where it was. And a shared DOI alone no longer gets that
+    far at all (B29): handle_repeat refuses it as no proof."""
     pdf = lib["pdf"]
     upload = lib["root"] / "books" / "upload.pdf"
     upload.write_bytes(searchable())
-    mine = marked(pdf.read_bytes())
-    has_marks = add_book.has_marks
-    checks = []
-
-    def marks_arrive_after_the_first_check(path):
-        checks.append(path)
-        answer = has_marks(path)
-        if len(checks) == 1:
-            reader.save_marks(FILE, mine, base=loaded(lib))  # just after handle_repeat looked
-        return answer
-
-    monkeypatch.setattr(add_book, "has_marks", marks_arrive_after_the_first_check)
     meta = Meta(title="Scan", doi="10.1/scan", pages="2")
-    replaced, message = add_book.handle_repeat(upload, meta, lib["doc"], reason="same DOI")
-    assert replaced is False and "marks" in message, message
+    with pytest.raises(ValueError, match="not a proven repeat"):
+        add_book.handle_repeat(upload, meta, lib["doc"], reason="same DOI")
+    assert not add_book.has_marks(pdf)  # what a caller saw a moment ago
+    mine = marked(pdf.read_bytes())
+    reader.save_marks(FILE, mine, base=loaded(lib))  # ... then the marks arrive
+    with pytest.raises(add_book.PdfMarked):
+        add_book.replace_pdf(lib["doc"], upload, meta)
     assert pdf.read_bytes() == mine and highlights(pdf) == 1
-    assert not upload.exists() and archived_books(lib) == ["upload.pdf"]
+    assert upload.exists() and archived_books(lib) == []
     assert catalog.load(lib["root"] / "catalog.csv")[lib["doc"]]["file"] == FILE

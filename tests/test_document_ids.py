@@ -392,11 +392,13 @@ def test_merged_copies_keep_both_reading_records_and_one_identity(library):
     kept = registered(library, "doe-2019-freeform", "Freeform", doi="10.1/x", added="2026-01-01")
     dropped = registered(library, "doe-2019-freeform-2", "Freeform", doi="10.1/x",
                          added="2026-02-01")  # fmt: skip
+    books = library / "books"  # the same file twice: the only proof of a repeat (L21, B29)
+    (books / "doe-2019-freeform-2.pdf").write_bytes((books / "doe-2019-freeform.pdf").read_bytes())
     reading_log.record(library, kept, 120, [1, 2], day)  # both copies read the same day
     reading_log.record(library, dropped, 60, [2, 9], day)
     log_before = reading_log.load(library)
 
-    [job] = library_jobs.check_catalog_repeats()  # Refresh: the same DOI
+    [job] = library_jobs.check_catalog_repeats()  # Refresh: the identical file
     assert job["status"] == "duplicate"
     path = library / "catalog.csv"
     assert set(catalog.load(path)) == {kept}

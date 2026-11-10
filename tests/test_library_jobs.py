@@ -6,7 +6,6 @@ import catalog
 import library_jobs
 import pytest
 from book_meta import Meta
-from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 from testlib import entry, id_of, put  # noqa: F401
 
@@ -214,7 +213,7 @@ def _registered(library, slug, folder="papers", **row):
     return pdf
 
 
-def test_repeats_by_doi_and_identical_file_never_by_isbn(library):
+def test_repeats_only_by_identical_file_never_by_doi_or_isbn(library):
     _registered(library, "doe-2019-freeform", doi="10.1364/oe.27.1", type="paper")
     _registered(library, "smith-1992-lens-design", folder="books", isbn="9780070591783")
     _registered(library, "lee-2001-proceedings-paper", isbn="9780819491640", type="paper",
@@ -225,10 +224,8 @@ def test_repeats_by_doi_and_identical_file_never_by_isbn(library):
     def meta(**kw):
         return Meta(title="X", author="A", year="2000", **kw)
 
-    assert add_book.repeat_of(new, meta(doi="10.1364/OE.27.1", kind="paper")) == (
-        id_of(library / "catalog.csv", "doe-2019-freeform"),
-        "same DOI",
-    )
+    # The same DOI is no proof: an article and its supplementary material share it (B29)
+    assert add_book.repeat_of(new, meta(doi="10.1364/OE.27.1", kind="paper")) is None
     # The same ISBN (here its ISBN-10) is no proof: a chapter and the whole book share it (L21)
     assert add_book.repeat_of(new, meta(isbn="0070591784")) is None
     # A paper printing its proceedings volume's ISBN is not a repeat of another paper from it
@@ -241,17 +238,18 @@ def test_repeats_by_doi_and_identical_file_never_by_isbn(library):
 
 
 def test_every_way_in_sends_repeats_to_the_archive(library, monkeypatch):
-    _registered(library, "doe-2019-freeform", doi="10.1364/oe.27.1", type="paper")
+    same = text_pdf()  # a repeat is the identical file (L21, B29)
+    _registered(library, "doe-2019-freeform", doi="10.1364/oe.27.1", type="paper", data=same)
     found = Meta(title="Freeform", author="Jane Doe", year="2019", doi="10.1364/oe.27.1",
                  kind="paper")  # fmt: skip
     monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: found)
     # An upload (the same paper under another name and year)
-    job = wait(library_jobs.start_add(library_jobs.save_upload("download.pdf", text_pdf())))
-    assert job["status"] == "duplicate" and "same DOI" in job["message"]
+    job = wait(library_jobs.start_add(library_jobs.save_upload("download.pdf", same)))
+    assert job["status"] == "duplicate" and "identical file" in job["message"]
     assert (library / "archive" / "books" / "download.pdf").exists()
     # The terminal does the same
     copy = library / "books" / "copy.pdf"
-    copy.write_bytes(text_pdf())
+    copy.write_bytes(same)
     add_book.add_book(copy, add_book.Book("Freeform", "Jane Doe", "2019"), False, found)
     assert not copy.exists() and (library / "archive" / "books" / "copy.pdf").exists()
     assert names(library) == ["doe-2019-freeform"]
@@ -269,12 +267,14 @@ def scan_pdf() -> bytes:
 
 
 def test_refresh_keeps_the_richer_copy_and_moves_your_work_to_it(library):
-    # The older entry is a bare scan with your work on it; the newer one has searchable text.
-    # Keep the searchable one, and move ticks, last-read page, notes, words and scripts over.
-    _registered(library, "doe-2019-freeform", doi="10.1/x", type="book", folder="books",
-                data=scan_pdf(), added="2026-01-01", shelves="Optics")  # fmt: skip
-    _registered(library, "doe-2019-freeform-optics", doi="10.1/x", type="book", folder="books",
-                added="2026-03-01", journal="Optics Express")  # fmt: skip
+    # The same file entered twice (the only proof of a repeat: L21, B29). The older entry has
+    # your work on it; the newer one has more details. Keep the one with more details, and
+    # move ticks, last-read page, notes, words and scripts over.
+    same = text_pdf()
+    _registered(library, "doe-2019-freeform", type="book", folder="books",
+                data=same, added="2026-01-01", shelves="Optics")  # fmt: skip
+    _registered(library, "doe-2019-freeform-optics", type="book", folder="books", data=same,
+                added="2026-03-01", journal="Optics Express", doi="10.1/x")  # fmt: skip
     old = library / "notes" / "doe-2019-freeform"
     (old / "README.md").write_text(
         "# x\n\n## Reading progress\n\nLast read: page 4, 2026-03-02\n\n"
@@ -306,42 +306,61 @@ def test_refresh_keeps_the_richer_copy_and_moves_your_work_to_it(library):
     backup = library / "archive" / "notes" / "doe-2019-freeform" / "ch01-intro.md"
     assert backup.exists()  # the original goes to the archive as a backup
     [job] = [j for j in library_jobs.list_jobs() if j["kind"] == "repeat"]
-    assert "searchable text" in job["message"] and "last-read page" in job["message"]
+    assert "more details" in job["message"] and "last-read page" in job["message"]
+    assert "identical file" in job["message"]
 
 
 def test_equal_copies_keep_the_older_one(library):
-    _registered(library, "doe-2019-a", doi="10.1/x", type="paper", added="2026-01-01")
-    _registered(library, "doe-2019-b", doi="10.1/x", type="paper", added="2026-03-01")
+    same = text_pdf()
+    _registered(library, "doe-2019-a", type="paper", added="2026-01-01", data=same)
+    _registered(library, "doe-2019-b", type="paper", added="2026-03-01", data=same)
     library_jobs.refresh()
     assert names(library) == ["doe-2019-a"]
 
 
+def test_refresh_never_merges_documents_that_only_share_a_doi(library):
+    """B29: a DOI names a work, not a PDF (an article and its supplementary material share it).
+    Different files with one DOI stay two documents, Refresh after Refresh."""
+    _registered(library, "doe-2019-a", doi="10.1/x", type="paper", added="2026-01-01")
+    _registered(library, "doe-2019-b", doi="10.1/x", type="paper", added="2026-03-01")
+    for _ in range(2):
+        library_jobs.refresh()
+        assert names(library) == ["doe-2019-a", "doe-2019-b"]
+    assert not (library / "retired-documents.json").exists()
+
+
 def test_both_with_your_work_are_only_reported(library):
+    same = text_pdf()
     for slug in ("doe-2019-a", "doe-2019-b"):
-        _registered(library, slug, doi="10.1/x", type="paper")
+        _registered(library, slug, type="paper", data=same)
         (library / "notes" / slug / "notes.md").write_text("My own idea", encoding="utf-8")
     result = library_jobs.refresh()
     assert "1 repeat(s) to check" in result["message"]
     assert len(catalog.load(library / "catalog.csv")) == 2
 
 
-def test_a_better_copy_replaces_the_pdf_and_keeps_your_notes(library, monkeypatch):
-    # The same DOI (a shared ISBN no longer proves it's the same PDF: L21)
+def test_a_better_copy_is_kept_beside_the_scan_and_nothing_is_replaced(library, monkeypatch):
+    """A searchable copy with the same DOI used to replace the scan; a DOI names a work, not a
+    PDF (B29), so it is a document of its own now, said so, and the scan, its notes and its
+    details stay exactly as they were (the user decides which to keep)."""
     pdf = _registered(library, "doe-2019-freeform", folder="books", data=scan_pdf(),
                       doi="10.1/freeform", title="Freeform")  # fmt: skip
+    before = pdf.read_bytes()
     readme = library / "notes" / "doe-2019-freeform" / "README.md"
     readme.write_text("# x\n\nLast read: page 3, 2026-01-02\n", encoding="utf-8")
     found = Meta(title="Freeform", author="Jane Doe", year="2019", doi="10.1/freeform",
                  publisher="Example Press")  # fmt: skip
     monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: found)
-    job = wait(library_jobs.start_add(library_jobs.save_upload("searchable.pdf", text_pdf())))
-    assert job["status"] == "done" and "searchable text" in job["message"]
-    assert PdfReader(pdf).pages[0].extract_text().startswith("Line 0")  # the new copy
+    searchable = text_pdf()
+    job = wait(library_jobs.start_add(library_jobs.save_upload("searchable.pdf", searchable)))
+    assert job["status"] == "done" and "shares its DOI with doe-2019-freeform" in job["message"]
+    assert pdf.read_bytes() == before  # the scan, untouched
     assert "Last read: page 3" in readme.read_text(encoding="utf-8")  # your notes stay
     row = entry(library / "catalog.csv", "doe-2019-freeform")
-    assert row["publisher"] == "Example Press"  # details it lacked, added
-    # The same file again: nothing replaced, only archived
-    job = wait(library_jobs.start_add(library_jobs.save_upload("again.pdf", text_pdf())))
+    assert row["publisher"] == ""  # its details are not changed by the other document
+    assert len(catalog.load(library / "catalog.csv")) == 2
+    # The same file again: a repeat of the new document, only archived
+    job = wait(library_jobs.start_add(library_jobs.save_upload("again.pdf", searchable)))
     assert job["status"] == "duplicate" and "moved to archive/" in job["message"]
 
 

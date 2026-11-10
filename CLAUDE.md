@@ -184,14 +184,15 @@ the server (`restart_later`).
 **The library page does everything without a terminal**: ＋ Add (upload →
 `library_jobs.py`: identify, name, register in the background; never asks: `book_meta.fill_gaps`
 fills a missing title/year/author from the PDF itself; a name this tool gave before is not
-trusted (`OUR_NAME_RE`); repeats (`add_book.repeat_of`: same DOI, identical file by SHA-256 with
-size prefilter; a name or title alone never is, see Task 2 in docs/history/ROADMAP_HISTORY.md; nor a
-shared ISBN, L21: it names a publication, not what a PDF holds, so such PDFs are kept apart and
-said so, `add_book.shared_isbn`; never add ISBN back as proof) always go
-to `archive/` from every path, CLI included;
-the richer copy wins (`info_score`: text layer, filled INFO_FIELDS, bookmarks, pages): on
-adding, a better *file* replaces the PDF in place (`replace_pdf`), details always merge
-(`fill_details`); Refresh runs `catalog_repeats` (keeps the richer entry, ties: the older),
+trusted (`OUR_NAME_RE`); repeats (`add_book.repeat_of`: only an identical file by SHA-256 with
+size prefilter; a name or title alone never is, see Task 2 in docs/history/ROADMAP_HISTORY.md; nor
+a shared ISBN, L21, or DOI, B29: they name a publication or a work, not what a PDF holds, so such
+PDFs are kept apart as separate documents and said so, `add_book.sharing_note`; never add an
+ISBN or DOI back as proof, nor replace, archive or merge on them) always go
+to `archive/` from every path, CLI included, details merge (`fill_details`); no automatic proof
+shows two different files to be one document, so nothing replaces a library PDF on its own
+(`replace_pdf` stays for a replacement the user confirms, task 6); Refresh runs
+`catalog_repeats` for identical files (keeps the richer entry, `info_score`, ties: the older),
 `merge_into` copies the other's work (ticks, Last read, written notes into the matching
 chapter template, vocabulary, scripts, shelves) before archiving it; both with work: report only; Settings → Clear archive (`library_jobs.clear_archive`) deletes only
 documents (.pdf/.djvu/.epub), empty note templates and .gitkeep, and keeps everything else; ⟳ Refresh = `library_jobs.refresh`;

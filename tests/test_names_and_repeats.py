@@ -233,7 +233,8 @@ def test_a_same_titled_different_file_never_replaces_the_library_pdf(library, mo
 
 
 def test_a_pdf_with_your_marks_and_notes_is_never_replaced(library, monkeypatch):
-    # (a DOI, the proof that can still replace a PDF; a shared ISBN never does: L21)
+    # Same DOI, and searchable: this used to replace an unmarked PDF. No DOI (B29) or ISBN
+    # (L21) proves the same PDF now: the copy is a document of its own, nothing replaced
     old = registered(library, "doe-2019-freeform", marked(scan_pdf()), doi="10.1/freeform",
                      type="book", title="Freeform", authors="Jane Doe", year="2019")  # fmt: skip
     before = old.read_bytes()
@@ -241,15 +242,14 @@ def test_a_pdf_with_your_marks_and_notes_is_never_replaced(library, monkeypatch)
     meta = Meta(title="Freeform", author="Jane Doe", year="2019", doi="10.1/freeform",
                 publisher="Example Press")  # fmt: skip
     monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: meta)
-    job = add(library, meta, text_pdf())  # same DOI, and searchable: would have replaced it
-    assert job["status"] == "duplicate"
-    assert "the library's PDF has your marks, so it stays" in job["message"]
-    assert old.read_bytes() == before
+    job = add(library, meta, text_pdf())
+    assert job["status"] == "done" and "shares its DOI with doe-2019-freeform" in job["message"]
+    assert old.read_bytes() == before and add_book.has_marks(old)  # your marks, in place
     readme = library / "notes" / "doe-2019-freeform" / "README.md"
     assert "Last read: page 7" in readme.read_text("utf-8")
-    assert len(list((library / "archive" / "books").iterdir())) == 1  # the new copy, kept
+    assert not (library / "archive").exists()  # nothing moved to the archive
     row = entry(library / "catalog.csv", "doe-2019-freeform")
-    assert row["publisher"] == "Example Press"  # its details still help
+    assert row["publisher"] == ""  # the other document's details are not put into this entry
 
 
 def test_marks_saved_from_the_reading_view_count_too(library):
@@ -262,19 +262,17 @@ def test_marks_saved_from_the_reading_view_count_too(library):
 
 
 def test_refresh_never_archives_the_copy_with_your_marks(library):
-    """Two entries proven to be the same work (same DOI): Refresh keeps one. Marks can't be
-    merged over like notes, so the copy with marks is the one kept."""
+    """Two entries sharing a DOI, one of them with your marks: a shared DOI is no proof of the
+    same PDF (B29), and a marked PDF is never byte-identical to an unmarked one, so Refresh
+    never pairs them: both stay, with their files."""
     plain = registered(library, "doe-2019-freeform", text_pdf(), doi="10.1/x", type="book",
                        added="2026-01-01")  # fmt: skip
     (library / "notes" / "doe-2019-freeform" / "README.md").write_text("# x\n", "utf-8")
     mine = registered(library, "doe-2019-freeform-optics", marked(scan_pdf()), doi="10.1/x",
                       type="book", added="2026-02-01")  # fmt: skip
     (library / "notes" / "doe-2019-freeform-optics" / "README.md").write_text("# x\n", "utf-8")
-    [pair] = add_book.catalog_repeats()
-    path = library / "catalog.csv"
-    assert pair["keep"] == id_of(path, "doe-2019-freeform-optics")
-    assert pair["drop"] == id_of(path, "doe-2019-freeform")
-    assert plain.exists() and mine.exists()  # catalog_repeats itself moves nothing
+    assert add_book.catalog_repeats() == []
+    assert plain.exists() and mine.exists() and add_book.has_marks(mine)
 
 
 # --- archive names --------------------------------------------------------------------------------
@@ -502,14 +500,14 @@ def test_a_shared_isbn_with_a_different_title_never_replaces_the_pdf(library, mo
     job = add(library, other, text_pdf())
     assert job["status"] == "done" and "shares its ISBN with doe-2019-freeform" in job["message"]
     assert old.read_bytes() == before
-    # A DOI read from the wrong page, with another title: the title check still stops it
+    # A DOI read from the wrong page, with another title: no proof either (B29), kept apart
     doi = registered(library, "doe-2020-coatings", scan_pdf(), doi="10.1/coatings",
                      type="book", title="Coatings", authors="Jane Doe")  # fmt: skip
     kept = doi.read_bytes()
     stranger = Meta(title="Freeform Lenses", author="Bo Chen", year="2021", doi="10.1/coatings")
     monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: stranger)
     job = add(library, stranger, text_pdf("x"))
-    assert job["status"] == "duplicate" and "differs from the entry's" in job["message"]
+    assert job["status"] == "done" and "shares its DOI with doe-2020-coatings" in job["message"]
     assert doi.read_bytes() == kept
     # The same work with its subtitle or edition note: titles agree, so a better copy may
     assert add_book.titles_agree("Freeform Optics", "Freeform optics: design and practice")

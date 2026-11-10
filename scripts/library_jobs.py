@@ -305,9 +305,8 @@ def _register(job: dict, path: Path) -> None:
         library_page.build()
         _in_background(book_search.update)
         added = f"Added the {add_book.kind_word(meta)} “{book.title}”" + _on_shelves(doc_id)
-        if sharing := add_book.shared_isbn(meta, doc_id):  # (L21: kept apart, said so)
-            names = ", ".join(r["slug"] for r in sharing)
-            added += f" · it shares its ISBN with {names}: both kept as separate documents"
+        if shared := add_book.sharing_note(meta, doc_id):  # (L21, B29: kept apart, said so)
+            added += f" · {shared}"
         _finish(job, "done", added, doc_id=doc_id)
     except Stopped:
         _finish(job, "error", f"Not registered: {STOPPED}; Refresh does it next time")

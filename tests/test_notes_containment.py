@@ -104,9 +104,16 @@ def a_notes_folder(folder) -> None:
     (folder / "ch02-old.md").write_text("# Chapter 2: Old\n\n## Key ideas\n\n-\n", "utf-8")
 
 
+HASH_CACHE = ".cache/hashes.json"  # file hashes the identical-file check remembers (rebuildable)
+
+
 def files_under(folder) -> dict:
+    """Every file under `folder` with its bytes, except one rebuildable cache: the file hashes
+    the identical-file check remembers (add_book.file_hash). Nothing else is left out, other
+    caches included, so no change to the user's data or a protected folder can hide here."""
     return {p.relative_to(folder).as_posix(): p.read_bytes()
-            for p in sorted(folder.rglob("*")) if p.is_file()}  # fmt: skip
+            for p in sorted(folder.rglob("*"))
+            if p.is_file() and p.relative_to(folder).as_posix() != HASH_CACHE}  # fmt: skip
 
 
 def bad_notes(kind: str, library, outside) -> str:
@@ -283,12 +290,13 @@ def test_the_server_answers_400_without_a_full_path(lib, tmp_path):
 
 
 def two_copies(library, outside):
-    """The same work twice (same DOI, different details and shelves); the second's catalog
-    notes folder points outside the library."""
+    """The same file twice (the only proof of a repeat: L21, B29; different details and
+    shelves); the second's catalog notes folder points outside the library."""
     first = id_of(library / "catalog.csv", NAME)
     catalog.update(library / "catalog.csv", first, {"doi": "10.1/x", "added": "2026-01-01",
                                                     "shelves": "Optics"})  # fmt: skip
-    (library / "books" / "doe-2015-optics-2.pdf").write_bytes(pdf_bytes())
+    same = (library / catalog.load(library / "catalog.csv")[first]["file"]).read_bytes()
+    (library / "books" / "doe-2015-optics-2.pdf").write_bytes(same)
     second = put(library / "catalog.csv", {
         "slug": "doe-2015-optics-2", "title": "Optics", "type": "book", "doi": "10.1/x",
         "file": "books/doe-2015-optics-2.pdf", "notes": str(outside) + "\\",
