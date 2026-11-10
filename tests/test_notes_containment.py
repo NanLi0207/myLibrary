@@ -84,6 +84,7 @@ def lib(tmp_path, monkeypatch):
     monkeypatch.setattr(reader, "GLOSSARY_CONFIG", library / "glossaries" / "glossaries.toml")
     monkeypatch.setattr(reader, "_glossary_cache", None)
     monkeypatch.setattr(reader, "_glossary_words_cache", None)
+    monkeypatch.setattr(reader, "_glossary_index_cache", None)
     reader._lemma.cache_clear()
     (library / "books").mkdir()
     (library / "books" / f"{NAME}.pdf").write_bytes(pdf_bytes())

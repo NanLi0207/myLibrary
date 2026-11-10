@@ -442,6 +442,11 @@ IRREGULAR_PLURALS = {
     "theses": "thesis",
     "vertices": "vertex",
 }
+# Words that look like a plural but name something of their own in technical texts, so they are
+# never taken for their stem's plural, in a lookup or when a term is added (L23): "glasses"
+# (spectacles) is not "glass" (the material). Kept small and explicit; add a word only with a
+# real case of two different terms.
+OWN_TERMS = frozenset({"glasses"})
 
 
 def lemma(word: str, also: frozenset[str] = frozenset()) -> str:
@@ -451,6 +456,8 @@ def lemma(word: str, also: frozenset[str] = frozenset()) -> str:
     word = word.lower()
     if word in IRREGULAR_PLURALS:
         return IRREGULAR_PLURALS[word]
+    if word in OWN_TERMS:
+        return word  # never taken for the plural of its stem (L23)
     vocab = _glossary_words() | also if also else _glossary_words()
     for guess in _guesses(word):  # before the word itself: "fringes" -> "fringe"
         if guess in vocab:
@@ -497,40 +504,115 @@ def glossary() -> dict[tuple[str, ...], list[dict]]:
     return _glossary_cache[1]
 
 
+_glossary_index_cache: tuple | None = None
+
+
+def _glossary_index() -> tuple[list, dict, dict]:
+    """For lookups that count their own words as glossary words (L23), kept with the glossary
+    and re-made when a glossary file changes: ([(term, entry, its key)], {stored word: indexes
+    of the terms with it}, {a guess (_guesses): the stored words it is a guess of})."""
+    global _glossary_index_cache
+    key = _glossaries_key()
+    if _glossary_index_cache is None or _glossary_index_cache[0] != key:
+        terms = glossary()
+        pairs = [(e["term"], e, k) for k, entries in terms.items() for e in entries]
+        word_terms: dict[str, set[int]] = {}
+        guessed_by: dict[str, set[str]] = {}
+        for i, (term, _, _) in enumerate(pairs):
+            for word in re.findall(r"[a-z0-9]+", term.lower()):
+                word_terms.setdefault(word, set()).add(i)
+                for guess in _guesses(word):
+                    guessed_by.setdefault(guess, set()).add(word)
+        _glossary_index_cache = (key, (pairs, word_terms, guessed_by))
+    return _glossary_index_cache[1]
+
+
+class _Terms:
+    """The glossary's terms by key, as they are once `words` count as glossary words too: the
+    cached keys, plus the other key of each term whose base forms those words change (only
+    those are worked out again, through _glossary_index)."""
+
+    def __init__(self, terms: dict, other: dict):
+        self.terms, self.other = terms, other
+
+    def get(self, key: tuple, default=None) -> list[dict]:
+        found = list(self.terms.get(key, []))
+        found += [e for e in self.other.get(key, []) if e not in found]
+        return found or (default if default is not None else [])
+
+    def __contains__(self, key: tuple) -> bool:
+        return key in self.terms or key in self.other
+
+    def __getitem__(self, key: tuple) -> list[dict]:
+        return self.get(key)
+
+    def __iter__(self):
+        yield from self.terms
+        yield from (k for k in self.other if k not in self.terms)
+
+
+def _terms_for(words: frozenset[str]) -> _Terms:
+    """The glossary's terms as B30's "same term" sees them when `words` (a selection and its
+    context) are added: a term saved as "veiling glares" is then also under (veiling, glare)
+    for a query with "glare", whatever other glossaries hold. Only words new to the glossaries
+    can change a stored word's base form, and only stored words they are a guess of."""
+    terms = glossary()
+    new = words - _glossary_words()
+    pairs, word_terms, guessed_by = _glossary_index()
+    touched = {i for w in new for stored in guessed_by.get(w, ()) for i in word_terms[stored]}
+    other: dict[tuple, list[dict]] = {}
+    for i in touched:
+        term, entry, key = pairs[i]
+        if (now := tuple(tokens(term, words))) != key:
+            other.setdefault(now, []).append(entry)
+    return _Terms(terms, other)
+
+
 def glossary_matches(text: str, context: str = "") -> list[dict]:
     """Glossary entries for the selected text: the text itself, plus longer terms around it in
     the context ('pupil' inside '... the entrance pupil is ...' also gives 'entrance pupil'),
-    plus the terms inside a longer selection."""
-    terms = glossary()
+    plus the terms inside a longer selection.
+
+    Two readings of the words (L23): as the glossaries have them now, and as B30's "same term"
+    sees them once these words are in a glossary too, the rule that decides what may be added.
+    The second finds a term saved only as "veiling glares" for "veiling glare", whatever other
+    glossaries hold; the first keeps every match there was."""
+    words = frozenset(re.findall(r"[a-z0-9]+", f"{text} {context}".lower()))
+    terms = _terms_for(words)
     query = tuple(tokens(text))
     if not query:
         return []
-    found: list[dict] = list(terms.get(query, []))
+    readings = [(query, tuple(tokens(context)))]
+    if (asked := (tuple(tokens(text, words)), tuple(tokens(context, words)))) != readings[0]:
+        readings.append(asked)
+    found: list[dict] = []
 
     def add(entries: list[dict]) -> None:
         found.extend(e for e in entries if e not in found)
 
-    ctx = tokens(context)
+    for q, _ in readings:
+        add(terms.get(q, []))
     longest = max((len(k) for k in terms), default=0)
-    for size in range(longest, len(query), -1):
-        for i in range(len(ctx) - size + 1):
-            window = tuple(ctx[i : i + size])
-            has_query = any(
-                window[j : j + len(query)] == query for j in range(size - len(query) + 1)
-            )
-            if has_query and window in terms:
-                add(terms[window])
+    for q, ctx in readings:
+        for size in range(longest, len(q), -1):
+            for i in range(len(ctx) - size + 1):
+                window = ctx[i : i + size]
+                has_query = any(window[j : j + len(q)] == q for j in range(size - len(q) + 1))
+                if has_query and window in terms:
+                    add(terms[window])
     # Longer terms are more specific: show them first, the bare word last
-    found.sort(key=lambda e: -len(tokens(e["term"])))
+    # (and, as long, the term spelled as asked first: "veiling glare" before "veiling glares")
+    found.sort(key=lambda e: (-len(tokens(e["term"])), e["term"].lower() != text.lower()))
     # A longer selection ("the entrance pupil of a lens"): the terms inside it, longest first,
     # skipping words already covered by a longer term ("pupil" inside "entrance pupil")
-    covered = [query in terms] * len(query)
-    for size in range(min(longest, len(query) - 1), 0, -1):
-        for i in range(len(query) - size + 1):
-            window = query[i : i + size]
-            if window in terms and not any(covered[i : i + size]):
-                covered[i : i + size] = [True] * size
-                add(terms[window])
+    for q, _ in readings:
+        covered = [q in terms] * len(q)
+        for size in range(min(longest, len(q) - 1), 0, -1):
+            for i in range(len(q) - size + 1):
+                window = q[i : i + size]
+                if window in terms and not any(covered[i : i + size]):
+                    covered[i : i + size] = [True] * size
+                    add(terms[window])
     return found
 
 
@@ -587,6 +669,7 @@ def lookup(text: str, context: str = "", doc_id: str | None = None) -> dict:
     """
     text = re.sub(r"\s+", " ", text).strip().strip(".,;:!?()[]{}\"'“”‘’")[:100]
     matches = glossary_matches(text, context)
+    own = frozenset(re.findall(r"[a-z0-9]+", text.lower()))
     # Reading a book: glossaries of its subject come first ("pupil" in an optics book: the
     # optics meaning before the biology one); longer, more specific terms still lead. A
     # glossary matches by its name or label ("optics", "光学 Optics") against the book's shelves,
@@ -598,11 +681,15 @@ def lookup(text: str, context: str = "", doc_id: str | None = None) -> dict:
 
         return 0 if set(shelves.tokens(f"{entry['glossary']} {entry['label']}")) & about else 1
 
-    matches.sort(key=lambda e: (-len(tokens(e["term"])), rank(e)))
+    matches.sort(
+        key=lambda e: (-len(tokens(e["term"])), rank(e), e["term"].lower() != text.lower())
+    )
     result = {
         "query": text,
         "glossary": matches,
-        "in_glossary": any(tokens(g["term"]) == tokens(text) for g in matches),
+        # The same "same term" as adding it would use (B30, L23): the selection's own words
+        # count as glossary words, so the popup never offers to add what it would refuse
+        "in_glossary": any(tokens(g["term"], own) == tokens(text, own) for g in matches),
         "glossaries": [{"name": g["name"], "label": g["label"]} for g in glossary_files()],
         "entries": [],
         "words": [],
@@ -652,7 +739,7 @@ def _add_glossary_row(path: Path, term: str, row: list[str], label: str) -> None
     for the term reads the file as it is now (not the cached glossary: another request may
     have just added it); the whole file is then written atomically (safe_io), keeping its BOM
     and line endings, with the row on a line of its own. A failed write changes nothing."""
-    global _glossary_cache, _glossary_words_cache
+    global _glossary_cache, _glossary_words_cache, _glossary_index_cache
     with safe_io.lock_for(path), safe_io.critical():
         data = safe_io.read_bytes(path) if safe_io.exists(path) else b""
         bom = data.startswith(codecs.BOM_UTF8)
@@ -676,7 +763,7 @@ def _add_glossary_row(path: Path, term: str, row: list[str], label: str) -> None
         csv.writer(line, lineterminator=eol).writerow(row)
         new = (codecs.BOM_UTF8 if bom else b"") + (text + line.getvalue()).encode("utf-8")
         safe_io.write_bytes(path, new)
-    _glossary_cache = _glossary_words_cache = None  # (only after the write succeeded)
+    _glossary_cache = _glossary_words_cache = _glossary_index_cache = None  # (after the write)
 
 
 def add_glossary_term(
