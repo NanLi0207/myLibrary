@@ -389,11 +389,13 @@ Open Library title search.
 
 ### 4.3 重复的文档 / Repeats
 
-同一份作品不会被添加两次，无论从哪里进来（＋ Add、拖放、Find online、⟳ Refresh、`add_book.py`）。只有以下情况算**重复**：**相同的 DOI**、**相同的 ISBN**（书和学位论文；论文可能带有论文集的 ISBN，所以不算），或**内容完全相同的文件**。仅仅标题或名称相同不算重复。
+同一份作品不会被添加两次，无论从哪里进来（＋ Add、拖放、Find online、⟳ Refresh、`add_book.py`）。只有以下情况算**重复**：**相同的 DOI**，或**内容完全相同的文件**。仅仅标题或名称相同不算重复，**相同的 ISBN 也不算**：一章、几章和整本书都带有书的 ISBN，所以只共享 ISBN 的 PDF 作为各自的文档保留，消息会说明它与哪本书共享 ISBN；如果它们其实是同一个，删除其中一个即可。
 The same work is never added twice, however it comes in (＋ Add, dragging, Find online,
-⟳ Refresh, `add_book.py`). Only these count as a **repeat**: the **same DOI**, the **same ISBN**
-(books and theses; a paper may carry its proceedings volume's ISBN, so it doesn't count), or an
-**identical file**. The same title or name alone is not a repeat.
+⟳ Refresh, `add_book.py`). Only these count as a **repeat**: the **same DOI**, or an **identical
+file**. The same title or name alone is not a repeat, and **nor is the same ISBN**: one chapter,
+several chapters and the whole book all carry the book's ISBN, so PDFs that only share an ISBN
+are kept as documents of their own, and the message names the book they share it with; if they
+are in fact the same, remove one.
 
 保留**信息更多**的那一份：先看是否有可搜索的文字（而不是纯扫描），再看信息（DOI、ISBN、期刊、关键词……），然后是书签，最后是页数。
 The copy with **more information** is kept: searchable text (rather than a bare scan) first,

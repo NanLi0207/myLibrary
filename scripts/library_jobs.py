@@ -305,6 +305,9 @@ def _register(job: dict, path: Path) -> None:
         library_page.build()
         _in_background(book_search.update)
         added = f"Added the {add_book.kind_word(meta)} “{book.title}”" + _on_shelves(doc_id)
+        if sharing := add_book.shared_isbn(meta, doc_id):  # (L21: kept apart, said so)
+            names = ", ".join(r["slug"] for r in sharing)
+            added += f" · it shares its ISBN with {names}: both kept as separate documents"
         _finish(job, "done", added, doc_id=doc_id)
     except Stopped:
         _finish(job, "error", f"Not registered: {STOPPED}; Refresh does it next time")
@@ -491,7 +494,7 @@ def _add(job: dict, path: Path) -> None:
                 # A different document with the same usual name gets the next free name (-2)
                 target = add_book.place_book(path, book, meta)
                 doc_id = add_book.reserve_row(target, book, meta)
-            note = add_book.name_note(book, doc_id)
+            note = add_book.name_note(book, doc_id, meta)
         # Notes and the catalog row (other books are filed meanwhile); quitting waits for it
         with safe_io.critical():
             add_book.setup_book(target, book, meta, doc_id=doc_id)

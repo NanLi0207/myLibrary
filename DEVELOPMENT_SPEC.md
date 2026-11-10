@@ -228,8 +228,9 @@ apart.
   UUID4 identity; the slug is only the file and folder name.
 - **FR-L2** [已有] 识别书、论文、学位论文的元数据并记录每个字段的来源。Identify metadata of books, papers and
   theses and record where each field came from.
-- **FR-L3** [已有] 重复必须有证据（DOI、非论文的 ISBN、相同文件的 SHA-256）；仅凭名字或标题从不算重复。A repeat needs
-  proof (DOI, ISBN for non-papers, identical file by SHA-256); a name or title alone never is.
+- **FR-L3** [已有] 重复必须有证据（DOI、相同文件的 SHA-256）；仅凭名字、标题或相同的 ISBN 从不算重复（ISBN 标识出版物，不是 PDF
+  的内容范围，L21）。A repeat needs proof (DOI, identical file by SHA-256); a name, a title or a
+  shared ISBN alone never is (an ISBN names a publication, not what a PDF covers, L21).
 - **FR-L4** [已有] 移除的文档进入书库的 `archive/`，留下墓碑记录。Removed documents go to the library's
   `archive/` and leave a tombstone.
 - **FR-L5** [计划 task 6] 在页面上修正元数据和章节；用户的修改从不被自动步骤覆盖。Correct metadata and chapters
@@ -405,7 +406,7 @@ that file.
 | 情况 Case | 现在 Today | 缺少什么 What's missing |
 |---|---|---|
 | 一个 PDF 是整本书 One PDF, a whole book | 支持（设计时的情况）Supported (the case it was designed for) | — |
-| 一个 PDF 只有一章 One PDF, one chapter | 作为独立的文档登记；章节检测（`book_toc`）在书签标题带章号时用它，否则从 1 开始编号，所以章节 PDF 的书签可能被当作"章节"（未用真实文件测试）；带有整本书 ISBN 的章节 PDF 可能被当作这本书的重复（L21）Registered as a document of its own; chapter detection (`book_toc`) uses a chapter number in a bookmark title when there is one and otherwise counts from 1, so a chapter PDF's section bookmarks may become its "chapters" (not tested with a real file); a chapter PDF carrying the book's ISBN may be taken as a repeat of the book (L21) | 章号；与书的关系 The chapter number; the relation to the book |
+| 一个 PDF 只有一章 One PDF, one chapter | 作为独立的文档登记；章节检测（`book_toc`）在书签标题带章号时用它，否则从 1 开始编号，所以章节 PDF 的书签可能被当作"章节"（未用真实文件测试）；带有整本书 ISBN 的章节 PDF 是自己的文档（L21 修复后）Registered as a document of its own; chapter detection (`book_toc`) uses a chapter number in a bookmark title when there is one and otherwise counts from 1, so a chapter PDF's section bookmarks may become its "chapters" (not tested with a real file); a chapter PDF carrying the book's ISBN is a document of its own (since the L21 fix) | 章号；与书的关系 The chapter number; the relation to the book |
 | 一个 PDF 有几章 One PDF, several chapters | 同上 As above | 章节范围 The chapter range |
 | 同一本书的多个 PDF Several PDFs of one logical book | 各自是独立的文档，彼此没有关系；进度、章节勾选和搜索结果按文件 Each its own document, unrelated; progress, chapter ticks and search results per file | 分组和顺序 A grouping and an order |
 | 缺章、不同的页码、按顺序的部分覆盖 Chapter gaps, differing page numbering, ordered partial coverage | 链接用页索引；印刷页码不显示在笔记中 Links use the page index; printed page numbers aren't shown in notes | 印刷页码标签；哪些章节缺少 Printed page labels; which chapters are missing |
@@ -432,10 +433,9 @@ that file.
 5. **页码只用于显示**：显示印刷页码（PDF 有 `/PageLabels` 时用它，否则用用户设置的偏移）；链接和锚点仍用页索引。**Page numbers
    for display only:** show printed page labels (the PDF's `/PageLabels` where present, else an
    offset the user sets); links and anchors keep the page index.
-6. **重复的证据**：仅凭相同的 ISBN 不应让章节 PDF 成为整本书的重复（L21）。改变 `add_book.repeat_of` 的证据规则会影响 FR-L3，需要
-   测试和单独批准。**Evidence for repeats:** the same ISBN alone shouldn't make a chapter PDF a
-   repeat of its book (L21). Changing `add_book.repeat_of`'s evidence rule touches FR-L3 and needs
-   tests and its own approval.
+6. **重复的证据**：相同的 ISBN 不再让章节 PDF 成为整本书的重复（L21，2026-11-10 修复，FR-L3）：只共享 ISBN 的 PDF 是各自的文档。
+   **Evidence for repeats:** the same ISBN no longer makes a chapter PDF a repeat of its book
+   (L21, fixed 2026-11-10, FR-L3): PDFs that only share an ISBN are documents of their own.
 
 **未决定 / Not decided:** 分组是目录中的一行还是单独的文件；搜索和阅读记录怎样按书汇总；阅读器中怎样在成员之间移动。Whether a
 group is a catalog row or a separate file; how search and the reading log add up per book; how

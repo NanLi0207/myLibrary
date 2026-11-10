@@ -214,7 +214,7 @@ def _registered(library, slug, folder="papers", **row):
     return pdf
 
 
-def test_repeats_by_doi_isbn_and_identical_file(library):
+def test_repeats_by_doi_and_identical_file_never_by_isbn(library):
     _registered(library, "doe-2019-freeform", doi="10.1364/oe.27.1", type="paper")
     _registered(library, "smith-1992-lens-design", folder="books", isbn="9780070591783")
     _registered(library, "lee-2001-proceedings-paper", isbn="9780819491640", type="paper",
@@ -229,10 +229,8 @@ def test_repeats_by_doi_isbn_and_identical_file(library):
         id_of(library / "catalog.csv", "doe-2019-freeform"),
         "same DOI",
     )
-    assert add_book.repeat_of(new, meta(isbn="0070591784")) == (  # ISBN-10 of the same book
-        id_of(library / "catalog.csv", "smith-1992-lens-design"),
-        "same ISBN",
-    )
+    # The same ISBN (here its ISBN-10) is no proof: a chapter and the whole book share it (L21)
+    assert add_book.repeat_of(new, meta(isbn="0070591784")) is None
     # A paper printing its proceedings volume's ISBN is not a repeat of another paper from it
     assert add_book.repeat_of(new, meta(isbn="9780819491640", kind="paper")) is None
     new.write_bytes(b"%PDF-1.4 the same bytes")  # same contents, whatever its details say
@@ -328,11 +326,12 @@ def test_both_with_your_work_are_only_reported(library):
 
 
 def test_a_better_copy_replaces_the_pdf_and_keeps_your_notes(library, monkeypatch):
+    # The same DOI (a shared ISBN no longer proves it's the same PDF: L21)
     pdf = _registered(library, "doe-2019-freeform", folder="books", data=scan_pdf(),
-                      isbn="9780070591783", title="Freeform")  # fmt: skip
+                      doi="10.1/freeform", title="Freeform")  # fmt: skip
     readme = library / "notes" / "doe-2019-freeform" / "README.md"
     readme.write_text("# x\n\nLast read: page 3, 2026-01-02\n", encoding="utf-8")
-    found = Meta(title="Freeform", author="Jane Doe", year="2019", isbn="9780070591783",
+    found = Meta(title="Freeform", author="Jane Doe", year="2019", doi="10.1/freeform",
                  publisher="Example Press")  # fmt: skip
     monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: found)
     job = wait(library_jobs.start_add(library_jobs.save_upload("searchable.pdf", text_pdf())))

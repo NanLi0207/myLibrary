@@ -122,6 +122,7 @@ not yet pushed.
 | 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
 | 平台准备：`scripts/platform_services.py`（打开编辑器、文件夹对话框、用户数据文件夹），见 X1 Platform groundwork: `scripts/platform_services.py` (opening editors, the folder dialog, the user-data folder), see X1 | ✅ CI 运行 run 42811025108；macOS 部分只用模拟测试 macOS branches tested with mocks only | `b592a85` |
 | B28 安全修复：Windows 编辑器经 `cmd.exe` 的命令注入（第 11 节）B28 security fix: editor command injection through `cmd.exe` on Windows (section 11) | ✅ 回归测试；隔离的真实 VS Code 验证 regression tests; isolated real VS Code check | 提交 commit "Fix Windows editor command injection in special-character paths" |
+| L21 修复：相同的 ISBN 不再证明是同一个 PDF（第 11 节）L21 fix: a shared ISBN no longer proves the same PDF (section 11) | ✅ L21 回归测试和数据安全测试通过；完整测试中有 B30 的间歇失败 L21 regression and data-safety tests pass; the full suite hit B30's intermittent failure | 提交 commit "Prevent ISBN-based replacement and merging of different PDFs" |
 | 双语用户手册 Bilingual user manual | ✅ 现为 now [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | `121c67b` |
 
 测试数量会随代码变化，这里不记录；以 CI 和本地运行的实际结果为准。**L20**（一次未识别的测试失败）仍未解决，见第 11 节。
@@ -146,12 +147,18 @@ P2–P5, none of the new E/R/G/X/U items.
 **仍未完成 / Still open:** M5a 在安装包中的离线预览验证和用户的人工验收（第 1 节）。M5a's offline-preview check in
 a built package and the user's manual acceptance (section 1).
 
-**优先调查 / Priority investigation: L21**（2026-11-10 用户决定 the user's decision）。怀疑的数据完整性错误，**未复现 NOT
-REPRODUCED**（第 11 节）。下一步是一次有边界的调查：在临时书库中用合成的 PDF 复现，并写回归测试；不推迟到任务 8。调查和任何修复都要用户
-另行同意才开始；现有的归档和恢复行为保持不变。A suspected data-integrity bug, **NOT REPRODUCED** (section
-11). The next step is a bounded investigation: a synthetic reproduction in a temporary library
-and a regression test; not deferred to task 8. The investigation and any fix start only with
-the user's go-ahead; the existing archive and recovery behaviour stays as it is.
+**L21**（数据完整性 data integrity）：2026-11-10 复现并修复（第 11 节"已修复"）。Reproduced and fixed 2026-11-10
+(section 11, "Fixed"). **新发现 / Found on the way:** B29（DOI 的同类问题 the DOI analogue）、B30（术语表并发测试间歇失败，
+原因未明 an intermittent glossary concurrency failure, cause unknown）。
+
+**接下来的顺序（用户 2026-11-10 定）/ Next, in this order (the user's decision, 2026-11-10):**
+1. B29：DOI 造成的错误重复判断（添加和刷新）；方针：只有相同的 DOI 不能授权破坏性的重复处理，没有证明文件相同时保留各自的文档。B29: false
+   duplicates by DOI (Add and Refresh); policy: a matching DOI alone never authorises destructive duplicate handling, and
+   separate documents are kept unless the files are shown to be the same.
+2. B30：并发加入术语的间歇失败，单独调查根本原因（初步调查找不到原因时咨询一次 Fable 专家）。B30: the intermittent concurrent
+   glossary insertion, its root cause investigated on its own (one Fable consultation if a first targeted look can't find it).
+3. 完整回归验证和 CI。Full regression verification and CI.
+4. 以上都审核后才继续 M5b。M5b resumes only after the above is reviewed.
 
 ### 用户验证 / User validation (U1–U3) 📋 方向已批准 direction approved 2026-11-10，未开始 not started
 
@@ -612,7 +619,6 @@ in the history, section 3; this table is the current state.
 | ID | 问题 Issue | 计划在 Planned in |
 |---|---|---|
 | **L20** | **未解决 UNRESOLVED.** 2026-11-09 一次完整运行中有一个未识别的失败，之后没能复现。现在每次运行都写 `test-results/pytest-junit.xml`；下次失败时运行 `uv run pytest -rfE --tb=long` 并保留该文件。One unidentified failure in one full run (2026-11-09), not reproduced since. Every run now writes `test-results/pytest-junit.xml`; on the next failure run `uv run pytest -rfE --tb=long` and keep that file. | — |
-| **L21** (S) | **未复现 NOT REPRODUCED.** 怀疑的数据完整性错误，读代码发现。一本书已在书库中时，带有同一 ISBN 的单章或几章 PDF 被当作重复（`add_book.repeat_of`：非论文的相同 ISBN）。通常它移入 `archive/`，无法作为章节加入。`handle_repeat` 只在三个条件都满足时才用 `replace_pdf` 取代书库的 PDF：新文件更“丰富”（`info_score`：先比文字层）、书名一致（`titles_agree`）、书库的 PDF 没有用户的标注（`PdfMarked`）。这些保护降低但不一定消除风险：章节 PDF 经 ISBN 识别时可能得到整本书的书名，于是书名一致；如果书库中的那本书是没有文字层、没有标注的扫描件，整本书的 PDF 可能被一个只有一章的文件取代（旧文件进 `archive/`，不丢失，但笔记和页码从此对着那一章）。A suspected data-integrity bug, found by reading the code. A one- or few-chapter PDF carrying the ISBN of a book already in the library is treated as a repeat (`add_book.repeat_of`: same ISBN for non-papers). Usually it goes to `archive/` and can't be added as chapters. `handle_repeat` replaces the library's PDF through `replace_pdf` only when the new file scores “richer” (`info_score`, text layer first), the titles agree (`titles_agree`) and the library's PDF has no user marks (`PdfMarked`). These protections reduce the risk but don't necessarily remove it: a chapter PDF identified through its ISBN may get the whole book's title, so the titles agree; if the library's copy is an unmarked scan without a text layer, the whole book's PDF could be replaced by a one-chapter file (the old file goes to `archive/`, nothing is lost, but notes and page numbers then face that chapter). | **优先调查 priority investigation**（第 2 节 section 2）：合成复现和回归测试，不推迟到任务 8；修复需单独批准 synthetic reproduction and a regression test, not deferred to task 8; a fix needs its own approval |
 | D18 (C, latent) | 重命名失败时可能丢失恢复日志（`add_book.rename_document`）。A failed rename can lose its recovery journal. | Task 8 |
 | B2 (C) | ☁ 备份不支持非 ASCII 文件名。☁ Back up fails with non-ASCII file names. | Task 7 |
 | B4 (C) | 设置了 `MYLIBRARY_LIBRARY` 时更换书库可能悄悄不生效。A library change can silently not take effect when `MYLIBRARY_LIBRARY` is set. | Task 8 |
@@ -630,6 +636,8 @@ in the history, section 3; this table is the current state.
 | B16 (S) | 尚未确认（见历史记录）。Not yet confirmed (see the history). | — |
 | B17 (S) | pdfium 提取文字时可能发生本地崩溃。A native fault in pdfium during text extraction. | — |
 | B21–B24 (C, audit) | OCR 中残留的按 slug 的键；没有完整超时的请求；服务器重启后 Ctrl+S 重试；相同文本之间的冲突。Slug-keyed leftovers in OCR; requests without a full timeout; Ctrl+S retries after a restart; a conflict between identical texts. | Task 8 |
+| **B29** (C, 2026-11-10) | DOI 的同类问题：DOI 标识的是作品，不是某个 PDF。打印了文章 DOI 的 PDF（例如它的补充材料）被当作那篇文章：Crossref 给出相同的标题，标题检查通过；页数更多时它取代文章的 PDF（`handle_repeat` → `replace_pdf`），刷新时两条记录会被合并（`catalog_repeats`，读代码得出）。证据：`tests/test_partial_pdf_repeats.py` 中的严格 xfail 测试（8 页文章被 20 页补充材料取代）。DOI 的行为**未改变**，需要用户另行决定。The DOI analogue: a DOI names a work, not a particular PDF. A PDF printing an article's DOI (e.g. its supplementary material) is taken for the article: Crossref gives the same title, so the title check passes; with more pages it replaces the article's PDF (`handle_repeat` → `replace_pdf`), and Refresh would merge the two entries (`catalog_repeats`, from reading the code). Evidence: a strict-xfail test in `tests/test_partial_pdf_repeats.py` (an 8-page article replaced by a 20-page supplement). DOI behaviour **unchanged**, pending the user's separate decision. | 需决定 needs a decision |
+| **B30** (C, 间歇 intermittent, 2026-11-10) | `tests/test_glossary_terms.py::test_the_same_term_twice_at_once_is_added_once` 间歇失败：两个同时的请求加入"veiling glare"和"veiling glares"（同一个术语）时两个都成功，术语表中就有了重复的术语。单独运行 30 次中失败 11 次（有 L21 改动）和 7 次（在 `610c858`，没有 L21 改动），所以早已存在，与 L21 无关。`reader._add_glossary_row` 在锁内用 `tokens()` 重新检查，而 `tokens()` 对两者给出相同的结果，原因还没找到（可能是线程间词形还原的差异或锁本身）。可能就是 L20 那次未识别的失败，但没有证据。JUnit 文件已保存。An intermittent failure: two simultaneous requests adding "veiling glare" and "veiling glares" (the same term) both succeed, so the glossary gets the term twice. 11 of 30 isolated runs failed (with the L21 change) and 7 of 30 at `610c858` (without it): pre-existing, unrelated to L21. `reader._add_glossary_row` re-checks under the lock with `tokens()`, which gives both the same result; the root cause isn't found yet (perhaps lemmatising across threads, or the lock itself). It may be L20's unidentified failure; there is no evidence of that. The JUnit file was kept. | 单独调查 separate investigation |
 | B27 (C, test only) | 浏览器测试夹具用普通 `read_text` 读取阅读记录。The browser fixture reads the reading log with a plain `read_text`. | Task 8 |
 | L1 | 只有书、论文、学位论文三种类型。Only book, paper and thesis types. | Task 6 |
 | L9 | 中文文档：第N章、中文章节名、中文在线目录。Chinese documents: 第N章 contents, Chinese chapter titles, a Chinese online catalogue. | v0.5-6 |
@@ -650,6 +658,15 @@ in the history, section 3; this table is the current state.
   fixed in `0692189`.
 - **L15** 同时两次启动为一个书库启动两个服务器：在 `2b0ff96` 中修复（书库锁）。Two launches at once starting two
   servers for one library: fixed in `2b0ff96` (the library lock).
+
+**已修复的数据完整性问题 / Fixed data-integrity issue**
+- **L21**（C，数据完整性 data integrity，2026-11-10）相同的 ISBN 被当作同一个 PDF 的证明 / A shared ISBN taken as proof of the same PDF.
+  在提交 "Prevent ISBN-based replacement and merging of different PDFs"（2026-11-10）中修复。Fixed in the commit "Prevent ISBN-based replacement and merging of different PDFs" (2026-11-10).
+  - **已确认 / Confirmed:** ISBN 标识出版物，不是 PDF 的内容范围。用书库页面真实的添加任务复现（临时书库、合成 PDF，只替换网络入口）：无标注的扫描书被单章或几章的 PDF 取代（页数 40 → 12 / 25）；章节 PDF 被悄悄移入 `archive/`；刷新把章节和整本书合并，保留章节、移走整本书；先章节后整本书时整本书取代章节。被取代的原件留在 `archive/` 中，但"清空归档"会删除归档中的 PDF。An ISBN names the publication, not what a PDF covers. Reproduced through the library page's real add job (temporary library, synthetic PDFs, only the network's door replaced): an unmarked scanned book replaced by a one- or several-chapter PDF (pages 40 → 12 / 25); chapter PDFs silently moved to `archive/`; Refresh merging a chapter with the book, keeping the chapter and moving the book away; the book replacing a chapter added first. Replaced originals stayed in `archive/`, but Clear archive deletes archived PDFs.
+  - **修复 / Fix** (`scripts/add_book.py`, `scripts/library_jobs.py`): 相同的 ISBN 不再是重复的证明（`repeat_of`、`PROVEN`、`catalog_repeats`），只有相同的 DOI 或逐字节相同的文件才是；所以添加（页面和命令行）、`handle_repeat`、刷新都不会因 ISBN 而替换、归档或合并。只共享 ISBN 的新 PDF 成为自己的文档（自己的 UUID、笔记和进度），消息说明它与哪本书共享 ISBN、可能是其他章节、部分或版本（`add_book.shared_isbn`、`name_note`）。缺失 PDF 的记录不再因 ISBN 被重新连接。A shared ISBN is no longer proof of a repeat (`repeat_of`, `PROVEN`, `catalog_repeats`); only the same DOI or a byte-identical file is. So adding (page and command line), `handle_repeat` and Refresh never replace, archive or merge because of an ISBN. A new PDF that only shares an ISBN becomes a document of its own (its own UUID, notes and progress), and the message names the book it shares the ISBN with, as possibly other chapters, another part or edition (`add_book.shared_isbn`, `name_note`). An entry whose PDF is missing is no longer re-attached by ISBN.
+  - **有意的兼容性取舍 / Intentional trade-off:** 以前同一 ISBN 的更好的完整副本（例如有文字层的版本代替扫描件）会自动取代 PDF；现在它作为第二个文档保留，由用户决定（以后的任务 6 中经用户确认的重复管理）；更好的副本有相同的 DOI 时照旧取代。在另一台电脑或恢复后重新加入缺失的 PDF也不再按 ISBN 自动连接（DOI 或相同的文件照旧）。A better complete copy with the same ISBN (e.g. a searchable version of a scan) used to replace the PDF automatically; it is now kept as a second document for the user to decide (user-confirmed duplicate management, task 6, later); a better copy with the same DOI still replaces it. Re-adding a missing PDF on another computer or after a restore no longer re-attaches by ISBN (by DOI or an identical file as before).
+  - **验证 / Verification:** `tests/test_partial_pdf_repeats.py`（16 个通过：上面的每种情况，加上相同页数的两个不同章节、缺几章的近乎完整的 PDF、两个不同的 30 页 PDF、有标注的书、页数未知的缺失 PDF、两次刷新、两个部分 PDF、命令行、逐字节相同的文件；每次都检查书的 PDF、目录行、笔记、章节映射、归档和墓碑不变）；更新了 4 个以前断言 ISBN 行为的测试（替换和标注保护改用 DOI 继续测试）；完整测试：533 个通过、9 个跳过，1 个失败（B30，在 `610c858` 上同样出现，与 L21 无关），所以完整测试**没有**全部通过；书库相关的浏览器测试通过。`tests/test_partial_pdf_repeats.py` (16 passing: every case above, plus two different chapters of equal length, a nearly complete PDF missing chapters, two different 30-page PDFs, a marked book, a missing PDF with an unknown page count, Refresh twice, two partial PDFs, the command line, a byte-identical file; each checking that the book's PDF, catalog row, notes, chapter mapping, archive and tombstones are unchanged); 4 older tests that asserted the ISBN behaviour updated (the replacement and marks protection still tested, by DOI); the full suite: 533 passed, 9 skipped, 1 failed (B30, also seen at `610c858`, unrelated to L21), so the full suite did **not** pass; the library browser tests pass.
+  - **限制 / Limitations:** 已经受影响的书库不会被修复；同一 ISBN 的真正重复现在是两个文档，需要用户删除一个；🔎 在线查找按 ISBN 把书显示为"在书库中"（只是显示）。B29（DOI）未改。Libraries already affected aren't repaired; true repeats with one ISBN are now two documents for the user to remove one of; 🔎 Find online still shows a book as "in your library" by ISBN (display only). B29 (DOI) unchanged.
 
 **已修复的安全问题 / Fixed security issue**
 - **B28**（C，安全 security，2026-11-10）Windows 上经 `cmd.exe` 的命令注入 / Command injection through `cmd.exe` on Windows.

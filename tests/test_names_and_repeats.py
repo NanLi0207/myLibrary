@@ -233,14 +233,15 @@ def test_a_same_titled_different_file_never_replaces_the_library_pdf(library, mo
 
 
 def test_a_pdf_with_your_marks_and_notes_is_never_replaced(library, monkeypatch):
-    old = registered(library, "doe-2019-freeform", marked(scan_pdf()), isbn="9780070591783",
+    # (a DOI, the proof that can still replace a PDF; a shared ISBN never does: L21)
+    old = registered(library, "doe-2019-freeform", marked(scan_pdf()), doi="10.1/freeform",
                      type="book", title="Freeform", authors="Jane Doe", year="2019")  # fmt: skip
     before = old.read_bytes()
     assert add_book.has_marks(old)
-    meta = Meta(title="Freeform", author="Jane Doe", year="2019", isbn="9780070591783",
+    meta = Meta(title="Freeform", author="Jane Doe", year="2019", doi="10.1/freeform",
                 publisher="Example Press")  # fmt: skip
     monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: meta)
-    job = add(library, meta, text_pdf())  # same ISBN, and searchable: would have replaced it
+    job = add(library, meta, text_pdf())  # same DOI, and searchable: would have replaced it
     assert job["status"] == "duplicate"
     assert "the library's PDF has your marks, so it stays" in job["message"]
     assert old.read_bytes() == before
@@ -491,15 +492,25 @@ def test_the_command_line_names_and_repeats_the_same_way(library, monkeypatch):
 
 
 def test_a_shared_isbn_with_a_different_title_never_replaces_the_pdf(library, monkeypatch):
-    """An ISBN read from the wrong page (e.g. a series advert) must not swap in another book."""
+    """An ISBN read from the wrong page (e.g. a series advert) must not swap in another book:
+    a shared ISBN is no proof at all now (L21), so the other book is a document of its own."""
     old = registered(library, "doe-2019-freeform", scan_pdf(), isbn="9780070591783",
                      type="book", title="Freeform Optics", authors="Jane Doe")  # fmt: skip
     before = old.read_bytes()
     other = Meta(title="Thin Film Coatings", author="Bo Chen", year="2021", isbn="9780070591783")
     monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: other)
     job = add(library, other, text_pdf())
-    assert job["status"] == "duplicate" and "differs from the entry's" in job["message"]
+    assert job["status"] == "done" and "shares its ISBN with doe-2019-freeform" in job["message"]
     assert old.read_bytes() == before
+    # A DOI read from the wrong page, with another title: the title check still stops it
+    doi = registered(library, "doe-2020-coatings", scan_pdf(), doi="10.1/coatings",
+                     type="book", title="Coatings", authors="Jane Doe")  # fmt: skip
+    kept = doi.read_bytes()
+    stranger = Meta(title="Freeform Lenses", author="Bo Chen", year="2021", doi="10.1/coatings")
+    monkeypatch.setattr(library_jobs, "identify", lambda path, online, **kw: stranger)
+    job = add(library, stranger, text_pdf("x"))
+    assert job["status"] == "duplicate" and "differs from the entry's" in job["message"]
+    assert doi.read_bytes() == kept
     # The same work with its subtitle or edition note: titles agree, so a better copy may
     assert add_book.titles_agree("Freeform Optics", "Freeform optics: design and practice")
     assert add_book.titles_agree("光学设计", "光学 设计")

@@ -340,8 +340,10 @@ def possible_repeat(book: Book, doc_id: str = "") -> dict | None:
 
 
 # --- repeats ----------------------------------------------------------------------------------
-# The same work twice, proven: the same DOI, the same ISBN (books and theses: a paper may carry
-# its proceedings volume's ISBN), or a byte-identical file. A name, or a title, alone never is.
+# The same document twice, proven: the same DOI, or a byte-identical file. A name, or a title,
+# alone never is. Nor is an ISBN (L21): it names a publication, not what a PDF holds, and one
+# chapter, several chapters or the whole book can all carry it. PDFs that only share an ISBN are
+# kept as separate documents, and the new one's note says so (name_note).
 
 
 def file_hash(path: Path) -> str:
@@ -370,25 +372,34 @@ def _same_file(a: Path, b: Path) -> bool:
         return False
 
 
-PROVEN = ("same DOI", "same ISBN", "identical file")  # the reasons repeat_of gives
+PROVEN = ("same DOI", "identical file")  # the reasons repeat_of gives (never an ISBN: L21)
 
 
 def repeat_of(path: Path, meta: Meta) -> tuple[str, str] | None:
     """(id, reason) of the document already in the library that `path` is proven to repeat
-    (the same DOI or ISBN, or an identical file), or None."""
-    is_paper = meta.kind == "paper"
-    isbn = isbn13(meta.isbn) if meta.isbn else ""
+    (the same DOI, or an identical file), or None. A shared ISBN is no proof (L21)."""
     for row in catalog.load(CATALOG).values():
         existing = LIBRARY / row.get("file", "")
         if row.get("file") and existing.resolve() == path.resolve():
             continue  # the document's own file
         if meta.doi and row.get("doi", "").lower() == meta.doi.lower():
             return row["id"], "same DOI"
-        if isbn and not is_paper and row.get("type") != "paper" and row.get("isbn") == isbn:
-            return row["id"], "same ISBN"
         if row.get("file") and existing.is_file() and _same_file(path, existing):
             return row["id"], "identical file"
     return None
+
+
+def shared_isbn(meta: Meta, doc_id: str = "") -> list[dict]:
+    """The other books with this document's ISBN (not papers: a paper may print its proceedings
+    volume's ISBN): kept as separate documents, perhaps other parts of the same book (L21)."""
+    if not meta.isbn or meta.kind == "paper":
+        return []
+    isbn = isbn13(meta.isbn)
+    return [
+        row
+        for row in catalog.load(CATALOG).values()
+        if row["id"] != doc_id and row.get("type") != "paper" and row.get("isbn") == isbn
+    ]
 
 
 _archive_lock = threading.Lock()  # choosing a free archive name and taking it: one step
@@ -531,8 +542,7 @@ def catalog_repeats() -> list[dict]:
             fa, fb = LIBRARY / a.get("file", ""), LIBRARY / b.get("file", "")
             reason = (
                 "same DOI" if a.get("doi") and a["doi"].lower() == b.get("doi", "").lower()
-                else "same ISBN" if a.get("isbn") and a["isbn"] == b.get("isbn")
-                and "paper" not in (a.get("type"), b.get("type"))
+                # (never a shared ISBN: one chapter and the whole book share it, L21)
                 else "identical file" if fa.is_file() and fb.is_file() and _same_file(fa, fb)
                 else ""
             )  # fmt: skip
@@ -1047,18 +1057,19 @@ def setup_book(pdf: Path, book: Book, meta: Meta, online: bool = True, doc_id: s
 
 
 def find_repeat(path: Path, meta: Meta, book: Book) -> tuple[str, str] | None:
-    """(id, reason) if `path` is proven to repeat a document already in the library (same DOI
-    or ISBN, or an identical file: repeat_of); else None. The same name is not a repeat: the new
-    document gets a free name of its own (place_book)."""
+    """(id, reason) if `path` is proven to repeat a document already in the library (same DOI,
+    or an identical file: repeat_of); else None. The same name is not a repeat: the new
+    document gets a free name of its own (place_book); nor is the same ISBN (L21)."""
     return repeat_of(path, meta)
 
 
 def handle_repeat(
     path: Path, meta: Meta, doc_id: str, dry_run: bool = False, reason: str = ""
 ) -> tuple[bool, str]:
-    """A proven repeat of document `doc_id` (repeat_of's `reason`). With the same DOI or ISBN,
-    a copy whose file is better (searchable text, ...) replaces the library's PDF (your notes
-    stay, and the document keeps its id), unless the library's PDF has your marks in it.
+    """A proven repeat of document `doc_id` (repeat_of's `reason`, never a shared ISBN: L21).
+    With the same DOI, a copy whose file is better (searchable text, ...) replaces the library's
+    PDF (your notes stay, and the document keeps its id), unless the library's PDF has your
+    marks in it.
     Otherwise this copy goes to archive/ (it never becomes a document, so it gets no id).
     Details the entry lacks are added either way. Returns (whether the PDF was replaced, what
     happened)."""
@@ -1154,7 +1165,7 @@ def add_book(
             return
         book.name = free_slug(book.base_slug)
         print(f"  -> {folder_for(meta.kind).name}/{book.slug}{path.suffix.lower()}")
-        if note := name_note(book):
+        if note := name_note(book, meta=meta):
             print(f"  ! {note}")
         if dry_run:
             return
@@ -1163,14 +1174,23 @@ def add_book(
     setup_book(target, book, meta, online, doc_id=doc_id)
 
 
-def name_note(book: Book, doc_id: str = "") -> str:
+def name_note(book: Book, doc_id: str = "", meta: Meta | None = None) -> str:
     """What to know about the name a new document (`doc_id`, once it has one) got: another one
-    already had the usual name, or an entry looks like the same work without proof. "" if
-    nothing."""
+    already had the usual name, it shares an ISBN with other books (L21), or an entry looks like
+    the same work without proof. "" if nothing."""
     notes = []
     if book.slug != book.base_slug:
         notes.append(f"named {book.slug}: {book.base_slug} is another document's name")
-    if other := possible_repeat(book, doc_id):
+    sharing = shared_isbn(meta, doc_id) if meta else []
+    if sharing:
+        names = ", ".join(r["slug"] for r in sharing)
+        notes.append(
+            f"it shares its ISBN with {names}: it may hold other chapters, another part or "
+            "another edition of that book, so both are kept as separate documents (nothing "
+            "was replaced or moved); if they are the same, remove one"
+        )
+    said = {r["id"] for r in sharing}
+    if (other := possible_repeat(book, doc_id)) and other["id"] not in said:
         notes.append(f"possibly the same work as {other['slug']} (same title, author and year, "
                      "but a different file and no shared DOI or ISBN): both kept; if they are "
                      "the same, remove one")  # fmt: skip
