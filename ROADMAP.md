@@ -120,7 +120,8 @@ not yet pushed.
 | 第 4b 节：多个书库、测试/示例书库、可迁移书库 Section 4b: several libraries, Test & Demo library, portable libraries | ✅ 含 L15 修复 with the L15 fix | `2b0ff96`, `4094dc4` |
 | 页面重新载入时连接被拒（监听队列 5 → 64）Connections refused on reload (listen backlog 5 → 64) | ✅ | `d6c1a5d` |
 | 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
-| 平台准备：`scripts/platform_services.py`（打开编辑器、文件夹对话框、用户数据文件夹），见 X1 Platform groundwork: `scripts/platform_services.py` (opening editors, the folder dialog, the user-data folder), see X1 | 🧪 macOS 部分只用模拟测试 macOS branches tested with mocks only | — |
+| 平台准备：`scripts/platform_services.py`（打开编辑器、文件夹对话框、用户数据文件夹），见 X1 Platform groundwork: `scripts/platform_services.py` (opening editors, the folder dialog, the user-data folder), see X1 | ✅ CI 运行 run 42811025108；macOS 部分只用模拟测试 macOS branches tested with mocks only | `b592a85` |
+| B28 安全修复：Windows 编辑器经 `cmd.exe` 的命令注入（第 11 节）B28 security fix: editor command injection through `cmd.exe` on Windows (section 11) | ✅ 回归测试；隔离的真实 VS Code 验证 regression tests; isolated real VS Code check | 提交 commit "Fix Windows editor command injection in special-character paths" |
 | 双语用户手册 Bilingual user manual | ✅ 现为 now [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | `121c67b` |
 
 测试数量会随代码变化，这里不记录；以 CI 和本地运行的实际结果为准。**L20**（一次未识别的测试失败）仍未解决，见第 11 节。
@@ -541,7 +542,7 @@ stays as it is.
   tested), `platform_services` (the groundwork below), the Windows-only `make_shortcut.py` and
   package, the Edge-only browser tests; a manual smoke test when a Mac is available; a written
   report, with the issues found added to section 11.
-- **已做的准备（2026-11-10，未提交）/ Groundwork done (2026-11-10, not committed):** X1 本身**没有完成**。
+- **已做的准备（2026-11-10，`b592a85`）/ Groundwork done (2026-11-10, `b592a85`):** X1 本身**没有完成**。
   `scripts/platform_services.py` 集中了与操作系统有关的三件事，Windows 的行为与以前相同：X1 itself is **not done**.
   `scripts/platform_services.py` gathers three OS-dependent things, with Windows behaving as before:
   - 用设置中的编辑器打开文件：macOS 用 `open`，`.py` 和 "Notepad" 用 `open -t`（默认文本编辑器，从不运行）；macOS 上的自定义命令拆成参数，
@@ -629,7 +630,6 @@ in the history, section 3; this table is the current state.
 | B16 (S) | 尚未确认（见历史记录）。Not yet confirmed (see the history). | — |
 | B17 (S) | pdfium 提取文字时可能发生本地崩溃。A native fault in pdfium during text extraction. | — |
 | B21–B24 (C, audit) | OCR 中残留的按 slug 的键；没有完整超时的请求；服务器重启后 Ctrl+S 重试；相同文本之间的冲突。Slug-keyed leftovers in OCR; requests without a full timeout; Ctrl+S retries after a restart; a conflict between identical texts. | Task 8 |
-| B28 (S, 读代码发现 found by reading the code) | Windows 上 VS Code 的命令是批处理文件 `code.CMD`，`library_server.open_in_editor` 把工作区和笔记路径作为参数传给它时经过 `cmd.exe`；没有空格的参数不加引号（`subprocess.list2cmdline`），所以书库路径中的 `&` 等字符可能被 `cmd.exe` 解释。笔记文件名来自 slug（只有字母、数字、连字符），风险在用户自选的书库文件夹名。未复现；不是这次平台改动引入的。On Windows VS Code's command is the batch file `code.CMD`; `library_server.open_in_editor` passes the workspace and note paths to it through `cmd.exe`, and an argument without spaces isn't quoted (`subprocess.list2cmdline`), so `&` and similar characters in a library path may be interpreted by `cmd.exe`. Note file names come from slugs (letters, digits, hyphens); the risk is a library folder name the user chose. Not reproduced; not introduced by the platform change. | 需决定 needs a decision |
 | B27 (C, test only) | 浏览器测试夹具用普通 `read_text` 读取阅读记录。The browser fixture reads the reading log with a plain `read_text`. | Task 8 |
 | L1 | 只有书、论文、学位论文三种类型。Only book, paper and thesis types. | Task 6 |
 | L9 | 中文文档：第N章、中文章节名、中文在线目录。Chinese documents: 第N章 contents, Chinese chapter titles, a Chinese online catalogue. | v0.5-6 |
@@ -650,6 +650,54 @@ in the history, section 3; this table is the current state.
   fixed in `0692189`.
 - **L15** 同时两次启动为一个书库启动两个服务器：在 `2b0ff96` 中修复（书库锁）。Two launches at once starting two
   servers for one library: fixed in `2b0ff96` (the library lock).
+
+**已修复的安全问题 / Fixed security issue**
+- **B28**（C，安全 security，2026-11-10）Windows 上经 `cmd.exe` 的命令注入 / Command injection through `cmd.exe` on Windows.
+  在提交 "Fix Windows editor command injection in special-character paths"（2026-11-10）中修复。Fixed in the commit
+  "Fix Windows editor command injection in special-character paths" (2026-11-10).
+  - **已确认的漏洞 / Confirmed vulnerability:** Windows 运行批处理文件（`.bat`/`.cmd`）时经过 `cmd.exe`，它会解释参数中的
+    `& | < > ^ % ! ( ) "`。用临时合成文件夹和模拟启动器复现：VS Code 的 `code.CMD` 收到没有空格的书库路径 `lib&ver` 时**执行了** `ver`，
+    编辑器只收到 `…\lib`；`^` 被删除；`%OS%` 被展开，即使有引号。自定义编辑器是批处理文件时同样：`{file}` 不加引号时执行了注入的程序，
+    `%` 总被展开。Windows runs a batch file through `cmd.exe`, which acts on `& | < > ^ % ! ( ) "` in
+    its arguments. Reproduced with temporary synthetic folders and mock launchers: VS Code's
+    `code.CMD` given the space-free library path `lib&ver` **ran** `ver` while the editor got only
+    `…\lib`; `^` was removed; `%OS%` expanded, even inside quotes. A custom editor that is a batch
+    file behaved the same: with `{file}` unquoted an injected program ran; `%` always expanded.
+  - **修复 / Mitigations** (`scripts/platform_services.py`, `library_server.open_in_editor`):
+    1. VS Code（`vscode_command`）：参数中有这些字符时，照 `code.CMD` 的做法但不经过 `cmd.exe`：`Code.exe` 运行 VS Code 的 `cli.js`
+       （路径从 `code.CMD` 中读出），`ELECTRON_RUN_AS_NODE=1`，参数原样传入。从不把书库路径作为 `Code.exe` 的第一个参数（继承的
+       `ELECTRON_RUN_AS_NODE=1` 会让它把文件夹当作 Node.js 程序运行）。找不到时用系统编辑器。VS Code (`vscode_command`): with such
+       characters, what `code.CMD` does without `cmd.exe`: `Code.exe` runs VS Code's `cli.js` (its
+       path read from `code.CMD`) with `ELECTRON_RUN_AS_NODE=1`, the arguments as they are. A
+       library path is never `Code.exe`'s first argument (an inherited `ELECTRON_RUN_AS_NODE=1`
+       would make it run the folder as a Node.js program). If they can't be found, the system editor.
+    2. 自定义编辑器（`cmd_exe_risk`）：路径中有这些字符时，先像 `CreateProcess` 那样找出要运行的程序（引号中的第一部分，或不加引号时
+       从短到长的每一段；去掉末尾的点和空格；没有扩展名时加 `.exe`；同样的搜索文件夹），只有原生的 `.exe`/`.com`（不是 `cmd.exe`，
+       也没有被 `PATHEXT` 找到的同名批处理文件）才运行；批处理文件、`cmd.exe`、找不到的程序都不运行。Custom editors
+       (`cmd_exe_risk`): with such characters in the path, the program is first found as
+       `CreateProcess` finds it (the quoted first part, or unquoted each stretch shortest first;
+       trailing dots and spaces dropped; `.exe` added without an extension; the same search
+       folders); only a native `.exe`/`.com` runs (not `cmd.exe`, and no same-named batch file
+       found through `PATHEXT`); a batch file, `cmd.exe` or a program that can't be found never runs.
+    3. 不运行时：`.md` 用系统默认程序打开，`.py` 用记事本（从不用默认程序，那可能运行它）；服务器日志说明原因，不写路径。普通路径和原生程序
+       照旧。When it doesn't run: a `.md` opens with its default app, a `.py` in Notepad (never its
+       default app, which can run it); the server's log says why, without paths. Ordinary paths
+       and native programs as before.
+  - **验证 / Verification:** 回归测试 `tests/test_platform_services.py`（显式的 `.cmd`/`.bat`、经 PATH 和 PATHEXT 找到的、`{file}` 和自动附加、
+    有无引号、`%`、末尾的点、含空格的程序路径、`cmd /c`、找不到的程序、安全的 `.exe`、`.md`/`.py` 的回退、真实进程中的注入和阻止、笔记不变、
+    日志中没有路径）；真实 VS Code 在完全隔离的实例中验证（`R&D`、`书库&笔记`、`lib%OS%x` 正确打开，重用窗口，绊线未触发；用户的 VS Code
+    数据没有使用）。Regression tests in `tests/test_platform_services.py` (explicit `.cmd`/`.bat`,
+    found through PATH and PATHEXT, `{file}` and appended, quoted and unquoted, `%`, a trailing
+    dot, a program path with spaces, `cmd /c`, a program not found, safe `.exe`s, the `.md`/`.py`
+    fallbacks, a real-process injection and its prevention, the note unchanged, no paths in the
+    log); the real VS Code verified in a fully isolated instance (`R&D`, `书库&笔记`, `lib%OS%x`
+    open correctly, windows reused, no tripwire fired; the user's VS Code data not used).
+  - **剩余限制 / Remaining limitations:** 用户自己配置的、会再把参数交给解释器的程序不在检查范围内：把参数转给 `cmd.exe` 的 `.exe`、
+    改名的 `cmd.exe` 副本、`powershell -Command …`（PowerShell 有自己的语法）、`.md` 默认程序本身是批处理文件。macOS 和 Linux 没有这个机制。
+    Programs the user configures that hand their arguments to an interpreter again aren't
+    checked: an `.exe` that passes them to `cmd.exe`, a renamed copy of `cmd.exe`,
+    `powershell -Command …` (PowerShell has its own syntax), a default `.md` app that is itself a
+    batch file. macOS and Linux have no such mechanism.
 
 ---
 

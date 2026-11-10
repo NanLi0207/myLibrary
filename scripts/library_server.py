@@ -259,10 +259,19 @@ def open_in_editor(*files: Path) -> bool:
     editor = settings.get("editor", "system")
     if editor == "vscode":
         code = shutil.which("code")
-        if code:
-            subprocess.Popen([code, str(paths.WORKSPACE), *map(str, files)], cwd=paths.WORKSPACE)
+        args = [str(paths.WORKSPACE), *map(str, files)]
+        launch = platform_services.vscode_command(code, args) if code else None
+        if launch:  # (never code.CMD with a path cmd.exe would act on: B28)
+            command, env = launch
+            subprocess.Popen(command, cwd=paths.WORKSPACE, env=env)
             return True
-        editor = "system"  # VS Code isn't installed (any more): fall back
+        if code:
+            print(
+                "VS Code wasn't used: a path to open (the library's folder) holds characters "
+                "cmd.exe would act on, and VS Code's Code.exe and cli.js weren't found to start "
+                "it without cmd.exe (B28). Opened with the system editor instead."
+            )
+        editor = "system"  # VS Code isn't installed (any more), or can't take these: fall back
     try:
         for f in files:  # (a .py is never opened with its default app: platform_services)
             platform_services.open_for_editing(f, editor, settings.get("editor_command", ""))
