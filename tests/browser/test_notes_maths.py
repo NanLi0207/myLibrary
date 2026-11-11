@@ -7,6 +7,7 @@ the source exactly. Temporary libraries only; KaTeX from the tool's cache
 (reader.py --setup-maths)."""
 
 import time
+from urllib.parse import urlsplit
 
 import pytest
 import reader
@@ -85,11 +86,34 @@ def texts(page, selector: str) -> list[str]:
     )
 
 
+def katex_asset(url: str) -> bool:
+    """A request for one of KaTeX's own files (its script, stylesheet and fonts), by path."""
+    return urlsplit(url).path.startswith("/vendor/katex/")
+
+
+def test_katex_asset_filter_is_specific():
+    assert katex_asset("http://127.0.0.1:5/vendor/katex/katex.min.js")
+    assert katex_asset("http://127.0.0.1:5/vendor/katex/fonts/KaTeX_Main-Regular.woff2")
+    for other in ("http://127.0.0.1:5/books/a.pdf", "http://127.0.0.1:5/vendor/markdown-it/x.js",
+                  "http://127.0.0.1:5/pdfjs/web/viewer.html?file=/vendor/katex/x",
+                  "http://127.0.0.1:5/reader/vendor/katex/x.js"):  # fmt: skip
+        assert not katex_asset(other), other
+
+
 def test_formulas_in_all_four_delimiters_are_typeset(library, server_factory, reader_page):
-    failed, outside = [], []
-    reader_page.on("requestfailed", lambda r: failed.append(r.url))
+    failed, outside, served = [], [], {}
+    # Only KaTeX's own files count here: other requests may be cancelled as a matter of course
+    # (PDF.js ends its first whole-file request of a book once it has what it needs)
     reader_page.on(
-        "response", lambda r: r.status >= 400 and "/vendor/katex/" in r.url and failed.append(r.url)
+        "requestfailed",
+        lambda r: katex_asset(r.url) and failed.append(f"{r.url} ({r.failure})"),
+    )
+    reader_page.on(
+        "response", lambda r: r.status >= 400 and katex_asset(r.url) and failed.append(r.url)
+    )
+    reader_page.on(
+        "response",
+        lambda r: katex_asset(r.url) and served.setdefault(urlsplit(r.url).path, r.status),
     )
     reader_page.on(
         "request",
@@ -126,6 +150,10 @@ def test_formulas_in_all_four_delimiters_are_typeset(library, server_factory, re
     assert {"KaTeX_Main", "KaTeX_Math"} <= set(used)
     assert any(family.startswith("KaTeX_Size") for family in used)  # large operators, brackets
     assert failed == [] and outside == []  # nothing missing, nothing from the network
+    assert served["/vendor/katex/katex.min.js"] == 200
+    assert served["/vendor/katex/katex.min.css"] == 200
+    fonts = {path: status for path, status in served.items() if path.endswith(".woff2")}
+    assert fonts and set(fonts.values()) == {200}, served  # every KaTeX file asked for: found
 
 
 PLAIN = r"""# Not maths
