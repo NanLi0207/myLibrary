@@ -1728,7 +1728,7 @@ uv run pytest tests/browser --notes-closed    # 笔记面板关闭时 / with the
 uv run pytest tests/browser --tracing retain-on-failure   # 失败时的追踪在 test-results/ / traces in test-results/
 ```
 
-- CI（`.github/workflows/tests.yml`）在 Windows 上对每次推送和拉取请求运行代码检查、格式检查、测试和浏览器测试。
+- CI（`.github/workflows/tests.yml`）在 Windows 上对每次推送和拉取请求运行代码检查、格式检查、测试和浏览器测试。浏览器测试分在三个运行器上：按整个测试文件分成两份（`--shard 1/2`、`--shard 2/2`，见 `tests/browser/shards.py`；运行前检查两份正好覆盖全部测试），加上关闭笔记面板时的阅读、标注和保存测试。The browser tests run on three runners: the suite in two shards of whole test files (`--shard 1/2`, `--shard 2/2`, see `tests/browser/shards.py`; checked to cover every test exactly once before they run), plus the reading, marks and saving tests with the notes panel closed.
   CI (`.github/workflows/tests.yml`) runs lint, format, tests and the browser tests on Windows
   for every push and pull request.
 - 测试从不使用真实书库：见 `tests/conftest.py`。

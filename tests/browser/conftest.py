@@ -35,6 +35,7 @@ import paths
 import pytest
 import reader
 import safe_io
+import shards
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -49,9 +50,20 @@ def pytest_addoption(parser):
         help="start every reader with the notes panel closed, as a user who closed it "
         "(to check the reader without the panel too)",
     )
+    parser.addoption(
+        "--shard",
+        default=None,
+        help="k/n: only the test files of shard k of n (CI runs the shards on separate "
+        "runners; tests/browser/shards.py)",
+    )
 
 
 def pytest_configure(config):
+    if config.getoption("--shard"):
+        try:
+            shards.parse(config.getoption("--shard"))
+        except ValueError as error:
+            raise pytest.UsageError(str(error)) from None
     if not hasattr(config.option, "browser_channel"):
         return  # pytest-playwright isn't installed: tests/conftest.py says what to do
     if not config.option.browser_channel:  # Edge unless --browser-channel says otherwise
@@ -96,11 +108,17 @@ def where_a_stuck_test_waits(request):
     timer.cancel()
 
 
-def pytest_collection_modifyitems(items):
+def pytest_collection_modifyitems(config, items):
     here = Path(__file__).parent
     for item in items:
         if here in item.path.parents:
             item.add_marker(pytest.mark.browser)
+    if config.getoption("--shard"):  # whole files, the same split on every runner (shards.py)
+        k, n = shards.parse(config.getoption("--shard"))
+        keep = set(shards.select([item.nodeid for item in items], k, n))
+        deselected = [item for item in items if item.nodeid not in keep]
+        items[:] = [item for item in items if item.nodeid in keep]
+        config.hook.pytest_deselected(items=deselected)
 
 
 FAILED = pytest.StashKey[bool]()  # set on a test whose setup, call or teardown failed

@@ -106,7 +106,9 @@ library's folders).
 behavior change; test with a temporary library (see `tests/conftest.py`), never the real one.
 For reader changes (`reader_static/`, `/read`, saving marks), run and extend the browser tests:
 `uv sync --group browser`, then `uv run pytest tests/browser` (Edge; each test on its own
-temporary library, settings and server; CI job `browser`). Plain `pytest` leaves them out.
+temporary library, settings and server; CI job `browser`, in three parts: `--shard 1/2`,
+`--shard 2/2` (whole files, `tests/browser/shards.py`) and `--notes-closed`). Plain `pytest`
+leaves them out.
 The library page's JavaScript (`library_page.py`) has no tests yet: try it in the browser with
 `uv run scripts/library_server.py --port <other port>` and say what you checked.
 

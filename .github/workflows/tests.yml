@@ -28,9 +28,30 @@ jobs:
 
   # The reader in Microsoft Edge (tests/browser/, Playwright): each test on its own temporary
   # library and settings, its own server; nothing is downloaded while the tests run.
+  # Three parts, each on its own Windows runner (the whole suite had grown close to one
+  # runner's time limit): the suite in two shards of whole test files (tests/browser/shards.py:
+  # the same split from the same tests, checked to be a partition before it runs), and the
+  # reading, marks and saving tests again with the notes panel closed. Any part failing fails
+  # the workflow; the others still run to the end.
   browser:
+    name: browser (${{ matrix.part }})
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: 1 of 2
+            id: shard-1
+            tests: tests/browser --shard 1/2
+          - part: 2 of 2
+            id: shard-2
+            tests: tests/browser --shard 2/2
+          - part: notes panel closed
+            id: notes-closed
+            tests: >-
+              tests/browser/test_reading.py tests/browser/test_marks.py
+              tests/browser/test_saving.py --notes-closed
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -74,26 +95,24 @@ jobs:
           $maths = uv run --group browser python -c "import sys; sys.path.insert(0, 'scripts'); import reader; print(reader.katex_installed())"
           "KaTeX: $maths"
           if ($maths -ne "verified 0.19.1") { Write-Error "the maths in the preview isn't the checksum-verified KaTeX 0.19.1"; exit 1 }
-      - name: Browser tests
+      - name: Check that the shards are a partition of the suite
+        if: startsWith(matrix.id, 'shard-')
+        env:
+          PYTHONIOENCODING: utf-8
+        run: uv run --group browser python tests/browser/shards.py --check 2
+      - name: Browser tests (${{ matrix.part }})
         # Its own limit, so a hang still leaves time to upload the diagnostics
         timeout-minutes: 15
         run: >-
-          uv run --group browser pytest tests/browser -v -rs
+          uv run --group browser pytest ${{ matrix.tests }} -v -rs
           --tracing retain-on-failure --screenshot only-on-failure
           --output test-results --junitxml test-results/browser.xml
-      - name: Browser tests with the notes panel closed (reading, marks, saving)
-        timeout-minutes: 8
-        run: >-
-          uv run --group browser pytest tests/browser/test_reading.py
-          tests/browser/test_marks.py tests/browser/test_saving.py --notes-closed -v -rs
-          --tracing retain-on-failure --screenshot only-on-failure
-          --output test-results/notes-closed --junitxml test-results/notes-closed.xml
       - name: Keep the diagnostics of a failure
         # Generated test libraries and temporary paths only: never a real library or settings
         if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-test-results
+          name: browser-test-results-${{ matrix.id }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 14
