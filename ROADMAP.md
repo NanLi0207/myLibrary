@@ -118,7 +118,7 @@ not yet pushed.
 | 审计后的数据安全修复 Data-safety fixes after the audit (D5, D13–D17, D19, D20, B26) | ✅ | `ac206d4`, `8f029a7`, `edb4dbe`, `8154293`, `0bb1ad7`, `d7b9fc5`, `aa4bf1c`, `a32f3fc`, `0692189` |
 | M5a Markdown 预览 M5a Markdown preview | 👀 已提交，CI 自 `d6c1a5d` 全绿。**未完成：**只用含 M5b 的工作区构建的安装包检查过离线预览（2026-11-11，可用），只含已提交 M5a 的构建从未检查；用户的人工验收没有记录。Committed; CI green since `d6c1a5d`. **Open:** the offline preview was checked only in a package built from the working tree with M5b (2026-11-11: it works), never in a build of the committed M5a alone; the user's manual acceptance isn't recorded. | `b9323dc`, `001b10f` |
 | M5b LaTeX 数学公式 M5b LaTeX maths | ✅ 2026-11-11 提交、推送，CI 通过：`330362d`，运行 43007792666（第一次运行 43002486914 中浏览器测试失败：一个测试的误报，已在 `330362d` 修正，以及 L25）。Committed, pushed and CI-verified 2026-11-11: `330362d`, run 43007792666 (the first run, 43002486914, failed in the browser job: a false positive in one test, fixed in `330362d`, and L25). | `54c761e`, `330362d` |
-| M5c 格式工具栏与显示偏好 M5c Formatting toolbar and display preferences | 👀 2026-11-11 提交并推送；**CI 尚未通过**：运行 43022257625 中浏览器测试步骤超过 15 分钟的限制（测试集增长），另有两个失败（L25、B32），M5c 自己的测试都通过。之后浏览器测试分到几个运行器上（"Split browser CI tests to avoid timeout"），CI 待验证。Committed and pushed 2026-11-11; **not yet CI-verified**: in run 43022257625 the browser step ran past its 15-minute limit (the suite had grown), with two failures (L25, B32); M5c's own tests passed. The browser tests were then split across runners ("Split browser CI tests to avoid timeout"); CI pending. | `ab9c666` |
+| M5c 格式工具栏与显示偏好 M5c Formatting toolbar and display preferences | ✅ 2026-11-11 提交、推送，CI 通过：`9088646`，运行 43027506402（第一次运行 43022257625 中浏览器测试超过 15 分钟的限制，之后分到几个运行器上；那次的两个失败见 L25、B32）。Committed, pushed and CI-verified 2026-11-11: `9088646`, run 43027506402 (in the first run, 43022257625, the browser tests ran past their 15-minute limit; they were then split across runners; that run's two failures: L25, B32). | `ab9c666`, `9088646` |
 | 第 4b 节：多个书库、测试/示例书库、可迁移书库 Section 4b: several libraries, Test & Demo library, portable libraries | ✅ 含 L15 修复 with the L15 fix | `2b0ff96`, `4094dc4` |
 | 页面重新载入时连接被拒（监听队列 5 → 64）Connections refused on reload (listen backlog 5 → 64) | ✅ | `d6c1a5d` |
 | 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
@@ -139,9 +139,9 @@ count. **L20** (one unidentified test failure) stays unresolved, see section 11.
 ## 2. 当前里程碑 / The current milestone
 
 **任务 4 / Task 4, M5（预览、公式、格式、粘贴图片 / preview, maths, formatting, pasted images）。**
-M5a 已提交；M5b 已提交、推送并通过 CI（`330362d`）；**M5c 于 2026-11-11 批准并已实现，等待用户审核后提交**；M5d 开始前需要用户批准（2026-11-08 的决定：M5b–M5d 各自单独批准）。
-M5a is committed; M5b is committed, pushed and CI-verified (`330362d`); **M5c was approved on 2026-11-11 and is
-implemented, awaiting the user's review before it is committed**; M5d needs the user's approval
+M5a 已提交；M5b 已提交、推送并通过 CI（`330362d`）；**M5c 已提交、推送并通过 CI（`9088646`）**；M5d 开始前需要用户批准（2026-11-08 的决定：M5b–M5d 各自单独批准）。
+M5a is committed; M5b is committed, pushed and CI-verified (`330362d`); **M5c is committed, pushed and
+CI-verified (`9088646`)**; M5d needs the user's approval
 before work starts (decision of
 2026-11-08: M5b–M5d are each approved separately).
 
@@ -151,9 +151,9 @@ Until the user approves it, a development session only does: finishing approved 
 M5a's package check) and fixes from section 11 with agreement; no new milestone, nothing from
 P2–P5, none of the new E/R/G/X/U items.
 
-**仍未完成 / Still open:** M5a 在只含已提交代码的安装包中的离线预览检查和用户的人工验收（第 1 节）；M5b 的用户审核、提交和 CI。
+**仍未完成 / Still open:** M5a 在只含已提交代码的安装包中的离线预览检查和用户的人工验收（第 1 节）；B32 改进（第 11 节）的用户审核、提交和 CI。
 M5a's offline-preview check in a package built from committed code and the user's manual
-acceptance (section 1); M5c's review by the user, its commit and CI.
+acceptance (section 1); B32's improvement (section 11): the user's review, its commit and CI.
 
 **L21**（数据完整性 data integrity）：2026-11-10 复现并修复（第 11 节"已修复"）。Reproduced and fixed 2026-11-10
 (section 11, "Fixed"). **新发现 / Found on the way:** B29（DOI 的同类问题 the DOI analogue）、B30（术语表并发测试间歇失败，
@@ -252,7 +252,7 @@ step.
   Edge): maths typeset with KaTeX's fonts from the package, the PDF opened, nothing written into
   the package folder. Limits: L24 (section 11).
 
-### M5c — 格式工具栏与显示偏好 / Formatting toolbar and display preferences 🧪 已实现，未提交 implemented, not committed (approved 2026-11-11)
+### M5c — 格式工具栏与显示偏好 / Formatting toolbar and display preferences ✅ (`ab9c666`, `9088646`; CI run 43027506402)
 
 - **目标 Objective:** 不写 Markdown 也能排版，仍然只编辑 Markdown 源码。Formatting without typing Markdown,
   still editing only the Markdown source.
@@ -272,7 +272,7 @@ step.
   a conflict.
 - **验收 Acceptance:** 每个按钮生成正确的 Markdown；一次撤销还原一次操作；PDF.js 的快捷键不受影响。Every button
   produces the right Markdown; one undo reverts one action; PDF.js shortcuts unaffected.
-- **实现 Implementation (2026-11-11, not committed):**
+- **实现 Implementation (2026-11-11):**
   - `reader_static/format.js` (new; `reader.viewer_html` loads it before `notes.js`): every
     action as text in, one replacement out (`apply(value, start, end, action)`), no page access.
     Toggles: inline marks (`**`, `*`, `~~`, `` ` ``, `$`: by the run of markers around or inside
@@ -288,7 +288,7 @@ step.
     user's decision, 2026-11-11: the changes are part of "mine" until Keep mine / Use disk); Aa: display preferences in `localStorage`
     (`myLibrary.notes.display`, each value checked against the choices) as CSS variables whose
     defaults are the earlier look. `notes.css`: the toolbar, the settings, the variables.
-- **验证 Verification (local, 2026-11-11):** `tests/browser/test_notes_format.py` (16, Edge:
+- **验证 Verification (2026-11-11; CI: run 43027506402 on `9088646`):** `tests/browser/test_notes_format.py` (16, Edge:
   every action and its toggle, every button and heading level, the selection, Undo and Redo
   one action at a time, Ctrl+B / Ctrl+I only in the note and PDF.js's keys unchanged, IME
   composition, read-only, autosave, a conflict, the views, a narrow panel, display preferences
@@ -700,8 +700,7 @@ in the history, section 3; this table is the current state.
 | L19 | 没有作者和年份的文档，名字中有两个连字符。A document without author or year gets a slug with two hyphens. | — |
 | L22 | 安装包的启动器 `package/launch.py` 自己计算 `%APPDATA%/myLibrary`（日志），而不是用 `platform_services.user_data_dir()`；两者目前一致，但改其中一个时要同时改另一个。The package launcher computes `%APPDATA%/myLibrary` (its log) itself rather than through `platform_services.user_data_dir()`; they agree today, but changing one means changing the other. | 第 9 节 section 9 |
 | L25 (S) | CI 的 Windows 运行器上偶尔出现 `net::ERR_NO_BUFFER_SPACE`（Windows WSAENOBUFS：无法为连接分配套接字），页面的某个请求失败，测试超时：2026-11-08 运行 42527186504（`test_search_results_stay_on_screen`，在 KaTeX 之前）和 2026-11-11 运行 43002486914（`test_readable_in_light_and_dark[dark]`，PDF.js 的 `viewer.mjs`）。没有发现泄漏（本地运行中已建立和 CLOSE_WAIT 的连接数不增长）；服务器用 HTTP/1.0，每个请求一个连接，留下 TIME_WAIT；KaTeX 使每次阅读页面多 2 个请求（显示公式时最多再加约 4 个字体）。第三次：2026-11-11 运行 43022257625（`test_without_any_move_the_match_is_centred`，`/reader/lookup.js`）。三次都在测试集的后半段（63%、74%、84%）。本地测量（2026-11-11）：动态端口 49152–65535（16384 个），TIME_WAIT 120 秒；16 个测试约 72 秒留下约 770 个 TIME_WAIT（约 48 个/测试），稳定时约 1300 个，远少于端口数，所以没有证明是端口耗尽；已建立和 CLOSE_WAIT 的连接、python/msedge 进程数都不增长。原因未确定，没有改动；浏览器测试分成几个运行器后每个运行器的负载减半（是否有帮助尚待观察）。Occasional `net::ERR_NO_BUFFER_SPACE` on CI's Windows runner (Windows WSAENOBUFS: no socket could be allocated for a connection): one of the page's requests fails and the test times out: run 42527186504 on 2026-11-08 (`test_search_results_stay_on_screen`, before KaTeX) and run 43002486914 on 2026-11-11 (`test_readable_in_light_and_dark[dark]`, PDF.js's `viewer.mjs`). No leak found (established and CLOSE_WAIT connections don't grow in local runs); the server speaks HTTP/1.0, one connection per request, leaving TIME_WAIT sockets; KaTeX adds 2 requests per reader page (up to about 4 more fonts when formulas show). A third: run 43022257625 on 2026-11-11 (`test_without_any_move_the_match_is_centred`, `/reader/lookup.js`). All three came in the second half of the suite (63%, 74%, 84%). Measured locally (2026-11-11): dynamic ports 49152–65535 (16,384), TIME_WAIT 120 s; 16 tests in about 72 s left about 770 TIME_WAIT sockets (about 48 per test), about 1,300 at steady state, far below the port count, so port exhaustion isn't shown; established and CLOSE_WAIT connections and python/msedge processes don't grow. Cause unresolved; nothing changed; splitting the browser tests across runners halves each runner's load (whether that helps is to be seen). | — |
-| B32 (S) | **未解决 UNRESOLVED.** CI 运行 43022257625 中，`test_small_writes_sent_just_before_closing_arrive` 的章节勾选（书库页面 `api()` 的 keepalive 请求，发出后页面立即关闭）没有到达服务器：README 没有改变，服务器日志没有错误；同一个测试中的 save-word 请求到达了。本地 5 次（2026-11-11，有浏览器和服务器端记录）全部成功：请求发出，页面 9–21 ms 后关闭，服务器 16–18 ms 处理完并写入。CI 中请求是否离开浏览器无法确定（页面关闭后没有事件，服务器不记录请求）。界面：页面仍打开时请求失败会把勾选还原并提示；页面已关闭时无法提示，也没有重试。没有证实是应用的数据丢失缺陷；与 L25 的关系未证实。The chapter tick in `test_small_writes_sent_just_before_closing_arrive` (a keepalive request from the library page's `api()`, the page closed at once) didn't reach the server in CI run 43022257625: the README was unchanged and the server log showed no error; the save-word request in the same test arrived. Locally, 5 of 5 runs (2026-11-11, with browser and server-side logging) succeeded: sent, the page closed 9–21 ms later, handled and written by the server in 16–18 ms. Whether the request left the browser in CI can't be told (no events after a page closes; the server doesn't log requests). The page: a failed request while it's open unticks the box and says so; once it's closed nothing can say so, and nothing retries. Not shown to be an application data-loss defect; any link to L25 unproven. | — |
-| B31 (S) | **未确认 UNCONFIRMED.** 用户报告 `$a^2 + b^2 = c^2$` 在自己实际使用的预览中没有显示为公式。没有复现，原因未知；测试书库和安装包中同一个公式可以渲染（M5b 测试）。可能的方向（未验证）：服务器启动时 KaTeX 还没安装（`--setup-maths`），或者浏览器用的是旧的页面。需要用户在真实环境中手动确认后才能关闭。The user reported `$a^2 + b^2 = c^2$` not shown as a formula in their own preview. Not reproduced, cause unknown; the same formula renders in test libraries and in a built package (M5b tests). Possible directions (unverified): KaTeX not yet installed when the server started (`--setup-maths`), or the browser using an old page. Stays open until the user confirms it by hand in their real setup. | — |
+| B32 | **已改进，未提交 IMPROVED, not committed** (2026-11-11)。**原来的失败**：CI 运行 43022257625 中，`test_small_writes_sent_just_before_closing_arrive` 的章节勾选（keepalive 请求，页面立即关闭）没有到达服务器；本地 5 次带记录的重复全部成功；CI 中的原因**仍未确定**（请求是否离开浏览器无法得知；与 L25 的关系未证实）；没有证实是应用的数据丢失缺陷。**改进**（`library_page.py` 的 `setTick`/`sendTick`/`replayTicks`；`library_server.tick`、`check_since`）：服务器确认前勾选标为"正在保存"；失败时保留、标红、可重试；被拒绝时回到 README 的状态并显示说明，直到用户点 OK；有未保存的勾选时离开页面先询问；同一章一次只发一个请求，连点以最后一次为准。每个勾选在发送前存入浏览器的 `localStorage`，每个标签页、每章一条（键 `myLibrary.tick.<书库>.<文档 id>.<章>.<点击 id>`，各部分 URL 编码），确认后删除；标签页只写和删除自己的条目。页面关闭或崩溃后，下次打开同一书库的页面时，每章只发送最新的一条（带点击时间 `since`，毫秒），较旧的作为被取代的删除；服务器在 README 的锁内检查：已经是这个状态就不写；README 在点击之后改过就拒绝（409）。`since` 只接受大于 0、有限、不晚于服务器时间 + 1 秒的数字，其他（NaN、±Infinity、0、负数、将来的时间、布尔值、文字、null）一律 400。无法发送的条目（超过 30 天、损坏、文档或章节已不在）删除并说明数量，从不发送。**限制**：点击时间来自浏览器，不是可信的版本号：系统时钟往回调过、或带有页面令牌的伪造请求，可以让过时的勾选通过检查；两个标签页的普通点击是无条件的绝对状态，较早的请求晚到时可能覆盖较新的点击（之后的恢复会被拒绝并提示）；VS Code 等外部编辑器不使用服务器的锁，在服务器读和写之间的极短时间里写入的修改可能被覆盖（所有服务器写入 README 时都如此）；README 在点击之后有任何修改（包括阅读器更新 "Last read"）都会让恢复被拒绝，需要重新勾选；恢复只在同一个浏览器、同一书库的页面再打开时进行（不同浏览器、清除了站点数据或存储不可用时没有恢复，勾选本身仍然保存）；条目保留 30 天。**The original failure:** the chapter tick in `test_small_writes_sent_just_before_closing_arrive` (a keepalive request, the page closed at once) didn't reach the server in CI run 43022257625; 5 logged local repetitions all succeeded; the cause in CI is **still unknown** (whether the request left the browser can't be told; any link to L25 unproven); not shown to be an application data-loss defect. **Improvement** (`library_page.py`: `setTick`/`sendTick`/`replayTicks`; `library_server.tick`, `check_since`): a tick is shown "saving" until the server confirms it; kept, marked and retryable when it fails; back to the README's state when refused, with a notice until the user clicks OK; leaving with an unsaved tick asks first; one request per chapter at a time, rapid clicks end in the last one. Each tick is stored in the browser's `localStorage` before it is sent, one entry per tab and chapter (key `myLibrary.tick.<library>.<document id>.<chapter>.<click id>`, each part URL-encoded), removed once confirmed; a tab writes and removes only its own entries. After a closed or crashed page, the same library's page sends only the newest entry of each chapter (with the click's time, `since`, in ms) and removes older ones as superseded; the server checks under the README's lock: already in that state, nothing is written; README changed after the click, refused (409). `since` must be a finite number above 0 and no later than the server's time + 1 s; anything else (NaN, ±Infinity, 0, negative, future, bool, text, null) is a 400. Entries that can't be sent (over 30 days old, damaged, document or chapter gone) are removed and their number said, never sent. **Limits:** the click time comes from the browser and is no trusted version: a system clock set back, or a crafted request carrying the page's token, can get a stale tick past the check; ordinary clicks from two tabs are unconditional absolute states, so an older request arriving late can overwrite a newer click (a later replay is then refused and said so); external editors such as VS Code don't take the server's lock, and a change written in the instant between the server's read and write can be overwritten (as for every server write to the README); any README change after the click (including the reader's "Last read" line) makes the replay refused, to be ticked again; recovery only in the same browser and the same library's page (none in another browser, after its site data is cleared, or without storage; the tick itself still saves); entries are kept 30 days. | — |
 | L26 | 格式工具栏的限制（`format.js`、`notes.js`）：表格只插入、不能取消；选中一个网址后点链接，网址成为目标，再点一次不会还原；段距只影响预览（源码没有段落）；宽度在源码中只限制文本框本身；工具栏和 Ctrl+B / Ctrl+I 只用 `insertText`，浏览器不支持时改为直接替换（仍然保存，但没有撤销）。Limits of the formatting toolbar: a table is only inserted, never toggled off; a selected web address becomes the link's target, and a second click doesn't undo that; paragraph spacing affects only the preview (the source has no paragraphs); the width only narrows the source box itself; actions go through `insertText`, with a plain replacement where a browser lacks it (still saved, but no Undo). | — |
 | L24 | 预览中公式的规则限制（`preview.js` 的 `mathInline`/`mathBlock`）：公式中不能有反引号（反引号结束查找，代码优先）；`[a $x](u)$` 这类链接与公式交错时公式优先；表格单元格中公式里的 `\|`（未转义的竖线）会把单元格分开（用 `\vert`）；没闭合的 `\(` 按 Markdown 显示为 `(`；`$a$$b$` 显示为错误；每次修改都重新渲染整条笔记（已渲染的公式有缓存；10,000 个公式约 1 秒）。Limits of the maths rules in the preview: no backtick inside a formula (a backtick ends the search: code comes first); a link interleaved with a formula, like `[a $x](u)$`, goes to the formula; an unescaped `\|` in a formula inside a table cell splits the cell (use `\vert`); an unclosed `\(` shows as `(`, as Markdown escapes it; `$a$$b$` shows as an error; every change redraws the whole note (typeset formulas are cached; 10,000 formulas take about a second). | — |
 
@@ -712,6 +711,10 @@ in the history, section 3; this table is the current state.
   fixed in `0692189`.
 - **L15** 同时两次启动为一个书库启动两个服务器：在 `2b0ff96` 中修复（书库锁）。Two launches at once starting two
   servers for one library: fixed in `2b0ff96` (the library lock).
+- **B31** `$a^2 + b^2 = c^2$` 在用户自己的预览中没有显示为公式：2026-11-11 用户在自己实际使用的 myLibrary 中手动验证，
+  公式正常显示；不需要修改代码，原因没有单独确定。`$a^2 + b^2 = c^2$` not shown as a formula in the user's own
+  preview: on 2026-11-11 the user verified by hand in their real myLibrary that formulas render; no code change was
+  needed, and no separate cause was established.
 
 **已修复的数据完整性问题 / Fixed data-integrity issue**
 - **L23**（C，2026-11-10）查词找不到以另一种形式保存的术语 / Lookup missing a term saved in another form.

@@ -22,6 +22,7 @@ so other websites can't trigger it. Stop with Ctrl+C.
 
 import argparse
 import json
+import math
 import os
 import re
 import secrets
@@ -627,15 +628,47 @@ def open_topic(term: str) -> dict:
     return {"file": where, "opened": opened}
 
 
-def tick(doc_id: str, number: int, done: bool) -> list[dict]:
+class TickChanged(Exception):
+    """A replayed tick (B32) that would overwrite a README changed after the click."""
+
+
+SINCE_AHEAD_MS = 1_000  # how far past this computer's clock a click's time may be
+
+
+def check_since(since) -> float:
+    """A replayed tick's click time (ms since the epoch, as the browser's Date.now() gives it):
+    a finite number above 0 and no later than now (+ SINCE_AHEAD_MS); anything else (NaN,
+    ±Infinity, 0, negative, far future, bool, text, null) is a ValueError, so it can never
+    pass for a click older than the README's last change."""
+    if isinstance(since, bool) or not isinstance(since, int | float):
+        raise ValueError("since must be a time in milliseconds")
+    if not math.isfinite(since) or since <= 0 or since > time.time() * 1000 + SINCE_AHEAD_MS:
+        raise ValueError("since must be a past time in milliseconds")
+    return float(since)
+
+
+def tick(doc_id: str, number: int, done: bool, since: float | None = None) -> list[dict]:
+    """Set chapter `number` done or not (an absolute state: sending it twice does nothing more).
+    `since` (ms since the epoch, check_since) is for a tick sent again after its page closed or
+    crashed (B32): it is applied only if the README hasn't changed since that click, else
+    TickChanged, and the README stays as it is (it is the authority). Already in that state:
+    nothing is written either way. The time is the browser's own record of the click: it keeps
+    this page's own replays from overwriting later changes, but it is no version a client
+    couldn't get wrong (a clock set back, a crafted request with the page's token)."""
+    if since is not None:
+        since = check_since(since)
     readme = library_page.readme_path(doc_id)
     pattern = library_page.chapter_line(number)
 
-    def ticked(text: str) -> str:
-        new, count = pattern.subn(lambda m: f"- [{'x' if done else ' '}] {m[1]}", text, count=1)
-        if not count:
+    def ticked(text: str) -> str:  # (under the README's lock: no other write between)
+        m = pattern.search(text)
+        if not m:
             raise ValueError(f"chapter {number} not found in {readme.name}")
-        return new
+        if (m[0][3] != " ") == done:
+            return text  # already so
+        if since is not None and readme.stat().st_mtime_ns > since * 1_000_000:
+            raise TickChanged(f"the notes of chapter {number} changed after that click")
+        return text[: m.start()] + f"- [{'x' if done else ' '}] {m[1]}" + text[m.end() :]
 
     safe_io.update_text(readme, ticked)
     return library_page.chapters(doc_id, readme)
@@ -695,11 +728,12 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0].split("#")[0]
         if path in ("/", "/index.html"):
             # library_page appends "/<file>.pdf" to pdf_base
+            # (scope: this library's key in the browser, for the tick journal, B32)
             api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE,
                    "backup": backup.available(),
                    "folder_backup": bool(paths.load_settings().get("backup_folder"))
                    and not libraries.is_test_library(LIBRARY),
-                   "library": page_library()}  # fmt: skip
+                   "library": page_library(), "scope": SCOPE}  # fmt: skip
             html = library_page.render(api, pdf_base=self.pdf_base)
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
         if path == "/api/whoami":  # which library this is (libraries.server_at)
@@ -982,7 +1016,14 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return self._json(HTTPStatus.OK, saved)
             if self.path == "/api/tick" and chapter is not None:
-                chapters = tick(doc_id, chapter, bool(body.get("done")))
+                # "since" present at all (even null) must be a valid click time (check_since)
+                since = check_since(body["since"]) if "since" in body else None
+                try:
+                    chapters = tick(doc_id, chapter, bool(body.get("done")), since)
+                except TickChanged as changed:  # the README wins; the page is told its state
+                    return self._json(HTTPStatus.CONFLICT, {
+                        "error": str(changed),
+                        "chapter_list": library_page.chapters(doc_id)})  # fmt: skip
                 library_page.build()  # keep the static copy in step
                 return self._json(HTTPStatus.OK, {"chapter_list": chapters})
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})

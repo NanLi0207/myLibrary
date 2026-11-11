@@ -4,6 +4,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -60,6 +61,48 @@ def test_tick_round_trip(library):
     assert [c["done"] for c in chapters] == [False, False]
 
 
+def NOT_A_CLICK_TIME():  # (a function: "the future" is measured when it's used)
+    return ["yesterday", True, False, None, [1], {"ms": 1}, float("nan"), float("inf"),
+            float("-inf"), -5, 0, time.time() * 1000 + 60_000, 1e300]  # fmt: skip
+
+
+def test_a_click_time_must_be_a_real_past_time(library):
+    """B32: no NaN, ±Infinity, 0, negative, future, bool, text or null passes for a click time
+    (else a replay could pass for older than the README's last change)."""
+    now = time.time() * 1000
+    assert library_server.check_since(now - 5_000) == now - 5_000
+    assert library_server.check_since(int(now)) == int(now)  # ms, as Date.now() gives it
+    for bad in NOT_A_CLICK_TIME():
+        with pytest.raises(ValueError):
+            library_server.check_since(bad)
+        if bad is None:  # (to tick() itself None is "no click time": a live tick; the HTTP
+            continue  # route refuses a "since": null, test_http_requires_token)
+        with pytest.raises(ValueError):  # tick() checks it too, before reading anything
+            library_server.tick(doc(library), 2, True, since=bad)
+    assert library_page.chapters(doc(library))[1]["done"] is False  # never written
+
+
+def test_a_replayed_tick_never_overwrites_a_later_change(library):
+    """B32: a tick sent again after its page closed carries the click's time ("since"); it is
+    applied only if the README hasn't changed since, and the README stays the authority."""
+    readme = library_page.readme_path(doc(library))
+    clicked = time.time() * 1000
+    assert library_server.tick(doc(library), 2, True, since=clicked)[1]["done"] is True
+    # Sent again (the first answer was lost): already so, nothing written
+    before = readme.stat().st_mtime_ns
+    assert library_server.tick(doc(library), 2, True, since=clicked - 60_000)[1]["done"] is True
+    assert readme.stat().st_mtime_ns == before
+    # The README changed after an older click (e.g. unticked in an editor): that click is refused
+    old_click = time.time() * 1000 - 60_000
+    library_server.tick(doc(library), 2, False)  # (the README written now, after that click)
+    assert library_page.chapters(doc(library))[1]["done"] is False
+    with pytest.raises(library_server.TickChanged):
+        library_server.tick(doc(library), 2, True, since=old_click)
+    assert library_page.chapters(doc(library))[1]["done"] is False  # left as it was
+    # A live click (no "since") is the user's choice now: applied
+    assert library_server.tick(doc(library), 2, True)[1]["done"] is True
+
+
 def test_chapter_script_created_only_when_asked(library):
     chapter = library_page.chapters(doc(library))[1]
     row = entry(library / "catalog.csv", NAME)
@@ -107,6 +150,19 @@ def test_http_requires_token(library):
 
         result = json.load(post("/api/tick", tick, library_server.TOKEN))
         assert result["chapter_list"][0]["done"] is True
+        assert json.dumps(library_server.SCOPE) in page  # the page's key for its tick journal
+
+        stale = tick | {"done": False, "since": 1}  # a replay from long before the README's date
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            post("/api/tick", stale, library_server.TOKEN)
+        assert refused.value.code == 409
+        assert json.load(refused.value)["chapter_list"][0]["done"] is True  # unchanged
+        before = library_page.readme_path(doc(library)).read_bytes()
+        for bad in NOT_A_CLICK_TIME():  # refused, nothing written (json.dumps sends NaN as NaN)
+            with pytest.raises(urllib.error.HTTPError) as wrong:
+                post("/api/tick", tick | {"done": False, "since": bad}, library_server.TOKEN)
+            assert wrong.value.code == 400, bad
+        assert library_page.readme_path(doc(library)).read_bytes() == before
 
         with pytest.raises(urllib.error.HTTPError) as unknown:
             post("/api/open", {"id": "../../secret", "chapter": 1}, library_server.TOKEN)

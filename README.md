@@ -125,13 +125,13 @@ combination, Readwise Reader and ReadPaper) is in
 
 ## 当前状态 / Current status
 
-当前开发：v0.3 任务 4（笔记面板）；Markdown 预览（M5a）已提交（安装包中的验证和人工验收尚未完成）；预览中的数学公式（M5b）已提交并通过 CI；格式工具栏和显示设置（M5c）已实现，等待审核和提交。完整的功能状态表见
+当前开发：v0.3 任务 4（笔记面板）；Markdown 预览（M5a）已提交（安装包中的验证和人工验收尚未完成）；预览中的数学公式（M5b）已提交并通过 CI；格式工具栏和显示设置（M5c）已提交并通过 CI。完整的功能状态表见
 [用户指南第 15 节](docs/USER_GUIDE.md#15-功能状态已实现已验证计划中--feature-status-implemented-verified-planned)，
 进度见 [ROADMAP.md](ROADMAP.md)。只在 Windows 上测试过；macOS 和 Linux 未测试。版本 0.2.5（尚未发布新版本）。
 Current development: v0.3 task 4 (the notes panel); the Markdown preview (M5a) is committed
 (its check inside the package and the manual acceptance are still open); maths in the preview
 (M5b) is committed and CI-verified; the formatting toolbar and display settings (M5c) are
-implemented, awaiting review and commit. The full feature-status table is in the user
+committed and CI-verified. The full feature-status table is in the user
 guide, section 15; progress in the ROADMAP. Tested on Windows only; macOS and Linux untested. Version 0.2.5 (no new
 release yet).
 

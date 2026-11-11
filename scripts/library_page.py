@@ -339,6 +339,18 @@ ol.chapters li:hover button { border-color: var(--line); }
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px;
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.2); opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: 1; }
+/* B32: chapter ticks not yet saved (the box as clicked), and ones that failed (with Retry) */
+.tick-status { position: fixed; left: 16px; bottom: 16px; z-index: 41; padding: 6px 12px;
+  border-radius: 8px; font-size: 13px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--line); box-shadow: 0 4px 16px rgb(0 0 0 / 0.15); }
+.tick-status[hidden] { display: none; }
+.tick-status[data-state="failed"] { border-color: #c62828; color: #c62828; }
+.tick-status { max-width: min(560px, calc(100% - 32px)); }
+.tick-status > div + div { margin-top: 6px; }
+.tick-status button { margin-left: 6px; }
+input[data-tick][data-save="saving"] { opacity: 0.55; cursor: progress; }
+input[data-tick][data-save="failed"] { outline: 2px solid #c62828; outline-offset: 1px; }
+[data-markread][data-save="failed"] { outline: 2px solid #c62828; }
 /* ↑ Back to the top: shown once you've scrolled down */
 .to-top { position: fixed; right: 24px; bottom: 24px; z-index: 40; width: 44px; height: 44px;
   border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--accent);
@@ -539,6 +551,7 @@ code { font-size: 12.5px; }
   <footer id="footer"></footer>
 </main>
 <div class="toast" id="toast" role="status"></div>
+<div class="tick-status" id="tickStatus" role="status" hidden></div>
 <button type="button" class="to-top" id="toTop" title="Back to the top" aria-label="Back to the top" hidden>↑</button>
 <dialog id="findDialog" class="find">
   <h2>Find online</h2>
@@ -641,6 +654,206 @@ code { font-size: 12.5px; }
 <script>
 const API = __API__;  // set when served by library_server.py; null in the static file
 const books = JSON.parse(document.getElementById("data").textContent);
+
+// --- Chapter ticks (B32): saved only once the server says so -----------------------------
+// A tick is the user's intention until /api/tick answers: the box shows it at once, marked
+// "saving"; a failure keeps it, marked, with Retry; leaving the page while any is unsaved asks
+// first. Each intention is written to this browser's storage before it is sent and removed
+// once the server confirms it, so a tab closed or crashed meanwhile sends it again the next
+// time this library's page opens: with the time of the click ("since"), so the server applies
+// it only if the README hasn't changed since (the README on disk stays the authority).
+// - One stored entry per tab and chapter (its key ends in the click's own id): a tab only ever
+//   writes and removes its own entries, so two tabs can never remove or overwrite each other's
+//   (localStorage reaches other tabs a little later); when the page opens, the newest entry of
+//   a chapter is sent and older ones of that chapter are removed as superseded.
+// - An entry that can't be sent (older than TICK_KEEP_DAYS, damaged, or for a document or
+//   chapter no longer here) is removed and said so, never sent; a refused one is said so too.
+// - One request per chapter at a time: a click while one is on its way is sent after it.
+const tickSaves = new Map();  // "id:chapter" -> {id, chapter, done, op, time, state, busy, error}
+const tickNotices = [];  // what the user should know about ticks that weren't saved
+const TICK_STORE = API ? `myLibrary.tick.${encodeURIComponent(API.scope || "none")}.` : null;
+const TICK_KEEP_DAYS = 30;  // older unconfirmed ticks are dropped, never sent
+const tickKey = (id, chapter) => `${id}:${chapter}`;
+const tickStoreKey = e => `${TICK_STORE}${encodeURIComponent(e.id)}.${e.chapter}.${encodeURIComponent(e.op)}`;
+
+function tickKeep(entry) {
+  try {
+    localStorage.setItem(tickStoreKey(entry), JSON.stringify(entry));
+  } catch {}  // no storage: the tick is still saved; only its recovery after a crash is lost
+}
+function tickForget(entry) {  // (this tab's own entry, by its own key: no other tab's)
+  try { localStorage.removeItem(tickStoreKey(entry)); } catch {}
+}
+// The stored entries of this library: [{key, entry}] with entry null when it isn't a valid one
+function tickStored() {
+  const found = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(TICK_STORE)) continue;
+      let entry = null;
+      try { entry = JSON.parse(localStorage.getItem(key)); } catch {}
+      const valid = entry && typeof entry === "object" && typeof entry.id === "string"
+        && Number.isInteger(entry.chapter) && typeof entry.done === "boolean"
+        && typeof entry.op === "string" && Number.isFinite(entry.time) && entry.time > 0
+        && tickStoreKey(entry) === key;
+      found.push({key, entry: valid ? entry : null});
+    }
+  } catch {}
+  return found;
+}
+
+function setTick(b, chapter, done) {
+  const key = tickKey(b.id, chapter);
+  const s = tickSaves.get(key) || {id: b.id, chapter};
+  const earlier = s.op ? {id: s.id, chapter, op: s.op} : null;
+  Object.assign(s, {done, op: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    time: Date.now(), state: "saving", error: ""});
+  tickSaves.set(key, s);
+  tickKeep({id: s.id, chapter, done, op: s.op, time: s.time});  // the new one first, then
+  if (earlier) tickForget(earlier);  // this tab's earlier click of it: replaced
+  showTicks();
+  if (!s.busy) sendTick(key);
+}
+
+async function sendTick(key, {replay = false} = {}) {
+  const s = tickSaves.get(key);
+  if (!s) return;
+  s.busy = true;
+  s.state = "saving";
+  showTicks();
+  const {done, op, time} = s;
+  const sent = {id: s.id, chapter: s.chapter, op};
+  const book = () => books.find(x => x.id === s.id);  // (after the answer: the list may be new)
+  try {
+    const r = await api("/api/tick", {id: s.id, chapter: s.chapter, done, ...(replay ? {since: time} : {})});
+    const b = book();
+    if (b) b.chapter_list = r.chapter_list;  // the README's state, as the server read it
+    tickForget(sent);
+    s.busy = false;
+    if (s.op === op) tickSaves.delete(key);
+    else return sendTick(key);  // clicked again meanwhile: that one next
+  } catch (err) {
+    s.busy = false;
+    const b = book();
+    if (err.status === 409 || err.status === 400) {  // refused: the README stays as it is
+      if (b && err.data?.chapter_list) b.chapter_list = err.data.chapter_list;
+      tickForget(sent);
+      tickNotices.push(err.status === 409
+        ? `Not saved: “${b ? b.title : "a document"}”, chapter ${s.chapter}: its notes changed after that click. Tick or untick it again if you still want it.`
+        : `Not saved: “${b ? b.title : "a document"}”, chapter ${s.chapter}: ${err.message}`);
+      if (s.op === op) tickSaves.delete(key);
+      else return sendTick(key);
+    } else {  // no answer or a server error: kept, shown, and tried again with Retry
+      s.state = "failed";
+      s.error = err.message || "no answer";
+    }
+  }
+  redraw({counts: true});
+}
+
+function retryTicks() {
+  for (const [key, s] of tickSaves) if (s.state === "failed" && !s.busy) sendTick(key);
+}
+
+// The boxes (and a paper's "Mark as read") show what was clicked, not yet what's saved
+function showTicks() {
+  const page = document.getElementById("grid");
+  for (const s of tickSaves.values()) {
+    const card = page?.querySelector(`[data-id="${CSS.escape(s.id)}"]`);
+    const box = card?.querySelector(`input[data-tick="${s.chapter}"]`);
+    if (box) {
+      box.checked = s.done;
+      box.closest("li")?.classList.toggle("done", s.done);
+      box.dataset.save = s.state;
+      box.title = s.state === "failed" ? `Not saved: ${s.error}` : "Saving…";
+    }
+    const mark = s.chapter === 1 ? card?.querySelector("[data-markread]") : null;
+    if (mark) {
+      mark.textContent = s.done ? "✓ Read" : "Mark as read";
+      mark.dataset.save = s.state;
+    }
+  }
+  const status = document.getElementById("tickStatus");
+  if (!status) return;
+  const failed = [...tickSaves.values()].filter(s => s.state === "failed").length;
+  const saving = tickSaves.size - failed;
+  status.hidden = !tickSaves.size && !tickNotices.length;
+  status.dataset.state = failed || tickNotices.length ? "failed" : saving ? "saving" : "";
+  const lines = [];
+  if (tickSaves.size) {
+    const line = document.createElement("div");
+    line.textContent = failed ? `${failed} tick${failed > 1 ? "s" : ""} not saved`
+      : `Saving ${saving} tick${saving > 1 ? "s" : ""}…`;
+    if (failed) {
+      const again = document.createElement("button");
+      again.type = "button";
+      again.id = "tickRetry";
+      again.textContent = "Retry";
+      again.addEventListener("click", retryTicks);
+      line.append(" ", again);
+    }
+    lines.push(line);
+  }
+  for (const [i, notice] of tickNotices.entries()) {  // until dismissed: never just gone
+    const line = document.createElement("div");
+    line.className = "tick-notice";
+    line.textContent = notice;
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.textContent = "OK";
+    ok.addEventListener("click", () => { tickNotices.splice(i, 1); showTicks(); });
+    line.append(" ", ok);
+    lines.push(line);
+  }
+  status.replaceChildren(...lines);
+}
+
+// Leaving with a tick not yet saved: the browser asks first (the stored entry keeps it anyway)
+addEventListener("beforeunload", e => {
+  if (!tickSaves.size) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
+
+// Ticks a closed or crashed tab of this library never saw confirmed: the newest of each
+// chapter sent again, once; superseded ones removed; ones that can't be sent removed and said
+function replayTicks() {
+  if (!API) return;
+  const newest = new Map();  // "id:chapter" -> its newest valid entry
+  let dropped = 0;
+  for (const {key, entry} of tickStored()) {
+    const fresh = entry && Date.now() - entry.time < TICK_KEEP_DAYS * 864e5
+      && entry.time <= Date.now() + 60_000;
+    const b = fresh && books.find(x => x.id === entry.id);
+    if (!b || !b.chapter_list.some(c => c.number === entry.chapter)) {
+      try { localStorage.removeItem(key); } catch {}  // never sent: it couldn't be applied
+      dropped += 1;
+      continue;
+    }
+    const k = tickKey(entry.id, entry.chapter);
+    const other = newest.get(k);
+    if (!other || entry.time > other.time || (entry.time === other.time && entry.op > other.op)) {
+      if (other) tickForget(other);  // an older click of that chapter: superseded
+      newest.set(k, entry);
+    } else {
+      tickForget(entry);
+    }
+  }
+  if (dropped) {
+    tickNotices.push(`${dropped} tick${dropped > 1 ? "s" : ""} from an earlier visit couldn't be `
+      + "sent and were discarded, not saved (too old, damaged, or for a chapter no longer here). "
+      + "Please check those chapters.");
+  }
+  for (const [k, entry] of newest) {
+    if (tickSaves.has(k)) continue;  // (this tab's own click: already on its way)
+    tickSaves.set(k, {id: entry.id, chapter: entry.chapter, done: entry.done, op: entry.op,
+                      time: entry.time, state: "saving", error: ""});
+    sendTick(k, {replay: true});
+  }
+  showTicks();
+}
+
 const SHELF_LABELS = __SHELF_LABELS__;  // from library.toml: {"Optics": "光学 Optics"}
 const shelfLabel = name => SHELF_LABELS[name] || name;
 let shelf = "";  // the shelf being shown ("" = all books)
@@ -930,6 +1143,7 @@ function render() {
   } else {
     grid.innerHTML = shown.map(b => card(b)).join("");
   }
+  showTicks();  // ticks not yet saved: as clicked (B32)
 }
 
 // One line of the list: kind, title, ISBN or DOI, progress, last read, Continue
@@ -975,7 +1189,9 @@ async function api(path, body) {
     body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(data.error || response.statusText), {data});
+  if (!response.ok) {
+    throw Object.assign(new Error(data.error || response.statusText), {data, status: response.status});
+  }
   return data;
 }
 
@@ -1055,16 +1271,10 @@ grid.addEventListener("click", async e => {
   const cite = e.target.closest("[data-cite]");
   if (cite) return openCiteMenu(cite, bookOf(cite));
   const markRead = e.target.closest("[data-markread]");
-  if (markRead && API) {
+  if (markRead && API) {  // a paper: its one item, "Read the paper", saved as a tick (B32)
     const b = bookOf(markRead);
-    try {
-      const r = await api("/api/tick", {id: b.id, chapter: 1, done: !done(b)});
-      b.chapter_list = r.chapter_list;
-      stats();
-      render();
-    } catch (err) {
-      toast(`Couldn't save: ${err.message}`);
-    }
+    const pending = tickSaves.get(tickKey(b.id, 1));
+    setTick(b, 1, !(pending ? pending.done : done(b)));
     return;
   }
   const notes = e.target.closest("[data-notes]");
@@ -1145,15 +1355,7 @@ grid.addEventListener("click", async e => {
 grid.addEventListener("change", async e => {
   const box = e.target.closest("[data-tick]");
   if (!box || !API) return;
-  const b = bookOf(box);
-  try {
-    const r = await api("/api/tick", {id: b.id, chapter: +box.dataset.tick, done: box.checked});
-    b.chapter_list = r.chapter_list;
-    redraw({counts: true});
-  } catch (err) {
-    box.checked = !box.checked;
-    toast(`Couldn't save: ${err.message}`);
-  }
+  setTick(bookOf(box), +box.dataset.tick, box.checked);  // B32: saving, then saved or failed
 });
 q.addEventListener("input", render);
 // ↑ Back to the top (search, menus and shelves are there)
@@ -1918,6 +2120,7 @@ stats();
 renderFields();
 renderShelves();
 render();
+replayTicks();  // B32: ticks a closed or crashed tab of this library never saw saved
 </script>
 </body>
 </html>

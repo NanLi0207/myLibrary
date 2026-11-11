@@ -77,7 +77,7 @@ U3); the tagline isn't changed without that evidence.
 |---|---|---|
 | **学习 Learning** | 理解并记住：生词与术语、复习、阅读记录、主题。Understand and remember: vocabulary and terms, review, reading log, topics. | [已有 Existing] 术语表、英汉词典、生词复习卡片、阅读记录、主题笔记 glossaries, English–Chinese dictionary, vocabulary review cards, reading log, topic notes |
 | **阅读 Reading** | 专注、可靠地读 PDF。Focused, reliable PDF reading. | [已有 Existing] PDF.js 阅读器、继续阅读、标注保存、全文搜索、预览标签页 PDF.js reader, resume, saving marks, full-text search, preview tabs |
-| **笔记 Note-taking** | 在 PDF 旁边用普通 Markdown 写自己的话。Your own words in plain Markdown beside the PDF. | [已有 Existing] 笔记面板（编辑、自动保存、冲突、草稿、预览）notes panel (editing, autosave, conflicts, drafts, preview)；[已有 Existing] 预览中的公式（M5b）maths in the preview；[已实现，未提交 Implemented, not committed] 格式工具栏和显示设置（M5c）formatting toolbar and display settings；[计划 Planned] 截图、引用到笔记、回到原文 formatting, screenshots, quote to note, back to the passage |
+| **笔记 Note-taking** | 在 PDF 旁边用普通 Markdown 写自己的话。Your own words in plain Markdown beside the PDF. | [已有 Existing] 笔记面板（编辑、自动保存、冲突、草稿、预览）notes panel (editing, autosave, conflicts, drafts, preview)；[已有 Existing] 预览中的公式（M5b）maths in the preview；[已有 Existing] 格式工具栏和显示设置（M5c）formatting toolbar and display settings；[计划 Planned] 截图、引用到笔记、回到原文 formatting, screenshots, quote to note, back to the passage |
 
 **可执行学习（可选）/ Executable learning (optional).** 一个重要的差异化能力，尤其适合工程、数学、物理、编程、数据分析
 和科研；但它是可选的，从不成为必经之路，也不盖过三个支柱。An important differentiator, especially for
@@ -210,7 +210,7 @@ apart.
 |---|---|---|---|
 | W1 | 添加文档 Add documents | ＋ Add 或拖放 → 识别（ISBN、DOI、arXiv、标题页）→ 命名 → 登记 → 章节笔记模板 → 书架。＋ Add or drop → identify (ISBN, DOI, arXiv, title page) → name → register → chapter templates → shelves. | [已有 Existing] |
 | W2 | 阅读与查词 Read and look up | 阅读/继续 → 双击或选词 → 术语表、词典 → 加入生词本 / 术语表 / 主题笔记。Read/Continue → double-click or select → glossaries, dictionary → save word / glossary term / topic note. | [已有 Existing] |
-| W3 | 边读边记 Read and write | 阅读器中打开笔记面板 → 编辑 Markdown，自动保存，预览。Open the notes panel in the reader → edit Markdown, autosaved, previewed. | [已有 Existing]（公式 maths: M5b 已有 existing；格式 formatting: M5c 已实现，未提交 implemented, not committed；截图 [计划] screenshots [planned]） |
+| W3 | 边读边记 Read and write | 阅读器中打开笔记面板 → 编辑 Markdown，自动保存，预览。Open the notes panel in the reader → edit Markdown, autosaved, previewed. | [已有 Existing]（公式 maths: M5b 已有 existing；格式 formatting: M5c 已有 existing；截图 [计划] screenshots [planned]） |
 | W4 | PDF → 笔记 → PDF | 选中段落 → 引用到笔记 → 点击链接回到那一段。Select a passage → quote to note → click the link back to it. | [计划 Planned] M6, M7 |
 | W5 | 复习 Review | 📇 复习生词（Leitner 盒子）；阅读记录。📇 Review words (Leitner boxes); reading log. | [已有 Existing]；笔记问答 note Q&A [建议 Proposed] R1–R3 |
 | W6 | 可执行学习 Executable learning | 章节 → Script → 在编辑器中写和运行 → 结论写进笔记。Chapter → Script → write and run in the editor → conclusions into the note. | [已有 Existing]；与来源和结果的链接 links to sources and results [建议 Proposed] E1–E4 |
@@ -260,7 +260,7 @@ apart.
   per library), read-only, Source/Preview/Split.
 - **FR-N3** [已有] 笔记也可以在外部编辑器中打开（VS Code、记事本、系统默认、自定义命令）。Notes also open in an
   outside editor (VS Code, Notepad, system default, a custom command).
-- **FR-N4** [M5b 已有 existing；M5c 已实现，未提交 implemented, not committed；计划 planned M5d] 公式、格式工具栏、粘贴截图。Maths, formatting toolbar, pasted screenshots.
+- **FR-N4** [M5b 已有 existing；M5c 已有 existing；计划 planned M5d] 公式、格式工具栏、粘贴截图。Maths, formatting toolbar, pasted screenshots.
 - **FR-N5** [计划 M6/M7] 引用到笔记；从笔记回到原文段落。Quote to note; from a note back to the passage.
 - **FR-N6** [已有] 工具自己从不把书中的文字写进笔记（模板只有标题）。The tool never writes book text into notes on
   its own (templates hold headings only).

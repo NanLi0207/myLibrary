@@ -290,6 +290,30 @@ A **ticked** chapter is one you've marked as **finished**. Ticking writes `- [x]
 book's `notes/<book>/README.md`; you can also edit that checklist by hand. Nothing ticks a
 chapter automatically: skimming isn't finishing.
 
+**保存勾选 / Saving a tick:**
+- 勾选后复选框立即显示新状态，并标为"正在保存"（变淡，左下角显示 **Saving 1 tick…**）；只有服务器确认写入 README 后才算保存。
+  The box shows the new state at once, marked "saving" (faded, with **Saving 1 tick…** at the
+  bottom left); it counts as saved only once the server has written it to the README.
+- 保存失败（服务器未连接或出错）时，勾选保留并标红，左下角显示 **1 tick not saved** 和 **Retry**（重试）。服务器拒绝时（例如章节已不在 README 中），复选框回到 README 中的状态，左下角的说明一直显示到你点 **OK**。
+  If saving fails (no server, or an error), the tick is kept and marked red, with **1 tick not
+  saved** and **Retry** at the bottom left. If the server refuses it (e.g. the chapter is no
+  longer in the README), the box goes back to the README's state, and a note at the bottom left
+  says why until you click **OK**.
+- 还有勾选没保存时关闭或离开页面，浏览器会先询问。快速连点同一个复选框时，以最后一次为准。
+  Leaving the page while a tick isn't saved yet, the browser asks first. Clicking one box
+  several times quickly: the last click is what's saved.
+- 页面在保存完成前被关闭或浏览器崩溃时，这个勾选记在浏览器中，下次打开**同一个书库**的页面时自动再发送一次（每章只发送最后一次点击）；如果 README 在那次点击之后被修改过（例如在 VS Code 中，或阅读器更新了 "Last read"），就不再应用，并提示你重新勾选。超过 30 天、损坏或者对应的章节已经不在的记录会被丢弃（不会保存），页面会说明丢弃了几个。
+  If the page is closed or the browser crashes before the save completes, the tick is kept in
+  the browser and sent again the next time **the same library's** page opens (only the last
+  click of each chapter); if the README changed after that click (in VS Code, say, or the reader
+  updating "Last read"), it isn't applied, and you're asked to tick again. Kept ticks over 30 days
+  old, damaged, or for a chapter no longer there are discarded (not saved), and the page says
+  how many.
+- 恢复只在同一个浏览器中进行（另一个浏览器、清除了网站数据或者浏览器不能存储时都没有），依靠的是电脑的时钟：如果时钟被往回调过，较早的点击可能被当作较新的。
+  Recovery works only in the same browser (not another one, after its site data is cleared, or
+  where it can't store anything), and it relies on the computer's clock: if the clock was set
+  back, an older click can pass for a newer one.
+
 **进度**取两者中较大的：已勾选章节的比例，或上次阅读的页码占全书页数的比例。**Sort: progress** 把进度最多的排在前面，相同时最近读的在前。
 **Progress** is whichever is further: the share of chapters ticked, or the last page read out
 of the book's pages. **Sort: progress** puts the furthest-along first, then the most recently
@@ -1673,7 +1697,7 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | 现成安装包 The ready-to-use package | 可以构建；**没有自动测试**，在干净的环境中手动测试启动和退出。Builds; **no automated tests**, start and quit checked by hand in a clean environment. |
 | macOS / Linux | 未测试。Not tested. |
 | M5b 预览中的数学公式 Maths in the preview (KaTeX) | 已实现；Python 测试和 Edge 浏览器测试（CI）；安装包中的离线检查在本地做过。Implemented; Python and Edge browser tests (CI); an offline check in a built package done locally. |
-| M5c 格式工具栏和显示设置 Formatting toolbar and display settings | 已实现，**尚未提交**；Edge 浏览器测试（本地）。Implemented, **not yet committed**; Edge browser tests (locally). |
+| M5c 格式工具栏和显示设置 Formatting toolbar and display settings | 已实现；Edge 浏览器测试（CI）。Implemented; Edge browser tests (CI). |
 | M5d 粘贴截图和图片 Pasted screenshots and images | **计划中，未实现。** Planned, not implemented. |
 | 以后：截图识别为可编辑的公式和表格 Later: screenshots into editable equations and tables | **计划中，未实现。** Planned, not implemented. |
 
