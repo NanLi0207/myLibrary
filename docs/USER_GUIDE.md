@@ -321,10 +321,40 @@ chapter automatically: skimming isn't finishing.
   where it can't store anything), and it relies on the computer's clock: if the clock was set
   back, an older click can pass for a newer one.
 
-**进度**取两者中较大的：已勾选章节的比例，或上次阅读的页码占全书页数的比例。**Sort: progress** 把进度最多的排在前面，相同时最近读的在前。
+**进度**取两者中较大的：已勾选章节的比例，或上次阅读的页码占全书页数的比例。**Sort: progress** 先列**在读** (Reading) 的文档（进度最多的在前，相同时最近读的在前），再列**想读** (To Read)（最近添加的在前），最后列**读完** (Finished)（最近读完的在前）。
 **Progress** is whichever is further: the share of chapters ticked, or the last page read out
-of the book's pages. **Sort: progress** puts the furthest-along first, then the most recently
+of the book's pages. **Sort: progress** lists **Reading** documents first (furthest along first, then the most recently read), then **To Read** (newest added first), then **Finished** (most recently finished first); formerly it put the furthest-along first, then the most recently
 read.
+
+#### 阅读状态 / Reading status
+
+每个文档有一个阅读状态，在卡片和列表行的 **Status** 菜单中选择：
+
+| 选择 Choice | 含义 Meaning |
+|---|---|
+| **Automatic** (自动) | 勾过章节或读过页面时为 **Reading** (在读)，否则为 **To Read** (想读)；菜单中显示现在推断出的状态，例如 "Automatic (Reading)"。从不自动变成读完。Reading once a chapter is ticked or a page read, else To Read; the menu shows which, e.g. "Automatic (Reading)". Never Finished by itself. |
+| **To Read** (想读) / **Reading** (在读) | 你选择的状态，不管进度如何。The status you chose, whatever the progress. |
+| **Finished** (读完) | 只有你选择时才是读完；记下日期（"since 2026-11-11"）。再次打开阅读不会改变它。Only when you choose it; the date is recorded ("since 2026-11-11"). Reading it again doesn't change it. |
+
+- 读到最后一页或勾选了所有章节**不等于**读完：进度到 100% 时，卡片上会出现 **Mark as finished?**（标记为读完？），只有点击它才会改变状态。
+  Reaching the last page or ticking every chapter **isn't** finishing: at 100% the card shows
+  **Mark as finished?**, and only clicking it changes the status.
+- 状态记在这本书笔记的 `README.md` 中的一行，例如 `Reading status: finished (2026-11-11)`；选 Automatic 会删掉这一行。其他内容（包括换行方式）不变。如果这一行写成了 myLibrary 不认识的样子，或者有多行，卡片上会显示 "Status: not understood"，菜单不可用，请在 README 中改正。
+  The status is one line in the book's notes `README.md`, e.g. `Reading status: finished
+  (2026-11-11)`; Automatic removes it. Nothing else changes (line endings included). If the line
+  isn't one myLibrary understands, or there's more than one, the card shows "Status: not
+  understood" and the menu isn't offered: correct it in the README.
+- 筛选：搜索框旁边的 **Any status / To Read / Reading / Finished** 菜单（带数量），选择记在这个浏览器中。
+  Filter: the **Any status / To Read / Reading / Finished** menu next to the search box (with
+  counts), remembered in this browser.
+- 保存方式和勾选章节一样：保存中、失败时可重试、在另一个标签页先改过时提供 **Apply mine** / **OK**，未保存时离开页面先询问。和勾选不同，状态的修改不会记在浏览器中：浏览器在保存完成前崩溃时，这次修改会丢失，下次打开时显示原来的状态。
+  Saved like chapter ticks: saving, Retry on failure, **Apply mine** / **OK** when another tab
+  changed it first, a question before leaving while unsaved. Unlike ticks, a status change isn't
+  kept in the browser meanwhile: if the browser crashes before it's saved, the change is lost and
+  the old status shows next time.
+- 静态页面 `library.html` 显示状态并可以筛选，但不能修改。论文的 **Mark as read** 仍然只改变进度，不改变状态。
+  The static `library.html` shows the status and filters by it, without changing it. A paper's
+  **Mark as read** still changes only its progress, not its status.
 
 ### 3.5 学科与书架 / Subjects and shelves
 
@@ -1702,6 +1732,7 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | 多个书库、测试/示例书库、可迁移书库（[LIBRARIES.md](LIBRARIES.md)）Several libraries, Test & Demo library, portable libraries | 已实现；Python 测试（含并发启动、复制和移动书库）和浏览器测试（CI）。Implemented; Python tests (incl. concurrent launches, copying and moving libraries) and browser tests (CI). |
 | 章节脚本和 `code/`（可执行学习）Chapter scripts and `code/` (executable learning) | 已实现；Python 测试。来源与代码之间的链接等扩展计划中（ROADMAP 第 6 节）。Implemented; Python tests. Extensions such as links between sources and code are planned (ROADMAP section 6). |
 | 现成安装包 The ready-to-use package | 可以构建；**没有自动测试**，在干净的环境中手动测试启动和退出。Builds; **no automated tests**, start and quit checked by hand in a clean environment. |
+| 阅读状态与按进度排序（RS1）Reading status and progress sorting (RS1) | 已实现；Python 测试和 Edge 浏览器测试只在本地运行过，**CI 尚未验证**。Implemented; Python and Edge browser tests run locally only, **not yet verified by CI**. |
 | macOS / Linux | 未测试。Not tested. |
 | M5b 预览中的数学公式 Maths in the preview (KaTeX) | 已实现；Python 测试和 Edge 浏览器测试（CI）；安装包中的离线检查在本地做过。Implemented; Python and Edge browser tests (CI); an offline check in a built package done locally. |
 | M5c 格式工具栏和显示设置 Formatting toolbar and display settings | 已实现；Edge 浏览器测试（CI）。Implemented; Edge browser tests (CI). |

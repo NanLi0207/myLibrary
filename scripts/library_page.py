@@ -13,6 +13,7 @@ tick chapters off (see library_server.py).
 import json
 import re
 import tomllib
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -36,6 +37,91 @@ PROGRESS_RE = re.compile(r"^- \[([ xX])\] (?:\[(.+?)\]\((.+?)\)|(.+))$", re.MULT
 LAST_READ_RE = re.compile(
     r"^Last read: page (\d+)(?: \((.+)\))?, (\d{4}-\d{2}-\d{2})$", re.MULTILINE
 )
+
+# Reading status (RS1): one optional line in the notes README, chosen by the user on the library
+# page: "Reading status: to read", "Reading status: reading" or "Reading status: finished
+# (2026-11-11)" (the day it was marked finished). No line: automatic (the page derives "reading"
+# once a chapter is ticked or a page read, else "to read"; never "finished"). A line that
+# isn't one of those, or more than one, is "invalid": shown, never written over or removed by
+# myLibrary, until the user corrects it in the README. Matches CRLF lines too (\r? before $).
+STATUS_LINE_RE = re.compile(r"^Reading status:(.*?)\r?$", re.MULTILINE)
+STATUS_VALUE_RE = re.compile(r"(to read|reading|finished)(?: \((\d{4}-\d{2}-\d{2})\))?", re.I)
+STATUS_STORED = {"to read": "to-read", "reading": "reading", "finished": "finished"}
+STATUS_WRITTEN = {"to-read": "to read", "reading": "reading", "finished": "finished"}
+
+
+def reading_status(text: str) -> dict:
+    """{stored, date, problem} from a README's text: stored is "auto" (no line), "to-read",
+    "reading", "finished" (date: the day it was marked) or "invalid" (problem: why)."""
+    lines = list(STATUS_LINE_RE.finditer(text))
+    if not lines:
+        return {"stored": "auto", "date": "", "problem": ""}
+    if len(lines) > 1:
+        return {"stored": "invalid", "date": "",
+                "problem": f"{len(lines)} “Reading status:” lines (only one may be there)"}  # fmt: skip
+    value = lines[0][1].strip()
+    m = STATUS_VALUE_RE.fullmatch(value)
+    stored = STATUS_STORED.get(m[1].lower()) if m else None
+    date = (m[2] or "") if m else ""
+    if stored and date:
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            stored = None
+    if not stored or (date and stored != "finished"):
+        return {"stored": "invalid", "date": "",
+                "problem": f"“Reading status: {value[:60]}” isn't one myLibrary understands"}  # fmt: skip
+    return {"stored": stored, "date": date, "problem": ""}
+
+
+def status_line(stored: str, date: str = "") -> str:
+    """The README line for a status chosen ("to-read", "reading", "finished")."""
+    written = STATUS_WRITTEN[stored]
+    if stored == "finished" and date:  # (a hand-written "finished" may have no date)
+        return f"Reading status: {written} ({date})"
+    return f"Reading status: {written}"
+
+
+def status_of(readme: Path | None) -> dict:
+    """reading_status of a README file ("auto" when there's none)."""
+    if not readme or not readme.exists():
+        return {"stored": "auto", "date": "", "problem": ""}
+    return reading_status(safe_io.read_text(readme))
+
+
+def with_status(text: str, line: str | None) -> str:
+    """The README's text with its one valid status line set to `line` (None: removed), in the
+    file's own line endings; nothing else changes. A new line goes after "Last read:", else
+    first under "## Reading progress", else at the end; removing it undoes that exactly.
+    Never called on a README whose status is invalid (the caller checks)."""
+    nl = "\r\n" if "\r\n" in text else "\n"
+    found = STATUS_LINE_RE.search(text)
+    if found:
+        start, end = found.span()
+        if found[0].endswith("\r"):
+            end -= 1  # (the \r is part of the line's ending, kept)
+        if line is not None:
+            return text[:start] + line + text[end:]
+        end = found.end()  # the line, its \r, and its \n
+        if text[end : end + 1] == "\n":
+            end += 1
+        text = text[:start] + text[end:]
+        if text[max(0, start - 2 * len(nl)) : start] == nl * 2 and text.startswith(nl, start):
+            text = text[:start] + text[start + len(nl) :]  # (no third blank line left behind)
+        return text
+    if line is None:
+        return text
+    last = re.search(r"^Last read: .*?\r?$", text, re.MULTILINE)
+    if last:
+        at = last.end() - (1 if last[0].endswith("\r") else 0)
+        return text[:at] + nl + line + text[at:]
+    heading = re.search(r"^## Reading progress[ \t]*\r?\n([ \t]*\r?\n)?", text, re.MULTILINE)
+    if heading:  # (a blank line after it: one after the status line too)
+        after = nl + nl if heading[1] is not None else nl
+        return text[: heading.end()] + line + after + text[heading.end() :]
+    if text and not text.endswith("\n"):
+        text += nl
+    return text + line + nl
 
 
 def readme_of(row: dict) -> Path:
@@ -153,6 +239,8 @@ def books(pdf_base: str | None = None) -> list[dict]:
                 "scan": scan,
                 "ocr_minutes": max(1, round(ocr_minutes(pages))),
                 "last_read": last_read(row["id"], readme) if readme else None,
+                # RS1: the status chosen in the README (or "auto", or "invalid" and why)
+                "reading_status": status_of(readme),
                 # When the notes README last changed (reading position, ticks): orders books
                 # read on the same day for "Sort: recently read"
                 "touched": _mtime(readme) if readme else 0.0,
@@ -339,6 +427,19 @@ ol.chapters li:hover button { border-color: var(--line); }
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px;
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.2); opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: 1; }
+/* RS1: the reading status (a menu with the server, its name in the static copy) */
+.status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0;
+  font-size: 13px; color: var(--muted); }
+.status-row select, .lstatus select { font-size: 12px; padding: 1px 4px; }
+.status-tag { font-size: 12px; }
+.status-tag.invalid { color: #c62828; }
+.status-date { font-size: 12px; }
+button.suggest { font-size: 12px; padding: 1px 8px; border: 1px dashed var(--line);
+  border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+.lstatus { margin-top: 2px; font-size: 12px; }
+select[data-status][data-save="saving"] { opacity: 0.55; }
+select[data-status][data-save="failed"] { outline: 2px solid #c62828; }
+select[data-status][data-save="conflict"] { outline: 2px solid #b26a00; }
 /* B32: chapter ticks not yet saved (the box as clicked), and ones that failed (with Retry) */
 .tick-status { position: fixed; left: 16px; bottom: 16px; z-index: 41; padding: 6px 12px;
   border-radius: 8px; font-size: 13px; background: var(--surface); color: var(--text);
@@ -533,6 +634,12 @@ code { font-size: 12.5px; }
       <option value="paper">Papers</option>
       <option value="thesis">Theses</option>
     </select>
+    <select id="statusFilter" aria-label="Reading status" title="Reading status">
+      <option value="">Any status</option>
+      <option value="to-read">To Read</option>
+      <option value="reading">Reading</option>
+      <option value="finished">Finished</option>
+    </select>
     <select id="field" aria-label="Field" title="The subject field (from OpenAlex)" hidden></select>
     <select id="sort">
       <option value="title">Sort: title</option>
@@ -724,11 +831,15 @@ function setTick(b, chapter, done) {
 // it belongs to (the page's own data, a refresh, an answer), never newer than them
 const tickVersions = {start: API?.tick_versions?.start ?? 0, documents: {...(API?.tick_versions?.documents || {})}};
 const tickBase = id => tickVersions.documents[id] ?? tickVersions.start;
-// The README's chapters with their version: taken unless this page already has newer ones
-function tookChapters(b, chapterList, version) {
-  if (!b || !Array.isArray(chapterList) || !Number.isInteger(version)) return;
+// The README's state in an answer (its chapters and reading status, read together with their
+// version): taken unless this page already has a newer one
+function tookReadme(b, answer, version) {
+  if (!b || !answer || !Number.isInteger(version)) return;
   if (version < tickBase(b.id)) return;  // an answer older than what's shown: not shown
-  b.chapter_list = chapterList;
+  if (Array.isArray(answer.chapter_list)) b.chapter_list = answer.chapter_list;
+  if (answer.reading_status && typeof answer.reading_status === "object") {
+    b.reading_status = answer.reading_status;
+  }
   tickVersions.documents[b.id] = version;
 }
 
@@ -747,7 +858,7 @@ async function sendTick(key, {replay = false} = {}) {
   const condition = replay ? {since: time} : {base: tickBase(s.id)};
   try {
     const r = await api("/api/tick", {id: s.id, chapter: s.chapter, done, ...condition});
-    tookChapters(book(), r.chapter_list, r.version);  // the README's state, as the server read it
+    tookReadme(book(), r, r.version);  // the README's state, as the server read it
     tickForget(sent);
     s.busy = false;
     if (s.op === op) tickSaves.delete(key);
@@ -756,7 +867,7 @@ async function sendTick(key, {replay = false} = {}) {
     s.busy = false;
     const b = book();
     if (err.status === 409) {  // changed elsewhere first: the README stays, the user decides
-      tookChapters(b, err.data?.chapter_list, err.data?.version);
+      tookReadme(b, err.data, err.data?.version);
       s.state = "conflict";  // the newest click stays, shown, never sent again by itself
       s.conflict = replay ? "earlier" : "elsewhere";
     } else if (err.status === 400) {  // refused: the README stays as it is
@@ -790,6 +901,101 @@ function keepTheirs(key) {
   redraw({counts: true});
 }
 
+// --- Reading status (RS1): Automatic, To Read, Reading, Finished ---------------------------
+// Chosen by the user, kept in the notes README ("Reading status: …"); "Automatic" (no line)
+// is derived: Reading once a chapter is ticked or a page read, else To Read, never Finished.
+// Saved like ticks (B32): shown as chosen while saving, kept and retryable when it fails, a
+// conflict (changed in another tab first) shown until the user decides, never sent again by
+// itself. Not stored in the browser meanwhile: a status chosen just before the browser is
+// ended may be lost (it's shown unchanged on the next visit).
+const STATUS_NAMES = {"to-read": "To Read", reading: "Reading", finished: "Finished"};
+const statusSaves = new Map();  // doc id -> {id, status, op, state, busy, error}
+const derivedStatus = b => (done(b) > 0 || b.last_read ? "reading" : "to-read");
+const storedStatus = b => statusSaves.get(b.id)?.status ?? (b.reading_status?.stored || "auto");
+// What a document counts as (filter, sort): the status chosen, else the derived one
+const statusOf = b => (storedStatus(b) in STATUS_NAMES ? storedStatus(b) : derivedStatus(b));
+const finishedOn = b => (statusSaves.has(b.id) ? new Date().toISOString().slice(0, 10)
+  : b.reading_status?.stored === "finished" ? b.reading_status.date || "" : "");
+
+function setStatus(b, status) {
+  if (!b || !["auto", ...Object.keys(STATUS_NAMES)].includes(status)) return;
+  const s = statusSaves.get(b.id) || {id: b.id};
+  Object.assign(s, {status, op: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    state: "saving", error: ""});
+  statusSaves.set(b.id, s);
+  redraw({counts: true});
+  if (!s.busy) sendStatus(b.id);
+}
+
+async function sendStatus(id) {
+  const s = statusSaves.get(id);
+  if (!s) return;
+  s.busy = true;
+  s.state = "saving";
+  showTicks();
+  const {status, op} = s;
+  const book = () => books.find(x => x.id === id);
+  try {
+    const r = await api("/api/status", {id, status, base: tickBase(id)});
+    tookReadme(book(), r, r.version);
+    s.busy = false;
+    if (s.op === op) statusSaves.delete(id);
+    else return sendStatus(id);  // changed again meanwhile: that one next
+  } catch (err) {
+    s.busy = false;
+    const b = book();
+    if (err.status === 409) {  // changed elsewhere first: the README stays, the user decides
+      tookReadme(b, err.data, err.data?.version);
+      s.state = "conflict";
+    } else if (err.status === 400) {  // refused (e.g. a status line it doesn't understand)
+      tickNotices.push(`Not saved: “${b ? b.title : "a document"}”'s reading status: ${err.message}`);
+      if (s.op === op) statusSaves.delete(id);
+      else return sendStatus(id);
+    } else {  // no answer or a server error: kept, shown, and tried again with Retry
+      s.state = "failed";
+      s.error = err.message || "no answer";
+    }
+  }
+  redraw({counts: true});
+}
+
+function retryStatuses() {
+  for (const [id, s] of statusSaves) if (s.state === "failed" && !s.busy) sendStatus(id);
+}
+function applyMineStatus(id) {
+  const s = statusSaves.get(id);
+  if (s?.state === "conflict" && !s.busy) sendStatus(id);
+}
+function keepTheirsStatus(id) {
+  const s = statusSaves.get(id);
+  if (s?.state !== "conflict" || s.busy) return;
+  statusSaves.delete(id);
+  redraw({counts: true});
+}
+
+// The status of a card or a list line: a menu (with the server), else its name
+function statusControl(b) {
+  const saved = b.reading_status || {stored: "auto", date: "", problem: ""};
+  const chosen = storedStatus(b);
+  const derived = STATUS_NAMES[derivedStatus(b)];
+  if (saved.stored === "invalid" && !statusSaves.has(b.id)) {
+    return `<span class="status-tag invalid" data-status-problem title="${esc(saved.problem)}">`
+      + `Status: not understood (see the README)</span>`;
+  }
+  const since = chosen === "finished" && saved.stored === "finished" && saved.date
+    ? ` <span class="status-date">since ${esc(saved.date)}</span>` : "";
+  if (!API) {
+    const name = chosen in STATUS_NAMES ? STATUS_NAMES[chosen] : `${derived} (automatic)`;
+    return `<span class="status-tag" data-status-text>${esc(name)}</span>${since}`;
+  }
+  const options = [["auto", `Automatic (${derived})`], ...Object.entries(STATUS_NAMES)]
+    .map(([value, name]) => `<option value="${value}"${value === chosen ? " selected" : ""}>${esc(name)}</option>`)
+    .join("");
+  const suggest = statusOf(b) !== "finished" && pct(b) >= 1
+    ? ` <button type="button" class="suggest" data-finish title="All read: mark it finished? (Only if you say so)">Mark as finished?</button>` : "";
+  return `<select data-status aria-label="Reading status" title="Reading status (kept in the notes README)">${options}</select>${since}${suggest}`;
+}
+
 // The boxes (and a paper's "Mark as read") show what was clicked, not yet what's saved
 function showTicks() {
   const page = document.getElementById("grid");
@@ -809,13 +1015,22 @@ function showTicks() {
       mark.dataset.save = s.state;
     }
   }
+  for (const s of statusSaves.values()) {
+    for (const pick of page?.querySelectorAll(`[data-id="${CSS.escape(s.id)}"] select[data-status]`) || []) {
+      pick.value = s.status;
+      pick.dataset.save = s.state;
+    }
+  }
   const status = document.getElementById("tickStatus");
   if (!status) return;
   const all = [...tickSaves.values()];
+  const statuses = [...statusSaves.values()];
+  const statusFailed = statuses.filter(s => s.state === "failed").length;
+  const statusConflicts = statuses.filter(s => s.state === "conflict");
   const failed = all.filter(s => s.state === "failed").length;
   const conflicts = all.filter(s => s.state === "conflict");
   const saving = all.length - failed - conflicts.length;
-  status.hidden = !all.length && !tickNotices.length;
+  status.hidden = !all.length && !statuses.length && !tickNotices.length;
   status.dataset.state = failed || conflicts.length || tickNotices.length ? "failed"
     : saving ? "saving" : "";
   const button = (text, onClick, data) => {
@@ -852,6 +1067,31 @@ function showTicks() {
                 " ", button("OK", () => keepTheirs(key), {tickKeep: key}));
     lines.push(line);
   }
+  if (statuses.length > statusConflicts.length) {
+    const line = document.createElement("div");
+    line.className = "status-save";
+    line.textContent = statusFailed ? `${statusFailed} reading status${statusFailed > 1 ? "es" : ""} not saved`
+      : "Saving the reading status…";
+    if (statusFailed) {
+      const again = button("Retry", retryStatuses, {});
+      again.id = "statusRetry";
+      line.append(" ", again);
+    }
+    lines.push(line);
+  }
+  for (const s of statusConflicts) {  // until the user decides: never sent again by itself
+    const b = books.find(x => x.id === s.id);
+    const saved = b?.reading_status?.stored;
+    const line = document.createElement("div");
+    line.className = "status-conflict";
+    line.textContent = `Not saved: “${b ? b.title : "a document"}”: you chose `
+      + `${s.status === "auto" ? "Automatic" : STATUS_NAMES[s.status]}, but its reading status was `
+      + `changed in another tab or window first; it is ${saved in STATUS_NAMES ? STATUS_NAMES[saved]
+        : `Automatic (${STATUS_NAMES[derivedStatus(b || {chapter_list: []})] || "To Read"})`} now.`;
+    line.append(" ", button("Apply mine", () => applyMineStatus(s.id), {statusApply: s.id}),
+                " ", button("OK", () => keepTheirsStatus(s.id), {statusKeep: s.id}));
+    lines.push(line);
+  }
   for (const [i, notice] of tickNotices.entries()) {  // until dismissed: never just gone
     const line = document.createElement("div");
     line.className = "tick-notice";
@@ -864,7 +1104,7 @@ function showTicks() {
 
 // Leaving with a tick not yet saved: the browser asks first (the stored entry keeps it anyway)
 addEventListener("beforeunload", e => {
-  if (!tickSaves.size) return;
+  if (!tickSaves.size && !statusSaves.size) return;  // (ticks and statuses, RS1)
   e.preventDefault();
   e.returnValue = "";
 });
@@ -935,6 +1175,9 @@ let view = books.length > 24 ? "list" : "cards";
 try { view = localStorage.getItem("library-view") || view; } catch {}
 const expanded = new Set();
 const kindSelect = document.getElementById("kind");
+const statusFilter = document.getElementById("statusFilter");  // RS1 (remembered in this browser)
+try { statusFilter.value = localStorage.getItem("library-status") || ""; } catch {}
+if (statusFilter.selectedIndex < 0) statusFilter.value = "";
 try { kindSelect.value = localStorage.getItem("library-kind") || ""; } catch {}
 const isPaper = b => b.kind === "paper";
 const isThesis = b => b.kind === "thesis";
@@ -1137,6 +1380,7 @@ function card(b, inList = false) {
       ? (keywords || shelfTags ? `<div class="chips">${shelfTags}${keywords}</div>` : "")
       : `${keywords ? `<div class="chips keywords">${keywords}</div>` : ""}${shelfTags ? `<div class="chips">${shelfTags}</div>` : ""}`}
     <div class="progress"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>${progress}</div>
+    <div class="status-row">Status: ${statusControl(b)}</div>
     ${b.last_read ? `<div class="next">Last read: page ${b.last_read.page}${b.last_read.chapter ? ` · ${esc(b.last_read.chapter)}` : ""} · ${esc(b.last_read.date)}</div>`
       : API && next && done(b) < n && !isPaper(b) ? `<div class="next">Next: ${esc(next.title)}</div>` : ""}
     ${inList ? `<div class="actions">${main}${more}</div>`
@@ -1151,10 +1395,14 @@ function render() {
     title: (a, b) => a.title.localeCompare(b.title),
     author: (a, b) => firstAuthor(a).split(" ").pop().localeCompare(firstAuthor(b).split(" ").pop()),
     year: (a, b) => (+b.year || 0) - (+a.year || 0),
-    // furthest along first; then the one read most recently; untouched books by title
-    progress: (a, b) => pct(b) - pct(a)
-      || (b.last_read?.date || "").localeCompare(a.last_read?.date || "")
-      || a.title.localeCompare(b.title),
+    // RS1: Reading (furthest along first, then read most recently), To Read (newest added
+    // first), Finished (most recently finished first); then by title, then by id
+    progress: (a, b) => statusRank(a) - statusRank(b)
+      || (statusRank(a) === 0 ? pct(b) - pct(a)
+        || (b.last_read?.date || "").localeCompare(a.last_read?.date || "") : 0)
+      || (statusRank(a) === 1 ? (b.added || "").localeCompare(a.added || "") : 0)
+      || (statusRank(a) === 2 ? finishedOn(b).localeCompare(finishedOn(a)) : 0)
+      || a.title.localeCompare(b.title) || a.id.localeCompare(b.id),
     added: (a, b) => (b.added || "").localeCompare(a.added || ""),
     // last read first (same day: the one touched last); books not started yet at the end
     recent: (a, b) => !!b.last_read - !!a.last_read
@@ -1162,7 +1410,14 @@ function render() {
       || (b.last_read ? b.touched - a.touched : 0)
       || a.title.localeCompare(b.title),
   }[sort.value];
+  const statusRank = b => ({reading: 0, "to-read": 1, finished: 2})[statusOf(b)];
+  for (const option of statusFilter.options) {  // RS1: how many of each (all documents)
+    const name = option.value ? STATUS_NAMES[option.value] : "Any status";
+    const count = option.value ? books.filter(b => statusOf(b) === option.value).length : books.length;
+    option.textContent = `${name} (${count})`;
+  }
   const shown = books
+    .filter(b => !statusFilter.value || statusOf(b) === statusFilter.value)
     .filter(b => !shelf || b.shelf_list.includes(shelf))
     .filter(inKindAndField)
     .filter(b => {
@@ -1217,7 +1472,7 @@ function listItem(b) {
       <span class="kind">${esc(kindLabel(b))}</span>
       <div><div class="ttl" title="${esc(b.title)}">${esc(b.title)}</div><div class="sub">${sub}</div></div>
       <span class="ident">${ident}</span>
-      <div class="prog"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>${progress}</div>
+      <div class="prog"><div class="bar"><span style="width:${Math.round(pct(b) * 100)}%"></span></div>${progress}<div class="lstatus">${statusControl(b)}</div></div>
       <span class="last">${last}</span>
       <span class="go">${b.pdf_missing ? "" : readButton(b)}</span>
     </div>
@@ -1306,7 +1561,9 @@ grid.addEventListener("keydown", e => {
 });
 grid.addEventListener("click", async e => {
   const row = e.target.closest("[data-row]");
-  if (row && !e.target.closest("a, button, input")) return toggleLine(row);
+  if (row && !e.target.closest("a, button, input, select")) return toggleLine(row);
+  const finish = e.target.closest("[data-finish]");
+  if (finish && API) return setStatus(bookOf(finish), "finished");  // RS1: only when clicked
   const sortBy = e.target.closest("[data-sortby]");
   if (sortBy) {
     sort.value = sortBy.dataset.sortby;
@@ -1406,6 +1663,8 @@ grid.addEventListener("click", async e => {
 });
 
 grid.addEventListener("change", async e => {
+  const pick = e.target.closest("select[data-status]");
+  if (pick && API) return setStatus(bookOf(pick), pick.value);  // RS1
   const box = e.target.closest("[data-tick]");
   if (!box || !API) return;
   setTick(bookOf(box), +box.dataset.tick, box.checked);  // B32: saving, then saved or failed
@@ -1425,6 +1684,10 @@ document.querySelector(".view").addEventListener("click", e => {
   if (!button) return;
   view = button.dataset.view;
   try { localStorage.setItem("library-view", view); } catch {}
+  render();
+});
+statusFilter.addEventListener("change", () => {
+  try { localStorage.setItem("library-status", statusFilter.value); } catch {}
   render();
 });
 kindSelect.addEventListener("change", () => {
@@ -2158,7 +2421,10 @@ async function refreshBooks() {
     for (const b of fresh) {
       const version = versions.documents?.[b.id] ?? versions.start;
       const old = before.get(b.id);
-      if (old && version < tickBase(b.id)) b.chapter_list = old.chapter_list;
+      if (old && version < tickBase(b.id)) {  // (its chapters and status: both kept)
+        b.chapter_list = old.chapter_list;
+        b.reading_status = old.reading_status;
+      }
       else tickVersions.documents[b.id] = version;
     }
     books.splice(0, books.length, ...fresh);

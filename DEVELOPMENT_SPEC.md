@@ -238,6 +238,7 @@ apart.
 - **FR-L5** [计划 task 6] 在页面上修正元数据和章节；用户的修改从不被自动步骤覆盖。Correct metadata and chapters
   on the page; the user's edits are never overwritten by automatic steps.
 - **FR-L6** [已有] 多个独立书库，每个书库是一个完整的文件夹，可以整个复制或移动（[docs/LIBRARIES.md](docs/LIBRARIES.md)）。
+- **FR-L7** [已实现，CI 待验证 RS1] 阅读状态（想读、在读、读完）由用户选择，记在文档笔记 README 的一行中；没有这一行时自动推断（从不自动"读完"）；按进度排序先列在读、再列想读、最后列读完；状态筛选。A reading status (To Read, Reading, Finished) chosen by the user, kept as one line in the document's notes README; derived when there's none (never Finished by itself); Sort: progress lists Reading, then To Read, then Finished; a status filter.
   Several independent libraries, each a complete folder that can be copied or moved whole.
 
 ### 6.2 阅读 / Reading

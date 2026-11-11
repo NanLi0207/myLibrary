@@ -637,6 +637,7 @@ class TickChanged(Exception):
     def __init__(self, message: str):
         super().__init__(message)
         self.chapters: list[dict] = []
+        self.status: dict = {}  # (the README's reading status, RS1, from the same read)
         self.version = 0
 
 
@@ -685,12 +686,12 @@ def check_since(since) -> float:
     return float(since)
 
 
-def tick_with_version(
+def tick_snapshot(
     doc_id: str, number: int, done: bool, *, base: int | None = None, since: float | None = None
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], dict, int]:
     """Set chapter `number` done or not: an absolute state, so a request repeated (its first
-    answer lost) finds it already so and writes nothing. Returns the README's chapters and the
-    document's tick version, read together under the README's lock.
+    answer lost) finds it already so and writes nothing. Returns the README's chapters, its
+    reading status (RS1) and the document's tick version, read together under the README's lock.
 
     - `base` (a live click from the library page, B32): refused (TickChanged) if this server
       ticked that chapter after version `base`, so a click made on an older view never
@@ -726,19 +727,75 @@ def tick_with_version(
         try:
             text = safe_io.update_text(readme, ticked)
         except TickChanged as refused:
-            refused.chapters = library_page.chapters_in(safe_io.read_text(readme))
+            text = safe_io.read_text(readme)
+            refused.chapters = library_page.chapters_in(text)
+            refused.status = library_page.reading_status(text)
             refused.version = record["doc"]
             raise
         if wrote:  # written: the document's version moves on, and this chapter's with it
             record["doc"] += 1
             record["chapters"][number] = record["doc"]
             _tick_versions[doc_id] = record
-        return library_page.chapters_in(text), record["doc"]
+        return library_page.chapters_in(text), library_page.reading_status(text), record["doc"]
+
+
+def tick_with_version(
+    doc_id: str, number: int, done: bool, *, base: int | None = None, since: float | None = None
+) -> tuple[list[dict], int]:
+    """tick_snapshot without the reading status: the chapters and the version."""
+    chapters, _, version = tick_snapshot(doc_id, number, done, base=base, since=since)
+    return chapters, version
 
 
 def tick(doc_id: str, number: int, done: bool, since: float | None = None) -> list[dict]:
     """tick_with_version without a base (internal callers): its chapters only."""
     return tick_with_version(doc_id, number, done, since=since)[0]
+
+
+STATUS_CHOICES = ("auto", "to-read", "reading", "finished")
+
+
+def set_status(doc_id: str, status: str, *, base: int | None = None) -> tuple[dict, list, int]:
+    """Set a document's reading status (RS1) in its notes README: "auto" removes the line,
+    "finished" records today's date (the server's). Returns the README's status, chapters and
+    the document's version, read together under the README's lock (the same lock and version
+    record as ticks: B32; the status has its own entry, so ticks and it never conflict).
+
+    - Already that status: nothing written (a "finished" keeps its date).
+    - `base`: refused (TickChanged) if this server changed the status after version `base`.
+    - A status line the README has but that isn't valid (unknown, malformed, more than one):
+      a ValueError; it's never written over or removed here, the user corrects it.
+    - The README's own line endings, byte-order mark and every other line are kept: it is
+      changed as bytes, never through a newline translation."""
+    if status not in STATUS_CHOICES:
+        raise ValueError(f"status must be one of {', '.join(STATUS_CHOICES)}")
+    readme = library_page.readme_path(doc_id)
+    with safe_io.lock_for(readme), safe_io.critical():
+        if base is not None:
+            base = check_base(base, doc_id)
+        if not readme.exists():
+            raise ValueError("this document has no notes README for its status")
+        record = _tick_versions.get(doc_id, {"doc": TICK_START, "chapters": {}})
+        text = safe_io.read_bytes(readme).decode("utf-8")
+        current = library_page.reading_status(text)
+        if current["stored"] == "invalid":
+            raise ValueError(f"the README's status can't be changed here: {current['problem']}"
+                             " (correct it in the README)")  # fmt: skip
+        if current["stored"] != status:
+            if base is not None and record["chapters"].get("status", TICK_START) > base:
+                refused = TickChanged("the status was changed in another tab or window")
+                refused.chapters = library_page.chapters_in(text.replace("\r\n", "\n"))
+                refused.status, refused.version = current, record["doc"]
+                raise refused
+            line = None if status == "auto" else library_page.status_line(
+                status, date.today().isoformat())  # fmt: skip
+            text = library_page.with_status(text, line)
+            safe_io.write_bytes(readme, text.encode("utf-8"))
+            record["doc"] += 1
+            record["chapters"]["status"] = record["doc"]
+            _tick_versions[doc_id] = record
+        plain = text.replace("\r\n", "\n")
+        return library_page.reading_status(text), library_page.chapters_in(plain), record["doc"]
 
 
 # --- HTTP ---------------------------------------------------------------------------------
@@ -1094,15 +1151,29 @@ class Handler(BaseHTTPRequestHandler):
                 since = check_since(body["since"]) if "since" in body else None
                 base = check_base(body["base"], doc_id) if "base" in body else None
                 try:
-                    chapters, version = tick_with_version(
+                    chapters, status, version = tick_snapshot(
                         doc_id, chapter, bool(body.get("done")), base=base, since=since
                     )
                 except TickChanged as changed:  # the README wins; the page is told its state
                     return self._json(HTTPStatus.CONFLICT, {
                         "error": str(changed), "chapter_list": changed.chapters,
-                        "version": changed.version})  # fmt: skip
+                        "reading_status": changed.status, "version": changed.version})  # fmt: skip
                 library_page.build()  # keep the static copy in step
-                return self._json(HTTPStatus.OK, {"chapter_list": chapters, "version": version})
+                return self._json(HTTPStatus.OK, {"chapter_list": chapters, "version": version,
+                                                  "reading_status": status})  # fmt: skip
+            if self.path == "/api/status":  # RS1: the reading status chosen on the page
+                base = check_base(body["base"], doc_id) if "base" in body else None
+                try:
+                    status, chapters, version = set_status(
+                        doc_id, str(body.get("status", "")), base=base
+                    )
+                except TickChanged as changed:  # the README wins; the page is told its state
+                    return self._json(HTTPStatus.CONFLICT, {
+                        "error": str(changed), "chapter_list": changed.chapters,
+                        "reading_status": changed.status, "version": changed.version})  # fmt: skip
+                library_page.build()  # keep the static copy in step
+                return self._json(HTTPStatus.OK, {"chapter_list": chapters, "version": version,
+                                                  "reading_status": status})  # fmt: skip
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
         except ValueError as e:  # something the page sent that can't be done
             self._json(HTTPStatus.BAD_REQUEST, {"error": shown_error(e)})  # no full paths

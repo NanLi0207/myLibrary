@@ -62,7 +62,7 @@ return are planned); optionally: note → code or experiment → result → sour
 - **整理 Organising:** 自动识别书、论文、学位论文（ISBN、DOI、arXiv）；按学科的书架；重复检测；OCR 扫描件。Books,
   papers and theses identified automatically (ISBN, DOI, arXiv); subject shelves; repeat
   detection; OCR for scans.
-- **学习 Learning:** 章节勾选、阅读记录、生词复习卡片。Chapter ticks, a reading log, vocabulary review cards.
+- **学习 Learning:** 章节勾选、阅读状态（想读、在读、读完）、阅读记录、生词复习卡片。Chapter ticks, a reading status (To Read, Reading, Finished), a reading log, vocabulary review cards.
 - **可执行学习（可选）Executable learning (optional):** 每章一个 Python 脚本（从模板创建，在你的编辑器中打开）；书库中
   可复用的 `code/`；numpy、scipy、sympy、matplotlib。A Python script per chapter (from a template,
   opened in your editor); reusable `code/` in the library; numpy, scipy, sympy, matplotlib.

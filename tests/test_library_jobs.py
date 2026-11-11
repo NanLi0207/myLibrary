@@ -310,6 +310,49 @@ def test_refresh_keeps_the_richer_copy_and_moves_your_work_to_it(library):
     assert "identical file" in job["message"]
 
 
+@pytest.mark.parametrize(
+    ("kept", "other", "expected"),
+    [
+        (None, "Reading status: finished (2026-02-03)", "Reading status: finished (2026-02-03)"),
+        ("Reading status: reading", "Reading status: finished (2026-02-03)",
+         "Reading status: reading"),
+        ("Reading status: someday", "Reading status: finished (2026-02-03)",
+         "Reading status: someday"),
+        (None, "Reading status: someday", None),
+    ],
+    ids=["inherited", "the kept copy's wins", "an invalid kept line untouched",
+         "an invalid other line not taken"],
+)  # fmt: skip
+def test_a_merge_keeps_one_reading_status(library, kept, other, expected):
+    """RS1: when Refresh merges two copies, the kept copy's valid status wins; without one, the
+    other's valid one is inherited (its date kept); an invalid line is never touched or taken,
+    and there's never more than one status line."""
+    same = text_pdf()
+    _registered(library, "doe-2019-freeform", type="book", folder="books",
+                data=same, added="2026-01-01")  # fmt: skip
+    _registered(library, "doe-2019-freeform-optics", type="book", folder="books", data=same,
+                added="2026-03-01", journal="Optics Express", doi="10.1/x")  # fmt: skip
+    old = library / "notes" / "doe-2019-freeform"
+    (old / "README.md").write_text(
+        f"# x\n\n## Reading progress\n\n{other}\n\n- [x] [Ch 1: Intro](ch01-intro.md)\n",
+        encoding="utf-8",
+    )
+    new = library / "notes" / "doe-2019-freeform-optics"
+    (new / "README.md").write_text(
+        "# x\n\n## Reading progress\n\n" + (f"{kept}\n\n" if kept else "")
+        + "- [ ] [Ch 1: Intro](ch01-introduction.md)\n",
+        encoding="utf-8",
+    )  # fmt: skip
+    library_jobs.refresh()
+    assert names(library) == ["doe-2019-freeform-optics"]
+    readme = (new / "README.md").read_text(encoding="utf-8")
+    lines = [line for line in readme.splitlines() if line.startswith("Reading status:")]
+    assert lines == ([expected] if expected else [])
+    assert "- [x] [Ch 1: Intro]" in readme  # (the ticks moved over as before)
+    [job] = [j for j in library_jobs.list_jobs() if j["kind"] == "repeat"]
+    assert ("reading status" in job["message"]) is (kept is None and expected is not None)
+
+
 def test_equal_copies_keep_the_older_one(library):
     same = text_pdf()
     _registered(library, "doe-2019-a", type="paper", added="2026-01-01", data=same)

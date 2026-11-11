@@ -658,6 +658,13 @@ def merge_into(src: str, dst: str) -> list[str]:
                 at = heading.end() if heading else len(text)
                 text = text[:at] + last[0] + "\n\n" + text[at:].lstrip("\n")
                 moved.append("last-read page")
+            # The reading status (RS1): the kept copy's own wins; without one, the other's
+            # valid one (its date kept); an invalid line on either side is never touched
+            mine, theirs = library_page.reading_status(text), library_page.reading_status(old)
+            if mine["stored"] == "auto" and theirs["stored"] not in ("auto", "invalid"):
+                line = library_page.status_line(theirs["stored"], theirs["date"])
+                text = library_page.with_status(text, line)
+                moved.append("reading status")
             return text
 
         safe_io.update_text(readme, merged)  # a page turn may write "Last read" meanwhile
