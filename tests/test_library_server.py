@@ -103,6 +103,79 @@ def test_a_replayed_tick_never_overwrites_a_later_change(library):
     assert library_server.tick(doc(library), 2, True)[1]["done"] is True
 
 
+@pytest.fixture
+def versions(monkeypatch):
+    """This test's own tick versions (as a fresh server process has them)."""
+    monkeypatch.setattr(library_server, "_tick_versions", {})
+    return library_server
+
+
+def test_an_older_click_arriving_late_never_overwrites_a_newer_one(library, versions):
+    """B32: a click carries the version its page saw; the server refuses it if that chapter
+    was ticked after that version, whatever order the requests arrive in."""
+    doc_id = doc(library)
+    seen = versions.tick_version(doc_id)  # both tabs opened here
+    chapters, v1 = versions.tick_with_version(doc_id, 2, True, base=seen)  # tab B: on
+    assert chapters[1]["done"] is True and v1 == seen + 1
+    chapters, v2 = versions.tick_with_version(doc_id, 2, False, base=v1)  # tab B: off (newest)
+    assert v2 == v1 + 1
+    with pytest.raises(versions.TickChanged) as refused:  # tab A's older click: on, from `seen`
+        versions.tick_with_version(doc_id, 2, True, base=seen)
+    assert refused.value.chapters[1]["done"] is False and refused.value.version == v2
+    assert library_page.chapters(doc_id)[1]["done"] is False  # the newest click stays
+    # The reverse order: the older one first, then the newer: both applied, the newest last
+    start = versions.tick_version(doc_id)
+    versions.tick_with_version(doc_id, 1, True, base=start)  # A (older): on
+    _, v = versions.tick_with_version(doc_id, 1, True, base=start)  # B saw "off", wants on:
+    assert library_page.chapters(doc_id)[0]["done"] is True  # already so: no conflict, no write
+    versions.tick_with_version(doc_id, 1, False, base=v)  # B's newest: off
+    assert library_page.chapters(doc_id)[0]["done"] is False
+
+
+def test_other_chapters_and_repeats_dont_conflict(library, versions):
+    doc_id = doc(library)
+    seen = versions.tick_version(doc_id)
+    _, v1 = versions.tick_with_version(doc_id, 1, True, base=seen)  # tab A: chapter 1
+    _, v2 = versions.tick_with_version(doc_id, 2, True, base=seen)  # tab B, same view: chapter 2
+    assert [c["done"] for c in library_page.chapters(doc_id)] == [True, True]
+    readme = library_page.readme_path(doc_id)
+    written = readme.stat().st_mtime_ns
+    # A request repeated (its answer lost), with its old base: already so, nothing written,
+    # the version unchanged
+    chapters, again = versions.tick_with_version(doc_id, 1, True, base=seen)
+    assert again == v2 and readme.stat().st_mtime_ns == written and chapters[0]["done"] is True
+    # Without a base (internal callers): unconditional, as before
+    assert versions.tick(doc_id, 1, False)[0]["done"] is False
+
+
+def test_a_base_must_be_a_version_this_server_gave(library, versions):
+    doc_id = doc(library)
+    now = versions.tick_version(doc_id)
+    assert versions.check_base(now, doc_id) == now and versions.check_base(0, doc_id) == 0
+    for bad in (True, None, "1", 1.5, float("nan"), float("inf"), -1, now + 1, [now]):
+        with pytest.raises(ValueError):
+            versions.check_base(bad, doc_id)
+        if bad is not None:  # (None is "no base" to tick_with_version; the HTTP route refuses it)
+            with pytest.raises(ValueError):
+                versions.tick_with_version(doc_id, 1, True, base=bad)
+    assert library_page.chapters(doc_id)[0]["done"] is False  # never written
+
+
+def test_versions_of_an_earlier_server_run_never_pass_for_current(library, versions, monkeypatch):
+    """A restarted server starts its versions at its own start time: a version from the earlier
+    run is below every chapter's starting version, so a click made on that run's view is
+    refused if the chapter now differs (that run's pages need a reload anyway: new token)."""
+    doc_id = doc(library)
+    _, old = versions.tick_with_version(doc_id, 1, True, base=versions.tick_version(doc_id))
+    monkeypatch.setattr(versions, "TICK_START", old + 60_000)  # the next run, a minute later
+    monkeypatch.setattr(versions, "_tick_versions", {})
+    assert versions.tick_version(doc_id) == old + 60_000
+    with pytest.raises(versions.TickChanged):  # on the old run's view: off, but it's on now
+        versions.tick_with_version(doc_id, 1, False, base=old)
+    assert library_page.chapters(doc_id)[0]["done"] is True
+    assert versions.tick_with_version(doc_id, 1, True, base=old)[0][0]["done"]  # same: fine
+
+
 def test_chapter_script_created_only_when_asked(library):
     chapter = library_page.chapters(doc(library))[1]
     row = entry(library / "catalog.csv", NAME)
@@ -163,6 +236,24 @@ def test_http_requires_token(library):
                 post("/api/tick", tick | {"done": False, "since": bad}, library_server.TOKEN)
             assert wrong.value.code == 400, bad
         assert library_page.readme_path(doc(library)).read_bytes() == before
+
+        # A live click's base (B32): its version, checked; a stale one refused with the state
+        assert '"tick_versions"' in page  # (the page's own data carries them)
+        current = library_server.tick_version(doc(library))
+        for bad in (None, "1", True, -1, 1.5, current + 1):
+            with pytest.raises(urllib.error.HTTPError) as wrong:
+                post("/api/tick", tick | {"done": False, "base": bad}, library_server.TOKEN)
+            assert wrong.value.code == 400, bad
+        live = tick | {"chapter": 2, "done": True, "base": current}
+        answer = json.load(post("/api/tick", live, library_server.TOKEN))
+        assert answer["version"] == current + 1 and answer["chapter_list"][1]["done"] is True
+        with pytest.raises(urllib.error.HTTPError) as stale:  # made on the view before that
+            post("/api/tick", live | {"done": False}, library_server.TOKEN)
+        assert stale.value.code == 409
+        refused = json.load(stale.value)
+        assert refused["version"] == current + 1 and refused["chapter_list"][1]["done"] is True
+        listed = json.load(post("/api/books", {}, library_server.TOKEN))
+        assert listed["tick_versions"]["documents"][doc(library)] == current + 1
 
         with pytest.raises(urllib.error.HTTPError) as unknown:
             post("/api/open", {"id": "../../secret", "chapter": 1}, library_server.TOKEN)

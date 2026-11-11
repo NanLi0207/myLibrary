@@ -88,6 +88,12 @@ class Held:
         while self.routes:
             self.routes.pop(0).continue_()
 
+    def release_one(self) -> dict:
+        """The oldest held request goes to the server; its body."""
+        body = self.bodies[len(self.bodies) - len(self.routes)]
+        self.routes.pop(0).continue_()
+        return body
+
 
 def saved(page, doc: str, chapter: int) -> None:
     page.wait_for_function(
@@ -144,29 +150,18 @@ def test_leaving_asks_only_while_a_tick_is_unsaved(library, server, reader_page)
 def test_a_refused_tick_goes_back_to_the_readme_and_says_so(library, server, reader_page):
     doc = book(library)
     open_library(reader_page, server)
-    answers = iter([
-        (409, {"error": "the notes of chapter 1 changed after that click",
-               "chapter_list": [CHAPTER_1, CHAPTER_2]}),
-        (400, {"error": "chapter 2 not found in README.md"}),
-    ])  # fmt: skip
-
-    def refuse(route):
-        status, body = next(answers)
-        route.fulfill(status=status, json=body)
-
-    reader_page.route("**/api/tick", refuse)
+    reader_page.route(
+        "**/api/tick",
+        lambda route: route.fulfill(status=400, json={"error": "chapter 2 not found in README.md"}),
+    )
     status = reader_page.locator("#tickStatus")
-    click_tick(reader_page, doc, 1)
-    expect(status).to_contain_text("Not saved: “Ticks”, chapter 1: its notes changed")
-    expect(box(reader_page, doc, 1)).not_to_be_checked()  # the README's state, shown
     click_tick(reader_page, doc, 2)
     expect(status).to_contain_text("Not saved: “Ticks”, chapter 2: chapter 2 not found")
-    expect(box(reader_page, doc, 2)).not_to_be_checked()
+    expect(box(reader_page, doc, 2)).not_to_be_checked()  # the README's state, shown
     reader_page.wait_for_timeout(5_000)  # (longer than a toast): still shown
-    expect(status.locator(".tick-notice")).to_have_count(2)
+    expect(status.locator(".tick-notice")).to_have_count(1)
     assert pending(reader_page) == []  # refused: nothing kept to send again
-    for _ in range(2):
-        status.locator(".tick-notice button").first.click()  # OK: read
+    status.locator(".tick-notice button").click()  # OK: read
     expect(status).to_be_hidden()
     assert not leave(reader_page, "close")
     assert ticked(library, doc) == [False, False]
@@ -215,7 +210,13 @@ def test_rapid_clicks_end_in_the_last_one(library, server, reader_page):
     assert kept == [(1, False), (2, True)]  # one entry a chapter: the newer replaced the older
     held.release()
     held.wait(reader_page, 1)  # the last click, sent after the first answer
-    assert held.bodies[-1] == {"id": doc, "chapter": 1, "done": False}
+    last = held.bodies[-1]
+    assert {k: last[k] for k in ("id", "chapter", "done")} == {
+        "id": doc,
+        "chapter": 1,
+        "done": False,
+    }
+    assert last["base"] > held.bodies[0]["base"]  # on the state the first answer brought
     held.release()
     saved(reader_page, doc, 1)
     saved(reader_page, doc, 2)
@@ -263,7 +264,8 @@ def test_a_closed_tab_after_saving_leaves_nothing_to_send(library, server, reade
 
 def test_an_older_click_never_overwrites_a_later_change(library, server, reader_page):
     """A tick kept from before the README's last change (e.g. unticked in an editor since) is
-    refused by the server, removed and said so; the README stays as it is."""
+    refused by the server; it stays shown as a conflict until the user decides: OK keeps the
+    README, Apply mine sends it again on the current state."""
     doc = book(library)
     open_library(reader_page, server)
     long_ago = now_ms() - 600_000  # before the README was written
@@ -271,11 +273,15 @@ def test_an_older_click_never_overwrites_a_later_change(library, server, reader_
         KEEP, {"id": doc, "chapter": 1, "done": True, "op": "old", "time": long_ago}
     )
     reader_page.reload()
-    expect(reader_page.locator("#tickStatus")).to_contain_text(
-        "Not saved: “Ticks”, chapter 1: its notes changed"
-    )
+    conflict = reader_page.locator("#tickStatus .tick-conflict")
+    expect(conflict).to_contain_text("you ticked it, but its notes changed after that click")
+    expect(box(reader_page, doc, 1)).to_be_checked()  # the click, as made, still shown
+    assert box(reader_page, doc, 1).get_attribute("data-save") == "conflict"
     assert ticked(library, doc) == [False, False]
-    assert pending(reader_page) == []
+    conflict.get_by_role("button", name="OK").click()  # keep the README
+    expect(box(reader_page, doc, 1)).not_to_be_checked()
+    expect(reader_page.locator("#tickStatus")).to_be_hidden()
+    assert pending(reader_page) == [] and ticked(library, doc) == [False, False]
     recent = now_ms()  # after the README's last change: applied
     reader_page.evaluate(KEEP, {"id": doc, "chapter": 1, "done": True, "op": "new", "time": recent})
     reader_page.reload()
@@ -371,5 +377,127 @@ def test_two_tabs_send_the_same_tick_once_in_effect(library, server, reader_page
     assert ticked(library, doc) == [True, False] and pending(reader_page) == []
     click_tick(other, doc, 1)  # B: off (B's newest click)
     saved(other, doc, 1)
+    assert ticked(library, doc) == [False, False]
+    other.close()
+
+
+def race(library, server, page_a, doc):
+    """Tab A ticks chapter 1 (its request held); tab B ticks it (saved) and unticks it: B's is
+    the newest click, still held. Returns both tabs' held requests."""
+    other = page_a.context.new_page()
+    open_library(other, server)
+    held_a, held_b = Held(page_a), Held(other)
+    click_tick(page_a, doc, 1)  # A: on (the older click)
+    held_a.wait(page_a, 1)
+    click_tick(other, doc, 1)  # B: on
+    held_b.wait(other, 1)
+    held_b.release_one()
+    saved(other, doc, 1)
+    assert ticked(library, doc) == [True, False]
+    click_tick(other, doc, 1)  # B: off (the newest click)
+    held_b.wait(other, 1)
+    return other, held_a, held_b
+
+
+def test_an_older_click_arriving_after_a_newer_one_is_refused(library, server, reader_page):
+    """The server receives B's newer click first, then A's older one: A's is refused (409),
+    never written over B's; A keeps showing its click as a conflict until the user decides."""
+    doc = book(library)
+    open_library(reader_page, server)
+    other, held_a, held_b = race(library, server, reader_page, doc)
+    assert held_b.release_one()["done"] is False
+    saved(other, doc, 1)
+    assert ticked(library, doc) == [False, False]  # B's newest: not ticked
+    assert held_a.release_one()["done"] is True  # A's older click, late
+    conflict = reader_page.locator("#tickStatus .tick-conflict")
+    expect(conflict).to_contain_text("you ticked it, but it was changed in another tab or window")
+    expect(conflict).to_contain_text("it is not ticked now")
+    assert ticked(library, doc) == [False, False]  # never overwritten
+    expect(box(reader_page, doc, 1)).to_be_checked()  # A's click, still shown, not saved
+    assert box(reader_page, doc, 1).get_attribute("data-save") == "conflict"
+    reader_page.wait_for_timeout(2_000)  # never sent again by itself
+    assert len(held_a.bodies) == 1
+    assert leave(reader_page, "close", stay=True)  # undecided: the browser asks
+    conflict.get_by_role("button", name="OK").click()  # keep B's
+    expect(box(reader_page, doc, 1)).not_to_be_checked()
+    expect(reader_page.locator("#tickStatus")).to_be_hidden()
+    assert ticked(library, doc) == [False, False] and len(held_a.bodies) == 1
+    other.close()
+
+
+def test_apply_mine_sends_the_click_again_on_the_newer_state(library, server, reader_page):
+    doc = book(library)
+    open_library(reader_page, server)
+    other, held_a, held_b = race(library, server, reader_page, doc)
+    held_b.release_one()
+    saved(other, doc, 1)
+    held_a.release_one()
+    conflict = reader_page.locator("#tickStatus .tick-conflict")
+    expect(conflict).to_be_visible()
+    conflict.get_by_role("button", name="Apply mine").click()  # the user's own decision
+    held_a.wait(reader_page, 1)
+    newer = held_a.release_one()
+    assert newer["done"] is True and newer["base"] > held_a.bodies[0]["base"]  # the newer view
+    saved(reader_page, doc, 1)
+    expect(reader_page.locator("#tickStatus")).to_be_hidden()
+    assert ticked(library, doc) == [True, False] and pending(reader_page) == []
+    other.close()
+
+
+def test_in_the_order_of_the_clicks_both_apply(library, server, reader_page):
+    """The server receives A's older click first (already so: nothing written), then B's
+    newer one: no conflict, the newest click is what's saved."""
+    doc = book(library)
+    open_library(reader_page, server)
+    other, held_a, held_b = race(library, server, reader_page, doc)
+    held_a.release_one()
+    saved(reader_page, doc, 1)
+    held_b.release_one()
+    saved(other, doc, 1)
+    assert ticked(library, doc) == [False, False]
+    expect(reader_page.locator("#tickStatus")).to_be_hidden()
+    expect(other.locator("#tickStatus")).to_be_hidden()
+    other.close()
+
+
+def test_a_retry_after_a_lost_answer_writes_nothing_more(library, server, reader_page):
+    """The server saved the tick but its answer was lost: Retry sends it again with the same
+    version; the chapter is already so, so it succeeds and nothing is written twice."""
+    doc = book(library)
+    open_library(reader_page, server)
+    answers = []
+
+    def lose_answer(route):
+        answers.append(route.fetch().status)  # the server gets it and saves it …
+        route.abort()  # … and the answer never comes back
+
+    reader_page.route("**/api/tick", lose_answer)
+    click_tick(reader_page, doc, 1)
+    expect(reader_page.locator("#tickStatus")).to_contain_text("1 tick not saved")
+    assert answers == [200] and ticked(library, doc) == [True, False]
+    readme = library.root / library.row(doc)["notes"] / "README.md"
+    written = readme.stat().st_mtime_ns
+    reader_page.unroute("**/api/tick")
+    reader_page.locator("#tickRetry").click()
+    saved(reader_page, doc, 1)
+    assert readme.stat().st_mtime_ns == written  # not written again
+    assert ticked(library, doc) == [True, False] and pending(reader_page) == []
+
+
+def test_a_refresh_brings_the_newer_state_and_its_version(library, server, reader_page):
+    """Tab B ticks; tab A refreshes (as on coming back to it): it shows B's tick and takes its
+    version, so A's next click is made on that state, without a conflict."""
+    doc = book(library)
+    open_library(reader_page, server)
+    other = reader_page.context.new_page()
+    open_library(other, server)
+    click_tick(other, doc, 1)
+    saved(other, doc, 1)
+    expect(box(reader_page, doc, 1)).not_to_be_checked()  # A: still the older view
+    reader_page.evaluate("() => refreshBooks()")
+    expect(box(reader_page, doc, 1)).to_be_checked()
+    click_tick(reader_page, doc, 1)  # A: off, on the state it now shows
+    saved(reader_page, doc, 1)
+    expect(reader_page.locator("#tickStatus")).to_be_hidden()  # no conflict
     assert ticked(library, doc) == [False, False]
     other.close()

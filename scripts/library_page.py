@@ -351,6 +351,8 @@ ol.chapters li:hover button { border-color: var(--line); }
 input[data-tick][data-save="saving"] { opacity: 0.55; cursor: progress; }
 input[data-tick][data-save="failed"] { outline: 2px solid #c62828; outline-offset: 1px; }
 [data-markread][data-save="failed"] { outline: 2px solid #c62828; }
+input[data-tick][data-save="conflict"], [data-markread][data-save="conflict"] {
+  outline: 2px solid #b26a00; outline-offset: 1px; }
 /* ↑ Back to the top: shown once you've scrolled down */
 .to-top { position: fixed; right: 24px; bottom: 24px; z-index: 40; width: 44px; height: 44px;
   border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--accent);
@@ -716,19 +718,36 @@ function setTick(b, chapter, done) {
   if (!s.busy) sendTick(key);
 }
 
+// The server's tick version of each document (B32): which state of its chapters this page has
+// seen. Sent with every click ("base"), so a click made on an older view is refused (409)
+// instead of overwriting a newer one. A version is only ever taken together with the chapters
+// it belongs to (the page's own data, a refresh, an answer), never newer than them
+const tickVersions = {start: API?.tick_versions?.start ?? 0, documents: {...(API?.tick_versions?.documents || {})}};
+const tickBase = id => tickVersions.documents[id] ?? tickVersions.start;
+// The README's chapters with their version: taken unless this page already has newer ones
+function tookChapters(b, chapterList, version) {
+  if (!b || !Array.isArray(chapterList) || !Number.isInteger(version)) return;
+  if (version < tickBase(b.id)) return;  // an answer older than what's shown: not shown
+  b.chapter_list = chapterList;
+  tickVersions.documents[b.id] = version;
+}
+
 async function sendTick(key, {replay = false} = {}) {
   const s = tickSaves.get(key);
   if (!s) return;
   s.busy = true;
   s.state = "saving";
+  s.conflict = null;
   showTicks();
   const {done, op, time} = s;
   const sent = {id: s.id, chapter: s.chapter, op};
   const book = () => books.find(x => x.id === s.id);  // (after the answer: the list may be new)
+  // A live click carries the version its page saw; one sent again after a closed page (its
+  // version from another server run means nothing now) carries its click's time instead
+  const condition = replay ? {since: time} : {base: tickBase(s.id)};
   try {
-    const r = await api("/api/tick", {id: s.id, chapter: s.chapter, done, ...(replay ? {since: time} : {})});
-    const b = book();
-    if (b) b.chapter_list = r.chapter_list;  // the README's state, as the server read it
+    const r = await api("/api/tick", {id: s.id, chapter: s.chapter, done, ...condition});
+    tookChapters(book(), r.chapter_list, r.version);  // the README's state, as the server read it
     tickForget(sent);
     s.busy = false;
     if (s.op === op) tickSaves.delete(key);
@@ -736,12 +755,13 @@ async function sendTick(key, {replay = false} = {}) {
   } catch (err) {
     s.busy = false;
     const b = book();
-    if (err.status === 409 || err.status === 400) {  // refused: the README stays as it is
-      if (b && err.data?.chapter_list) b.chapter_list = err.data.chapter_list;
+    if (err.status === 409) {  // changed elsewhere first: the README stays, the user decides
+      tookChapters(b, err.data?.chapter_list, err.data?.version);
+      s.state = "conflict";  // the newest click stays, shown, never sent again by itself
+      s.conflict = replay ? "earlier" : "elsewhere";
+    } else if (err.status === 400) {  // refused: the README stays as it is
       tickForget(sent);
-      tickNotices.push(err.status === 409
-        ? `Not saved: “${b ? b.title : "a document"}”, chapter ${s.chapter}: its notes changed after that click. Tick or untick it again if you still want it.`
-        : `Not saved: “${b ? b.title : "a document"}”, chapter ${s.chapter}: ${err.message}`);
+      tickNotices.push(`Not saved: “${b ? b.title : "a document"}”, chapter ${s.chapter}: ${err.message}`);
       if (s.op === op) tickSaves.delete(key);
       else return sendTick(key);
     } else {  // no answer or a server error: kept, shown, and tried again with Retry
@@ -756,17 +776,32 @@ function retryTicks() {
   for (const [key, s] of tickSaves) if (s.state === "failed" && !s.busy) sendTick(key);
 }
 
+// A conflict, decided by the user: "Apply mine" sends the click again on the chapters just
+// received (their version), "OK" keeps the README's state and forgets the click
+function applyMine(key) {
+  const s = tickSaves.get(key);
+  if (s?.state === "conflict" && !s.busy) sendTick(key);
+}
+function keepTheirs(key) {
+  const s = tickSaves.get(key);
+  if (s?.state !== "conflict" || s.busy) return;
+  tickForget(s);
+  tickSaves.delete(key);
+  redraw({counts: true});
+}
+
 // The boxes (and a paper's "Mark as read") show what was clicked, not yet what's saved
 function showTicks() {
   const page = document.getElementById("grid");
   for (const s of tickSaves.values()) {
     const card = page?.querySelector(`[data-id="${CSS.escape(s.id)}"]`);
     const box = card?.querySelector(`input[data-tick="${s.chapter}"]`);
-    if (box) {
+    if (box) {  // (in a conflict too: the click, as made, until the user decides)
       box.checked = s.done;
       box.closest("li")?.classList.toggle("done", s.done);
       box.dataset.save = s.state;
-      box.title = s.state === "failed" ? `Not saved: ${s.error}` : "Saving…";
+      box.title = s.state === "failed" ? `Not saved: ${s.error}`
+        : s.state === "conflict" ? "Not saved: changed elsewhere first (see below)" : "Saving…";
     }
     const mark = s.chapter === 1 ? card?.querySelector("[data-markread]") : null;
     if (mark) {
@@ -776,34 +811,52 @@ function showTicks() {
   }
   const status = document.getElementById("tickStatus");
   if (!status) return;
-  const failed = [...tickSaves.values()].filter(s => s.state === "failed").length;
-  const saving = tickSaves.size - failed;
-  status.hidden = !tickSaves.size && !tickNotices.length;
-  status.dataset.state = failed || tickNotices.length ? "failed" : saving ? "saving" : "";
+  const all = [...tickSaves.values()];
+  const failed = all.filter(s => s.state === "failed").length;
+  const conflicts = all.filter(s => s.state === "conflict");
+  const saving = all.length - failed - conflicts.length;
+  status.hidden = !all.length && !tickNotices.length;
+  status.dataset.state = failed || conflicts.length || tickNotices.length ? "failed"
+    : saving ? "saving" : "";
+  const button = (text, onClick, data) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = text;
+    Object.assign(b.dataset, data);
+    b.addEventListener("click", onClick);
+    return b;
+  };
   const lines = [];
-  if (tickSaves.size) {
+  if (saving || failed) {
     const line = document.createElement("div");
     line.textContent = failed ? `${failed} tick${failed > 1 ? "s" : ""} not saved`
       : `Saving ${saving} tick${saving > 1 ? "s" : ""}…`;
     if (failed) {
-      const again = document.createElement("button");
-      again.type = "button";
+      const again = button("Retry", retryTicks, {});
       again.id = "tickRetry";
-      again.textContent = "Retry";
-      again.addEventListener("click", retryTicks);
       line.append(" ", again);
     }
+    lines.push(line);
+  }
+  for (const s of conflicts) {  // until the user decides: never sent again by itself
+    const b = books.find(x => x.id === s.id);
+    const now = b?.chapter_list.find(c => c.number === s.chapter)?.done;
+    const line = document.createElement("div");
+    line.className = "tick-conflict";
+    const key = tickKey(s.id, s.chapter);
+    line.textContent = `Not saved: “${b ? b.title : "a document"}”, chapter ${s.chapter}: you `
+      + `${s.done ? "ticked" : "unticked"} it, but ${s.conflict === "earlier"
+        ? "its notes changed after that click (an earlier visit)"
+        : "it was changed in another tab or window first"}; it is ${now ? "ticked" : "not ticked"} now.`;
+    line.append(" ", button("Apply mine", () => applyMine(key), {tickApply: key}),
+                " ", button("OK", () => keepTheirs(key), {tickKeep: key}));
     lines.push(line);
   }
   for (const [i, notice] of tickNotices.entries()) {  // until dismissed: never just gone
     const line = document.createElement("div");
     line.className = "tick-notice";
     line.textContent = notice;
-    const ok = document.createElement("button");
-    ok.type = "button";
-    ok.textContent = "OK";
-    ok.addEventListener("click", () => { tickNotices.splice(i, 1); showTicks(); });
-    line.append(" ", ok);
+    line.append(" ", button("OK", () => { tickNotices.splice(i, 1); showTicks(); }, {}));
     lines.push(line);
   }
   status.replaceChildren(...lines);
@@ -2096,7 +2149,18 @@ if (API) {
 // The reading tab saves your page as it closes, which can arrive a moment later: check twice.
 async function refreshBooks() {
   try {
-    const fresh = (await api("/api/books", {})).books;
+    const answer = await api("/api/books", {});
+    const fresh = answer.books;
+    // B32: each document's chapters with their tick version; a document this page already
+    // has newer chapters of (an answer to a tick came first) keeps those
+    const versions = answer.tick_versions || {start: tickVersions.start, documents: {}};
+    const before = new Map(books.map(b => [b.id, b]));
+    for (const b of fresh) {
+      const version = versions.documents?.[b.id] ?? versions.start;
+      const old = before.get(b.id);
+      if (old && version < tickBase(b.id)) b.chapter_list = old.chapter_list;
+      else tickVersions.documents[b.id] = version;
+    }
     books.splice(0, books.length, ...fresh);
     redraw({menus: true, counts: true});
     window.refreshLog?.();  // the minutes just read

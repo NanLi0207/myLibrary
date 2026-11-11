@@ -302,11 +302,18 @@ chapter automatically: skimming isn't finishing.
 - 还有勾选没保存时关闭或离开页面，浏览器会先询问。快速连点同一个复选框时，以最后一次为准。
   Leaving the page while a tick isn't saved yet, the browser asks first. Clicking one box
   several times quickly: the last click is what's saved.
-- 页面在保存完成前被关闭或浏览器崩溃时，这个勾选记在浏览器中，下次打开**同一个书库**的页面时自动再发送一次（每章只发送最后一次点击）；如果 README 在那次点击之后被修改过（例如在 VS Code 中，或阅读器更新了 "Last read"），就不再应用，并提示你重新勾选。超过 30 天、损坏或者对应的章节已经不在的记录会被丢弃（不会保存），页面会说明丢弃了几个。
+- **另一个标签页或窗口先改了同一章时**：你的点击不会覆盖它。复选框仍显示你的点击（橙色框），左下角说明现在的状态，并提供 **Apply mine**（应用我的：在最新状态上再保存一次）和 **OK**（保留现在的状态）。不会自动重试。在 VS Code 等编辑器中的修改不在此列：它们绕过了 myLibrary，较旧的标签页仍可能覆盖它们。
+  **When another tab or window changed the same chapter first**, your click doesn't overwrite it.
+  The box keeps showing your click (an amber outline), and a note at the bottom left says the
+  chapter's state now, with **Apply mine** (save yours on that newer state) and **OK** (keep it as
+  it is). Nothing is retried by itself. Changes made in an editor such as VS Code aren't covered:
+  they bypass myLibrary, and an older tab can still overwrite them.
+- 页面在保存完成前被关闭或浏览器崩溃时，这个勾选记在浏览器中，下次打开**同一个书库**的页面时自动再发送一次（每章只发送最后一次点击）；如果 README 在那次点击之后被修改过（例如在 VS Code 中，或阅读器更新了 "Last read"），就不会直接应用，而是像上面一样显示冲突，由你选择 **Apply mine** 或 **OK**。超过 30 天、损坏或者对应的章节已经不在的记录会被丢弃（不会保存），页面会说明丢弃了几个。
   If the page is closed or the browser crashes before the save completes, the tick is kept in
   the browser and sent again the next time **the same library's** page opens (only the last
   click of each chapter); if the README changed after that click (in VS Code, say, or the reader
-  updating "Last read"), it isn't applied, and you're asked to tick again. Kept ticks over 30 days
+  updating "Last read"), it isn't applied by itself: it shows as a conflict, as above, for you to choose **Apply mine**
+  or **OK**. Kept ticks over 30 days
   old, damaged, or for a chapter no longer there are discarded (not saved), and the page says
   how many.
 - 恢复只在同一个浏览器中进行（另一个浏览器、清除了网站数据或者浏览器不能存储时都没有），依靠的是电脑的时钟：如果时钟被往回调过，较早的点击可能被当作较新的。

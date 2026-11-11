@@ -629,7 +629,45 @@ def open_topic(term: str) -> dict:
 
 
 class TickChanged(Exception):
-    """A replayed tick (B32) that would overwrite a README changed after the click."""
+    """A tick refused (B32) because the chapter changed after the client last saw it: `since`
+    (a replay: the README changed after the click) or `base` (a live click: the chapter was
+    ticked by someone else after that version). Carries the README's chapters and their
+    version, read together under the README's lock."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.chapters: list[dict] = []
+        self.version = 0
+
+
+# Tick versions (B32): this server's own count of its tick writes, per document, so a click
+# made on an older view of a chapter can't overwrite a newer one (optimistic concurrency).
+# In memory only: they start again with each server process, at its start time in ms, so a
+# version from an earlier process is always below every chapter's starting version and can't
+# pass for current (that process's pages also need a reload: the token changes). Changed only
+# under the README's lock. Writes made outside this server (an editor) aren't counted.
+TICK_START = int(time.time() * 1000)
+_tick_versions: dict[str, dict] = {}  # doc id -> {"doc": latest, "chapters": {n: its last}}
+
+
+def tick_version(doc_id: str) -> int:
+    """The document's tick version: TICK_START until this server ticks a chapter of it."""
+    return _tick_versions.get(doc_id, {}).get("doc", TICK_START)
+
+
+def tick_versions() -> dict[str, int]:
+    """Every document's tick version that has moved on from TICK_START (a copy)."""
+    return {doc_id: record["doc"] for doc_id, record in list(_tick_versions.items())}
+
+
+def check_base(base, doc_id: str) -> int:
+    """A live click's `base`: the document's tick version its page last saw with the chapters
+    it showed: an integer, at least 0, never ahead of the server's; else a ValueError."""
+    if isinstance(base, bool) or not isinstance(base, int):
+        raise ValueError("base must be a tick version (a whole number)")
+    if base < 0 or base > tick_version(doc_id):
+        raise ValueError("base isn't a tick version this server has given")
+    return base
 
 
 SINCE_AHEAD_MS = 1_000  # how far past this computer's clock a click's time may be
@@ -647,31 +685,60 @@ def check_since(since) -> float:
     return float(since)
 
 
-def tick(doc_id: str, number: int, done: bool, since: float | None = None) -> list[dict]:
-    """Set chapter `number` done or not (an absolute state: sending it twice does nothing more).
-    `since` (ms since the epoch, check_since) is for a tick sent again after its page closed or
-    crashed (B32): it is applied only if the README hasn't changed since that click, else
-    TickChanged, and the README stays as it is (it is the authority). Already in that state:
-    nothing is written either way. The time is the browser's own record of the click: it keeps
-    this page's own replays from overwriting later changes, but it is no version a client
-    couldn't get wrong (a clock set back, a crafted request with the page's token)."""
+def tick_with_version(
+    doc_id: str, number: int, done: bool, *, base: int | None = None, since: float | None = None
+) -> tuple[list[dict], int]:
+    """Set chapter `number` done or not: an absolute state, so a request repeated (its first
+    answer lost) finds it already so and writes nothing. Returns the README's chapters and the
+    document's tick version, read together under the README's lock.
+
+    - `base` (a live click from the library page, B32): refused (TickChanged) if this server
+      ticked that chapter after version `base`, so a click made on an older view never
+      overwrites a newer one; the user decides (the page's "Apply mine" sends it again with the
+      newer version);
+    - `since` (ms, check_since: a click sent again after its page closed or crashed): refused
+      if the README changed after that click (its time is the browser's, no trusted version);
+    - neither (internal callers, older code): unconditional, without that protection.
+    The README stays the authority: a refused tick writes nothing."""
     if since is not None:
         since = check_since(since)
     readme = library_page.readme_path(doc_id)
     pattern = library_page.chapter_line(number)
+    with safe_io.lock_for(readme):  # (the same lock update_text takes: one writer at a time)
+        if base is not None:
+            base = check_base(base, doc_id)
+        record = _tick_versions.get(doc_id, {"doc": TICK_START, "chapters": {}})
+        wrote = []
 
-    def ticked(text: str) -> str:  # (under the README's lock: no other write between)
-        m = pattern.search(text)
-        if not m:
-            raise ValueError(f"chapter {number} not found in {readme.name}")
-        if (m[0][3] != " ") == done:
-            return text  # already so
-        if since is not None and readme.stat().st_mtime_ns > since * 1_000_000:
-            raise TickChanged(f"the notes of chapter {number} changed after that click")
-        return text[: m.start()] + f"- [{'x' if done else ' '}] {m[1]}" + text[m.end() :]
+        def ticked(text: str) -> str:
+            m = pattern.search(text)
+            if not m:
+                raise ValueError(f"chapter {number} not found in {readme.name}")
+            if (m[0][3] != " ") == done:
+                return text  # already so: nothing to write, the version stays
+            if base is not None and record["chapters"].get(number, TICK_START) > base:
+                raise TickChanged(f"chapter {number} was changed in another tab or window")
+            if since is not None and readme.stat().st_mtime_ns > since * 1_000_000:
+                raise TickChanged(f"the notes of chapter {number} changed after that click")
+            wrote.append(True)
+            return text[: m.start()] + f"- [{'x' if done else ' '}] {m[1]}" + text[m.end() :]
 
-    safe_io.update_text(readme, ticked)
-    return library_page.chapters(doc_id, readme)
+        try:
+            text = safe_io.update_text(readme, ticked)
+        except TickChanged as refused:
+            refused.chapters = library_page.chapters_in(safe_io.read_text(readme))
+            refused.version = record["doc"]
+            raise
+        if wrote:  # written: the document's version moves on, and this chapter's with it
+            record["doc"] += 1
+            record["chapters"][number] = record["doc"]
+            _tick_versions[doc_id] = record
+        return library_page.chapters_in(text), record["doc"]
+
+
+def tick(doc_id: str, number: int, done: bool, since: float | None = None) -> list[dict]:
+    """tick_with_version without a base (internal callers): its chapters only."""
+    return tick_with_version(doc_id, number, done, since=since)[0]
 
 
 # --- HTTP ---------------------------------------------------------------------------------
@@ -728,12 +795,15 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0].split("#")[0]
         if path in ("/", "/index.html"):
             # library_page appends "/<file>.pdf" to pdf_base
-            # (scope: this library's key in the browser, for the tick journal, B32)
+            # (scope: this library's key in the browser, for stored ticks; tick_versions: taken
+            # before the page's chapters are read, so never newer than what it shows; B32)
+            ticks = {"start": TICK_START, "documents": tick_versions()}
             api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE,
                    "backup": backup.available(),
                    "folder_backup": bool(paths.load_settings().get("backup_folder"))
                    and not libraries.is_test_library(LIBRARY),
-                   "library": page_library(), "scope": SCOPE}  # fmt: skip
+                   "library": page_library(), "scope": SCOPE,
+                   "tick_versions": ticks}  # fmt: skip
             html = library_page.render(api, pdf_base=self.pdf_base)
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
         if path == "/api/whoami":  # which library this is (libraries.server_at)
@@ -867,7 +937,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._save_marks(row["file"], data)
             body = json.loads(self._body(length) or b"{}")
             if self.path == "/api/books":  # the page refreshes itself after reading
-                return self._json(HTTPStatus.OK, {"books": library_page.books(self.pdf_base)})
+                # (the tick versions first: never newer than the chapters read after them)
+                versions = {"start": TICK_START, "documents": tick_versions()}
+                books = library_page.books(self.pdf_base)
+                return self._json(HTTPStatus.OK, {"books": books, "tick_versions": versions})
             if self.path == "/api/backup":
                 return self._json(HTTPStatus.OK, backup.back_up())
             if self.path == "/api/jobs":
@@ -1017,15 +1090,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, saved)
             if self.path == "/api/tick" and chapter is not None:
                 # "since" present at all (even null) must be a valid click time (check_since)
+                # "since" / "base" present at all (even null) must be valid (check_since, _base)
                 since = check_since(body["since"]) if "since" in body else None
+                base = check_base(body["base"], doc_id) if "base" in body else None
                 try:
-                    chapters = tick(doc_id, chapter, bool(body.get("done")), since)
+                    chapters, version = tick_with_version(
+                        doc_id, chapter, bool(body.get("done")), base=base, since=since
+                    )
                 except TickChanged as changed:  # the README wins; the page is told its state
                     return self._json(HTTPStatus.CONFLICT, {
-                        "error": str(changed),
-                        "chapter_list": library_page.chapters(doc_id)})  # fmt: skip
+                        "error": str(changed), "chapter_list": changed.chapters,
+                        "version": changed.version})  # fmt: skip
                 library_page.build()  # keep the static copy in step
-                return self._json(HTTPStatus.OK, {"chapter_list": chapters})
+                return self._json(HTTPStatus.OK, {"chapter_list": chapters, "version": version})
             self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
         except ValueError as e:  # something the page sent that can't be done
             self._json(HTTPStatus.BAD_REQUEST, {"error": shown_error(e)})  # no full paths
