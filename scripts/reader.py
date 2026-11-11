@@ -72,6 +72,48 @@ MARKDOWN_IT_FILES = {  # in the package -> installed as
 }
 MARKDOWN_IT_MARKER = ".myLibrary-markdown-it.txt"
 
+# Maths in the notes' preview (task 4 M5b): KaTeX's browser build, its stylesheet and fonts.
+# The npm package, checked before it's installed: taken 2026-11-11 from the npm registry, whose
+# own integrity values (SHA-512 and SHA-1) it matched; every file below was also byte-identical
+# to the one in KaTeX's GitHub release (v0.19.1, katex.tar.gz). Each installed file is checked
+# against its SHA-256 here whenever the reader page is made, so a damaged or partial copy is
+# never loaded (the preview then shows the formulas as written). Only the WOFF2 fonts are
+# taken: katex.min.css names them first, and Edge (and WebView2) always use them.
+KATEX = CACHE / "katex"
+KATEX_VERSION = "0.19.1"
+KATEX_URL = f"https://registry.npmjs.org/katex/-/katex-{KATEX_VERSION}.tgz"
+KATEX_SHA256 = "24da5a599eb2fcede2e270b99a6ff48bca816beecc95feeb84e8cccbd1bb34fd"
+KATEX_SIZE = 1_499_956
+KATEX_FONTS = {  # fonts/KaTeX_<name>.woff2 -> its SHA-256
+    "AMS-Regular": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308",
+    "Caligraphic-Bold": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c",
+    "Caligraphic-Regular": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b",
+    "Fraktur-Bold": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f",
+    "Fraktur-Regular": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc",
+    "Main-Bold": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021",
+    "Main-BoldItalic": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b",
+    "Main-Italic": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267",
+    "Main-Regular": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866",
+    "Math-BoldItalic": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1",
+    "Math-Italic": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264",
+    "SansSerif-Bold": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62",
+    "SansSerif-Italic": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a",
+    "SansSerif-Regular": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342",
+    "Script-Regular": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b",
+    "Size1-Regular": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe",
+    "Size2-Regular": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd",
+    "Size3-Regular": "73d591271b1604960cb10bb90fee021670af7297017e0e98480b332d11f51995",
+    "Size4-Regular": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0",
+    "Typewriter-Regular": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b",
+}
+KATEX_FILES = {  # installed as (from package/dist/, LICENSE from package/) -> its SHA-256
+    "katex.min.js": "fa140498b8cfc8302cbe5e7cb1bdbc1f952bc38b3fa258ede09e73edbf9a74bc",
+    "katex.min.css": "00e0b094171b07f58422075f469b4feac2b2f7bce1aeec943c08da4d697f4dcf",
+    "LICENSE": "766ccc1f306c885aa45542a9846bbd0a505b27a0374f146778171c2254ce18e3",
+    **{f"fonts/KaTeX_{name}.woff2": digest for name, digest in KATEX_FONTS.items()},
+}
+KATEX_MARKER = ".myLibrary-katex.txt"
+
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".mjs": "text/javascript; charset=utf-8",
@@ -83,6 +125,7 @@ CONTENT_TYPES = {
     ".png": "image/png",
     ".gif": "image/gif",
     ".wasm": "application/wasm",
+    ".woff2": "font/woff2",
 }
 
 
@@ -104,6 +147,8 @@ def missing() -> list[str]:
         parts.append("dictionary")
     if not markdown_it_installed():
         parts.append("notes preview")
+    if not katex_installed():
+        parts.append("maths")
     return parts
 
 
@@ -269,10 +314,86 @@ def setup_preview() -> None:
     print(f"  notes preview ready (markdown-it {MARKDOWN_IT_VERSION}, checksum verified)")
 
 
+def _katex_member(name: str) -> str:
+    return f"package/{name}" if name == "LICENSE" else f"package/dist/{name}"
+
+
+def install_katex(package_path: Path) -> None:
+    """Install KaTeX (maths in the notes' preview) from its npm package, after checking the
+    package's size and SHA-256, and then each file taken from it against its own SHA-256. Only
+    the named files are read (never extracted as a whole); the new copy is put beside the old
+    one and only then swapped in, so a wrong download leaves the installed copy as it was."""
+    data = package_path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if len(data) != KATEX_SIZE or digest != KATEX_SHA256:
+        raise ValueError(
+            f"the KaTeX download isn't the expected file ({len(data):,} bytes, SHA-256 "
+            f"{digest[:16]}…; expected {KATEX_SIZE:,} bytes, {KATEX_SHA256[:16]}…)"
+        )
+    new = CACHE / f"katex.new-{uuid.uuid4().hex[:8]}"
+    old = CACHE / f"katex.old-{uuid.uuid4().hex[:8]}"
+    try:
+        (new / "fonts").mkdir(parents=True)
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as package:
+            for name, expected in KATEX_FILES.items():
+                member = package.getmember(_katex_member(name))  # KeyError if it isn't there
+                if not member.isfile() or member.size > 5_000_000:
+                    raise ValueError(f"the KaTeX package has an unexpected {member.name}")
+                body = package.extractfile(member).read()
+                if hashlib.sha256(body).hexdigest() != expected:
+                    raise ValueError(f"the KaTeX package's {member.name} isn't the expected file")
+                (new / name).write_bytes(body)
+        (new / KATEX_MARKER).write_text(f"{KATEX_VERSION}\n{KATEX_SHA256}\n", encoding="utf-8")
+        if KATEX.exists():
+            KATEX.replace(old)
+        new.replace(KATEX)
+    except BaseException:
+        if old.exists() and not KATEX.exists():
+            old.replace(KATEX)  # put the installed copy back
+        raise
+    finally:
+        shutil.rmtree(new, ignore_errors=True)
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def katex_installed() -> str:
+    """ "verified <version>" when KaTeX is the pinned one and every file of it is there and
+    unchanged (each checked against its SHA-256: about 0.6 MB, read whenever the reader page is
+    made); "" otherwise: then the page doesn't load it, and the preview shows the formulas as
+    written."""
+    marker = KATEX / KATEX_MARKER
+    try:
+        if marker.read_text(encoding="utf-8").split()[:2] != [KATEX_VERSION, KATEX_SHA256]:
+            return ""
+        for name, expected in KATEX_FILES.items():
+            if hashlib.sha256((KATEX / name).read_bytes()).hexdigest() != expected:
+                return ""
+    except OSError, UnicodeDecodeError:
+        return ""
+    return f"verified {KATEX_VERSION}"
+
+
+def setup_maths() -> None:
+    """Download and install KaTeX for maths in the notes' preview (pinned, checksums checked);
+    a missing or damaged copy is replaced."""
+    if katex_installed():
+        print(f"  maths already installed (KaTeX {katex_installed()})")
+        return
+    CACHE.mkdir(parents=True, exist_ok=True)
+    package_path = CACHE / f"katex-{KATEX_VERSION}.tgz"
+    try:
+        _download(KATEX_URL, package_path)
+        install_katex(package_path)
+    finally:
+        package_path.unlink(missing_ok=True)
+    print(f"  maths ready (KaTeX {KATEX_VERSION}, checksums verified)")
+
+
 def setup() -> None:
     CACHE.mkdir(parents=True, exist_ok=True)
     setup_viewer()
     setup_preview()
+    setup_maths()
     if not DICT_DB.exists():
         csv_path = CACHE / "ecdict.csv"
         if not csv_path.exists():
@@ -998,7 +1119,9 @@ def save_marks(file: str, data: bytes, *, base: str, unconfirmed=()) -> dict:
 def viewer_html(token: str, scope: str = "", legacy_drafts: bool = False) -> bytes:
     """PDF.js's viewer page, with the lookup popup and the notes panel added (notes.js runs
     after lookup.js, whose helpers it uses, and after preview.js and markdown-it, when the
-    latter is installed: without it, the preview shows the plain text).
+    latter is installed: without it, the preview shows the plain text). KaTeX (maths, M5b) is
+    loaded before preview.js only when every file of it passes its check: without it, the
+    preview shows the formulas as written and says why.
 
     `scope` is the library's key in this browser (libraries.scope): recovery drafts and the
     last note of a document are kept under it, so another library (a copy with the same
@@ -1011,7 +1134,16 @@ def viewer_html(token: str, scope: str = "", legacy_drafts: bool = False) -> byt
         if markdown_it_installed()
         else ""
     )
+    maths, maths_style = (
+        (
+            '<script src="/vendor/katex/katex.min.js" defer></script>\n',
+            '<link rel="stylesheet" href="/vendor/katex/katex.min.css">\n',
+        )
+        if katex_installed()
+        else ("", "")
+    )
     extra = (
+        f"{maths_style}"
         '<link rel="stylesheet" href="/reader/lookup.css">\n'
         '<link rel="stylesheet" href="/reader/notes.css">\n'
         f"<script>window.MYLIBRARY_TOKEN = {token!r};"
@@ -1020,6 +1152,7 @@ def viewer_html(token: str, scope: str = "", legacy_drafts: bool = False) -> byt
         '<script src="/reader/lookup.js" defer></script>\n'
         '<script src="/reader/note_session.js" defer></script>\n'
         f"{library}"
+        f"{maths}"
         '<script src="/reader/preview.js" defer></script>\n'
         '<script src="/reader/notes.js" defer></script>\n'
     )
@@ -1027,10 +1160,11 @@ def viewer_html(token: str, scope: str = "", legacy_drafts: bool = False) -> byt
 
 
 def static_file(url_path: str) -> tuple[bytes, str] | None:
-    """/pdfjs/..., /reader/... and /vendor/markdown-it/... files; None for anything outside
-    those folders."""
+    """/pdfjs/..., /reader/..., /vendor/markdown-it/... and /vendor/katex/... files; None for
+    anything outside those folders."""
     for prefix, folder in (
-        ("/pdfjs/", PDFJS), ("/reader/", STATIC), ("/vendor/markdown-it/", MARKDOWN_IT)
+        ("/pdfjs/", PDFJS), ("/reader/", STATIC), ("/vendor/markdown-it/", MARKDOWN_IT),
+        ("/vendor/katex/", KATEX),
     ):  # fmt: skip
         if url_path.startswith(prefix):
             base = folder.resolve()
@@ -1055,6 +1189,12 @@ def main() -> None:
         action="store_true",
         help="download and install only the notes' preview (markdown-it), checksum verified",
     )
+    parser.add_argument(
+        "--setup-maths",
+        action="store_true",
+        help="download and install only the maths in the notes' preview (KaTeX), checksums "
+        "verified",
+    )
     parser.add_argument("word", nargs="*", help="look up a word or phrase")
     args = parser.parse_args()
     if sys.stdout.encoding.lower() != "utf-8":
@@ -1064,6 +1204,9 @@ def main() -> None:
         return
     if args.setup_preview:
         setup_preview()
+        return
+    if args.setup_maths:
+        setup_maths()
         return
     if args.setup or not args.word:
         setup() if missing() else print("Reading view is set up.")

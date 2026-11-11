@@ -11,6 +11,7 @@ must include their license texts and copyright notices.
 | [PDF.js](https://github.com/mozilla/pdf.js) 4.10.38, Mozilla Foundation | The PDF viewer in the reading view | Apache-2.0 (the `LICENSE` file inside `.cache/reader/pdfjs/`) |
 | [ECDICT](https://github.com/skywind3000/ECDICT), Copyright (c) Linwei | The offline English–Chinese dictionary | MIT |
 | [markdown-it](https://github.com/markdown-it/markdown-it) 15.0.3, Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin | The notes' preview (its browser build, with its bundled dependencies) | MIT (the `LICENSE` file inside `.cache/reader/markdown-it/`) |
+| [KaTeX](https://github.com/KaTeX/KaTeX) 0.19.1, Copyright (c) 2013-2020 Khan Academy and other contributors | Maths in the notes' preview: `katex.min.js`, `katex.min.css` and its WOFF2 fonts (built from [KaTeX/katex-fonts](https://github.com/KaTeX/katex-fonts), Copyright (c) 2018 Khan Academy, also MIT) | MIT (the `LICENSE` file inside `.cache/reader/katex/`; in the package, `third_party_licenses/KaTeX-LICENSE.txt`) |
 
 ## Python packages (installed by `uv sync`)
 

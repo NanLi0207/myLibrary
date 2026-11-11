@@ -116,7 +116,8 @@ not yet pushed.
 | M3 分屏、笔记只读 M3 split screen, notes read-only | ✅ | `73fbc72` |
 | M4 在面板中编辑和保存 M4 editing and saving in the panel | ✅ 用户人工验收已通过 user acceptance passed | `268a7cd` |
 | 审计后的数据安全修复 Data-safety fixes after the audit (D5, D13–D17, D19, D20, B26) | ✅ | `ac206d4`, `8f029a7`, `edb4dbe`, `8154293`, `0bb1ad7`, `d7b9fc5`, `aa4bf1c`, `a32f3fc`, `0692189` |
-| M5a Markdown 预览 M5a Markdown preview | 👀 已提交，CI 自 `d6c1a5d` 全绿。**未完成：**安装包中的离线预览从未验证；用户的人工验收没有记录。Committed; CI green since `d6c1a5d`. **Open:** the preview inside a built package is unverified; the user's manual acceptance isn't recorded. | `b9323dc`, `001b10f` |
+| M5a Markdown 预览 M5a Markdown preview | 👀 已提交，CI 自 `d6c1a5d` 全绿。**未完成：**只用含 M5b 的工作区构建的安装包检查过离线预览（2026-11-11，可用），只含已提交 M5a 的构建从未检查；用户的人工验收没有记录。Committed; CI green since `d6c1a5d`. **Open:** the offline preview was checked only in a package built from the working tree with M5b (2026-11-11: it works), never in a build of the committed M5a alone; the user's manual acceptance isn't recorded. | `b9323dc`, `001b10f` |
+| M5b LaTeX 数学公式 M5b LaTeX maths | 👀 2026-11-11 批准、实现并提交。**只在本地验证**：Python、Edge 浏览器测试和安装包离线检查通过；**CI 尚未运行**（等待推送批准）。Approved, implemented and committed 2026-11-11. **Verified locally only**: Python and Edge tests and an offline package check pass; **CI hasn't run yet** (push awaiting approval). | 提交 commit "Add offline KaTeX maths rendering to notes preview" |
 | 第 4b 节：多个书库、测试/示例书库、可迁移书库 Section 4b: several libraries, Test & Demo library, portable libraries | ✅ 含 L15 修复 with the L15 fix | `2b0ff96`, `4094dc4` |
 | 页面重新载入时连接被拒（监听队列 5 → 64）Connections refused on reload (listen backlog 5 → 64) | ✅ | `d6c1a5d` |
 | 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
@@ -137,9 +138,10 @@ count. **L20** (one unidentified test failure) stays unresolved, see section 11.
 ## 2. 当前里程碑 / The current milestone
 
 **任务 4 / Task 4, M5（预览、公式、格式、粘贴图片 / preview, maths, formatting, pasted images）。**
-M5a 已提交；**下一步是 M5b，开始前需要用户批准**（2026-11-08 的决定：M5b–M5d 各自单独批准）。
-M5a is committed; **next is M5b, which needs the user's approval before work starts** (decision
-of 2026-11-08: M5b–M5d are each approved separately).
+M5a 已提交；**M5b 于 2026-11-11 批准、实现并提交，已在本地验证，等待推送和 CI**；M5c 开始前需要用户批准（2026-11-08 的决定：M5b–M5d 各自单独批准）。
+M5a is committed; **M5b was approved, implemented and committed on 2026-11-11, verified locally;
+its push and CI are pending**; M5c needs the user's approval before work starts (decision of
+2026-11-08: M5b–M5d are each approved separately).
 
 在用户批准之前，开发会话只做：已批准工作的收尾（例如 M5a 的安装包验证）、经同意的第 11 节错误修复；不开始新的里程碑，
 也不开始 P2–P5 或新条目 E/R/G/X/U。
@@ -147,8 +149,9 @@ Until the user approves it, a development session only does: finishing approved 
 M5a's package check) and fixes from section 11 with agreement; no new milestone, nothing from
 P2–P5, none of the new E/R/G/X/U items.
 
-**仍未完成 / Still open:** M5a 在安装包中的离线预览验证和用户的人工验收（第 1 节）。M5a's offline-preview check in
-a built package and the user's manual acceptance (section 1).
+**仍未完成 / Still open:** M5a 在只含已提交代码的安装包中的离线预览检查和用户的人工验收（第 1 节）；M5b 的用户审核、提交和 CI。
+M5a's offline-preview check in a package built from committed code and the user's manual
+acceptance (section 1); M5b's push and CI verification.
 
 **L21**（数据完整性 data integrity）：2026-11-10 复现并修复（第 11 节"已修复"）。Reproduced and fixed 2026-11-10
 (section 11, "Fixed"). **新发现 / Found on the way:** B29（DOI 的同类问题 the DOI analogue）、B30（术语表并发测试间歇失败，
@@ -207,7 +210,7 @@ drafts, the leave warning); PDF.js reading, marks, search and reading progress a
 dependencies are exact versions with committed SHA-256 values, served locally, no CDN, no build
 step.
 
-### M5b — LaTeX 数学公式 / LaTeX maths 📋 需批准 needs approval
+### M5b — LaTeX 数学公式 / LaTeX maths 👀 已提交，CI 待验证 committed, CI pending (approved 2026-11-11)
 
 - **目标 Objective:** 在预览中显示公式。Show equations in the preview.
 - **依赖 Dependencies:** M5a.
@@ -225,6 +228,27 @@ step.
 - **验收 Acceptance:** 测试集中的公式全部正确渲染；无效公式只影响它自己；没有 KaTeX 时预览显示原文并说明原因。
   All formulas in the test set render; an invalid one affects only itself; without KaTeX the
   preview shows the source and says why.
+- **实现 Implementation (2026-11-11):**
+  - KaTeX 0.19.1 from the npm registry (`katex-0.19.1.tgz`, 1,499,956 bytes, SHA-256
+    `24da5a59…34fd`; npm's SHA-512 and SHA-1 matched; every file used was byte-identical to the
+    GitHub release's `katex.tar.gz`). `reader.py`: `KATEX_*`, `install_katex`, `katex_installed`
+    (each of the 23 files, `katex.min.js`, `katex.min.css`, `LICENSE` and 20 WOFF2 fonts,
+    checked against its committed SHA-256 whenever the reader page is made; not loaded
+    otherwise), `setup_maths`, `--setup-maths`, `/vendor/katex/`; `missing()` lists "maths".
+  - `preview.js`: markdown-it rules of its own (inline `ml_math`, block `ml_math_block`), no
+    regular expression over the text; `trust: false`, `maxSize` 20, `maxExpand` 500, at most
+    10,000 characters and 100 nested `{…}` per formula; errors (and stack overflows) caught per
+    formula; a formula's result cached per text. `notes.css`: display and error styles.
+  - `build_package.py`: `copy_reading_view` copies KaTeX (refuses to build if it isn't
+    verified) and its licence; CI's browser job installs and caches it.
+- **验证 Verification (local only, 2026-11-11; CI pending):** `tests/test_maths_setup.py` (19);
+  `tests/browser/test_notes_maths.py` (13, Edge: the four delimiters and common constructs,
+  amounts, escapes, code, unclosed delimiters, invalid formulas, hostile input, huge and nested
+  formulas, light and dark, views, typing and saving, conflicts and leaving, three kinds of
+  missing or broken KaTeX); a package built into a scratch folder, unzipped in a clean
+  environment (no uv, its own profile, no network for the server, outside requests blocked in
+  Edge): maths typeset with KaTeX's fonts from the package, the PDF opened, nothing written into
+  the package folder. Limits: L24 (section 11).
 
 ### M5c — 格式工具栏与显示偏好 / Formatting toolbar and display preferences 📋 需批准 needs approval
 
@@ -651,6 +675,7 @@ in the history, section 3; this table is the current state.
 | L18 | 测试语料上的章节检测限制。Chapter detection limits on the test corpus. | Task 6 |
 | L19 | 没有作者和年份的文档，名字中有两个连字符。A document without author or year gets a slug with two hyphens. | — |
 | L22 | 安装包的启动器 `package/launch.py` 自己计算 `%APPDATA%/myLibrary`（日志），而不是用 `platform_services.user_data_dir()`；两者目前一致，但改其中一个时要同时改另一个。The package launcher computes `%APPDATA%/myLibrary` (its log) itself rather than through `platform_services.user_data_dir()`; they agree today, but changing one means changing the other. | 第 9 节 section 9 |
+| L24 | 预览中公式的规则限制（`preview.js` 的 `mathInline`/`mathBlock`）：公式中不能有反引号（反引号结束查找，代码优先）；`[a $x](u)$` 这类链接与公式交错时公式优先；表格单元格中公式里的 `\|`（未转义的竖线）会把单元格分开（用 `\vert`）；没闭合的 `\(` 按 Markdown 显示为 `(`；`$a$$b$` 显示为错误；每次修改都重新渲染整条笔记（已渲染的公式有缓存；10,000 个公式约 1 秒）。Limits of the maths rules in the preview: no backtick inside a formula (a backtick ends the search: code comes first); a link interleaved with a formula, like `[a $x](u)$`, goes to the formula; an unescaped `\|` in a formula inside a table cell splits the cell (use `\vert`); an unclosed `\(` shows as `(`, as Markdown escapes it; `$a$$b$` shows as an error; every change redraws the whole note (typeset formulas are cached; 10,000 formulas take about a second). | — |
 
 **已修复（历史记录中仍列为未解决）/ Fixed (still listed as open in the history)**
 - **B3** 💾 备份按名称前缀匹配会互相删除 zip：在 `2b0ff96` 中修复（精确名称，按书库区分的名称）。Zips pruned by

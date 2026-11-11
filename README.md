@@ -71,8 +71,8 @@ return are planned); optionally: note → code or experiment → result → sour
 - **备份 Backup:** 💾 带日期的 zip 备份到你选的文件夹（OneDrive、U 盘）。💾 dated zip backups to a folder you
   choose (OneDrive, a USB stick).
 
-**计划中 / Planned** ([ROADMAP.md](ROADMAP.md)): 公式、格式工具栏、粘贴截图；引用到笔记、从笔记回到原文段落；结构化标注；
-跨文档主题；更多可执行学习的连接。Maths, a formatting toolbar, pasted screenshots; quote to note and back
+**计划中 / Planned** ([ROADMAP.md](ROADMAP.md)): 格式工具栏、粘贴截图；引用到笔记、从笔记回到原文段落；结构化标注；
+跨文档主题；更多可执行学习的连接。A formatting toolbar, pasted screenshots; quote to note and back
 from a note to the passage; structured annotations; cross-document topics; more links for
 executable learning.
 
@@ -125,13 +125,13 @@ combination, Readwise Reader and ReadPaper) is in
 
 ## 当前状态 / Current status
 
-当前开发：v0.3 任务 4（笔记面板）；Markdown 预览（M5a）已提交（安装包中的验证和人工验收尚未完成），下一步是数学公式（M5b，待批准）。完整的功能状态表见
+当前开发：v0.3 任务 4（笔记面板）；Markdown 预览（M5a）已提交（安装包中的验证和人工验收尚未完成）；预览中的数学公式（M5b）已提交，本地验证通过，CI 待验证。完整的功能状态表见
 [用户指南第 15 节](docs/USER_GUIDE.md#15-功能状态已实现已验证计划中--feature-status-implemented-verified-planned)，
 进度见 [ROADMAP.md](ROADMAP.md)。只在 Windows 上测试过；macOS 和 Linux 未测试。版本 0.2.5（尚未发布新版本）。
 Current development: v0.3 task 4 (the notes panel); the Markdown preview (M5a) is committed
-(its check inside the package and the manual acceptance are still open), next is maths (M5b,
-awaiting approval). The full feature-status table is in the user guide, section 15;
-progress in the ROADMAP. Tested on Windows only; macOS and Linux untested. Version 0.2.5 (no new
+(its check inside the package and the manual acceptance are still open); maths in the preview
+(M5b) is committed, verified locally, CI pending. The full feature-status table is in the user
+guide, section 15; progress in the ROADMAP. Tested on Windows only; macOS and Linux untested. Version 0.2.5 (no new
 release yet).
 
 ## 快速开始 / Quick start
@@ -198,10 +198,11 @@ service) needs the author's written permission. Include the [LICENSE](LICENSE) f
 "Required Notice" line) when sharing.
 
 **现成安装包（9.9 元人民币，即将推出）/ Ready-to-use package (9.9 RMB, coming soon).** 自己按上面的步骤安装，非商业用途
-免费。安装包只是省去安装：解压后双击即可，包含 Python、PDF 阅读器、词典和预览库，不需要命令行；它不包含 Python 章节脚本功能。
+免费。安装包只是省去安装：解压后双击即可，包含 Python、PDF 阅读器、词典、预览库和公式库，不需要命令行；它不包含 Python 章节脚本功能。
 Setting myLibrary up yourself, as above, is free for non-commercial use. The package only saves
-the setup: unzip and double-click; Python, the PDF viewer, the dictionary and the preview
-library are included, no command line; it doesn't include the Python chapter-script features.
+the setup: unzip and double-click; Python, the PDF viewer, the dictionary and the preview and
+maths libraries are included, no command line; it doesn't include the Python chapter-script
+features.
 
 第三方组件及其许可：[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。公开测试语料中的两篇真实论文使用各自的许可（CC BY 4.0、
 CC0），见 [test_library/README.md](test_library/README.md)。

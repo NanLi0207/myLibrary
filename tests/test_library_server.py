@@ -386,9 +386,12 @@ def test_without_the_dictionary_books_still_open_in_the_reader(
     monkeypatch.setattr(reading_view, "PDFJS", pdfjs)
     monkeypatch.setattr(reading_view, "DICT_DB", tmp_path / "no-dictionary.db")
     monkeypatch.setattr(reading_view, "MARKDOWN_IT", markdown_it)
+    monkeypatch.setattr(reading_view, "KATEX", tmp_path / "reader" / "katex")  # (none: M5b)
     assert bool(reading_view.markdown_it_installed()) is preview
     assert "dictionary" in reading_view.missing()
-    assert reading_view.missing() == ["dictionary"] + ([] if preview else ["notes preview"])
+    assert reading_view.missing() == (
+        ["dictionary"] + ([] if preview else ["notes preview"]) + ["maths"]
+    )
     assert reading_view.viewer_ready()  # the dictionary isn't needed to read
     url = library_server.pdf_url("http://x", "books/a.pdf", 3, doc(library))
     assert url == f"http://x/pdfjs/web/viewer.html?file=/books/a.pdf&id={doc(library)}#page=3"

@@ -8,6 +8,8 @@ the test. Nothing is downloaded while tests run: PDF.js must be installed first.
 
     uv sync --group browser
     uv run scripts/reader.py --setup-viewer
+    uv run scripts/reader.py --setup-preview   (the notes' preview: markdown-it)
+    uv run scripts/reader.py --setup-maths     (maths in the preview: KaTeX)
     uv run pytest tests/browser
 
 On a failure, the test's folder under test-results/ gets the server's log, the page's console,

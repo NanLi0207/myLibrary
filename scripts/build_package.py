@@ -6,8 +6,8 @@ The package needs no Python, uv, git or command line on the buyer's computer:
   runtime/python/          a portable Python (copied from the one uv installed)
   runtime/site-packages/   only what the library needs (pyproject "dependencies", from uv.lock)
   scripts/                 the tool
-  .cache/reader/           the PDF viewer, the dictionary and the notes' preview (markdown-it),
-                           so it works offline at once
+  .cache/reader/           the PDF viewer, the dictionary, the notes' preview (markdown-it) and
+                           its maths (KaTeX, with its fonts), so it works offline at once
   launch.py, Start myLibrary.cmd, README.txt, LICENSE, notices and third-party licenses
   package.toml             marks it as the package: settings go to %APPDATA%/myLibrary, and the
                            Python features (chapter scripts) are off
@@ -72,6 +72,19 @@ def check_path_lengths(root: Path) -> None:
         sys.exit(f"  ! too long: {longest.relative_to(root.parent)}")
 
 
+def copy_reading_view(root: Path) -> None:
+    """The reader's offline parts into the package, as reader.setup() installed them. KaTeX is
+    copied only when every file of it passes its check: a damaged copy would leave the package
+    without maths (its reader page wouldn't load it), so the build stops instead."""
+    if not reader.katex_installed():
+        sys.exit("  ! KaTeX isn't the verified one: uv run scripts/reader.py --setup-maths")
+    cache = root / ".cache" / "reader"
+    shutil.copytree(reader.PDFJS, cache / "pdfjs")
+    shutil.copytree(reader.MARKDOWN_IT, cache / "markdown-it")
+    shutil.copytree(reader.KATEX, cache / "katex")
+    shutil.copy2(reader.DICT_DB, cache / "ecdict.db")
+
+
 def main() -> None:
     version = tomllib.loads((APP / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     version = version["version"]
@@ -82,11 +95,9 @@ def main() -> None:
         shutil.rmtree(root)
     root.mkdir(parents=True)
 
-    print("1/5 PDF viewer, dictionary and notes preview")
+    print("1/5 PDF viewer, dictionary, notes preview and maths")
     reader.setup()
-    shutil.copytree(reader.PDFJS, root / ".cache" / "reader" / "pdfjs")
-    shutil.copytree(reader.MARKDOWN_IT, root / ".cache" / "reader" / "markdown-it")
-    shutil.copy2(reader.DICT_DB, root / ".cache" / "reader" / "ecdict.db")
+    copy_reading_view(root)
 
     print("2/5 Python")
     python = copy_python(root / "runtime" / "python")
@@ -109,6 +120,7 @@ def main() -> None:
     shutil.copy2(APP / "package" / "licenses" / "ECDICT-LICENSE.txt", licenses)
     shutil.copy2(reader.PDFJS / "LICENSE", licenses / "PDF.js-LICENSE.txt")
     shutil.copy2(reader.MARKDOWN_IT / "LICENSE", licenses / "markdown-it-LICENSE.txt")
+    shutil.copy2(reader.KATEX / "LICENSE", licenses / "KaTeX-LICENSE.txt")
     shutil.copy2(root / "runtime" / "python" / "LICENSE.txt", licenses / "Python-LICENSE.txt")
     (root / "package.toml").write_text(
         f'# The ready-to-use package of myLibrary (see scripts/paths.py)\nversion = "{version}"\n'

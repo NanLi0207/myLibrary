@@ -134,10 +134,11 @@ The server **listens only on your own computer** (127.0.0.1); other computers ca
 1. **创建书库 Creates a library**：没有设置书库时，首次启动会创建 `文档\myLibrary Library`（`Documents\myLibrary Library`）并记住它（写入工具文件夹中的 `local.toml`）。
    With no library set, the first start creates `Documents\myLibrary Library` and remembers it
    (in `local.toml` in the tool's folder).
-2. **下载阅读器组件 Downloads the reading view**：PDF 阅读器（PDF.js）、离线词典（ECDICT）和笔记预览库（markdown-it），共约 72 MB，只下载一次，固定版本并校验 checksum。下载完成前，书以普通 PDF 打开，没有查词和笔记面板。
-   The PDF viewer (PDF.js), the offline dictionary (ECDICT) and the notes' preview library
-   (markdown-it), about 72 MB, downloaded once, pinned and checksum-verified. Until they're
-   ready, books open as plain PDFs, without lookup or the notes panel.
+2. **下载阅读器组件 Downloads the reading view**：PDF 阅读器（PDF.js）、离线词典（ECDICT）、笔记预览库（markdown-it）和公式库（KaTeX），共约 74 MB，只下载一次，固定版本并校验 checksum。下载完成前，书以普通 PDF 打开，没有查词和笔记面板。
+   The PDF viewer (PDF.js), the offline dictionary (ECDICT), the notes' preview library
+   (markdown-it) and its maths (KaTeX), about 74 MB, downloaded once, pinned and
+   checksum-verified. Until they're ready, books open as plain PDFs, without lookup or the notes
+   panel.
 3. **建立搜索索引 Indexes your books** for full-text search, in the background (seconds per book).
 4. **恢复中断的操作 Recovers interrupted operations**：如果上次的重命名被中断，会自动回滚。
    If a rename was interrupted last time, it's rolled back.
@@ -176,7 +177,7 @@ the reading log work **fully offline**. These need the internet:
 
 | 功能 Feature | 联系的网站 What it contacts |
 |---|---|
-| 首次下载阅读器组件 First download of the reading view | PDF.js、ECDICT、markdown-it 的下载地址 Their download sites |
+| 首次下载阅读器组件 First download of the reading view | PDF.js、ECDICT、markdown-it、KaTeX 的下载地址 Their download sites |
 | 添加文档时识别信息 Identifying a document when it's added | Open Library、Crossref、DataCite、arXiv、OpenAlex（`add_book.py --offline` 跳过 Open Library 查询 / skips the Open Library lookup） |
 | 学科分类 Subjects | OpenAlex（添加时和 ⟳ Refresh 时 / when adding and on ⟳ Refresh） |
 | 🔎 Find online 和 ＋ Add to library | OpenAlex、Crossref、DataCite、arXiv、Open Library，以及开放获取 PDF 的网站 and the open-access PDF's site |
@@ -985,12 +986,11 @@ The preview uses markdown-it 15.0.3 (CommonMark plus tables and strikethrough).
 | `[文字 text](https://…)` | 在新标签页打开的网页链接。A web link, opened in a new tab. |
 | `[Ch 2](ch02-….md)` | 在面板中打开这个文档的另一条笔记。Opens another note of this document in the panel. |
 | `[p. 12](/read/<id>?page=12)` | 在新标签页中打开那个文档的那一页。Opens that document at that page in a new tab. |
+| `$E = mc^2$` 或 or `\(E = mc^2\)` | 行内公式（见[下面](#数学公式--maths)）。An inline formula (see [below](#数学公式--maths)). |
+| `$$…$$` 或 or `\[…\]` | 单独一行居中显示的公式。A displayed formula, centred on its own line. |
 
 **目前不支持 / Not supported yet:**
 
-- **数学公式**：`$E = mc^2$` 按原样显示为文本（KaTeX 渲染计划在 M5b）。在源码中照样可以写 LaTeX，以后会被渲染。
-  **Maths**: `$E = mc^2$` is shown as typed (KaTeX rendering is planned for M5b). You can still
-  write LaTeX in the source; it'll render later.
 - **图片**：显示为虚线占位框 "图片 Image: <描述>"，不加载图片（计划在 M5d）。
   **Images**: shown as a dashed placeholder "图片 Image: <description>", never loaded (planned
   for M5d).
@@ -1000,6 +1000,58 @@ The preview uses markdown-it 15.0.3 (CommonMark plus tables and strikethrough).
 - 单个换行不会换行（空一行开始新段落）；裸露的网址不会自动变成链接；任务列表 `- [ ]` 不显示为复选框。
   A single line break doesn't break the line (leave a blank line for a new paragraph); bare URLs
   aren't turned into links; task items `- [ ]` aren't shown as checkboxes.
+
+#### 数学公式 / Maths
+
+预览用 KaTeX 0.19.1 显示 LaTeX 公式（离线，随阅读器组件安装，每个文件都校验 checksum）。`.md` 文件里仍然是你写的 LaTeX 源码。
+The preview typesets LaTeX with KaTeX 0.19.1 (offline, installed with the reading view, every
+file checksum-verified). The `.md` file keeps the LaTeX source you wrote.
+
+| 写法 You write | 显示 Shows |
+|---|---|
+| `$a^2 + b^2 = c^2$`、`\(\alpha + \beta\)` | 行内公式。An inline formula. |
+| `$$ … $$`、`\[ … \]`（单独几行，或在段落中 on lines of their own, or within a paragraph） | 居中显示的公式。A displayed formula, centred. |
+
+```markdown
+$$
+\begin{aligned}
+f(x) &= (x+1)^2 \\
+     &= x^2 + 2x + 1
+\end{aligned}
+$$
+```
+
+分数、根号、上下标、希腊字母、积分、求和、矩阵（`pmatrix`、`bmatrix`……）和多行公式（`aligned`、`cases`……）都可以用：KaTeX 支持的命令见 <https://katex.org/docs/supported>。
+Fractions, roots, indices, Greek letters, integrals, sums, matrices (`pmatrix`, `bmatrix`, …)
+and multi-line equations (`aligned`, `cases`, …) all work: KaTeX's commands are listed at
+<https://katex.org/docs/supported>.
+
+**什么不是公式 / What isn't a formula:**
+
+- **金额**："It costs $5 and $10" 原样显示：和 TeX 一样，`$` 公式在下一个 `$` 处结束，而且只有那个 `$` 前面不是空格、后面不是数字时才算；否则第一个 `$` 就是普通的美元符号。
+  **Amounts**: "It costs $5 and $10" stays as written: like TeX, a `$` formula ends at the next
+  `$`, and only if that one follows a non-space and isn't followed by a digit; otherwise the
+  first `$` is a plain dollar sign.
+- **转义**：`\$` 是美元符号；`\\(` 显示为 `\(`。**Escapes**: `\$` is a dollar sign; `\\(` shows `\(`.
+- **代码**：`` `$x$` `` 和代码块中的公式符号原样显示。**Code**: inline code and code blocks are shown as written.
+- **没有闭合的** `$`、`$$`、`\(`、`\[` 显示为普通文本；`$$…$$` 块不能跨空行。
+  **Unclosed** `$`, `$$`, `\(` and `\[` stay plain text; a `$$…$$` block can't cross a blank line.
+
+**出错时 / When a formula is wrong:** 只有那个公式显示为红色标记的源码，鼠标悬停（单独显示的公式则在下方）可看到原因，例如 "公式错误 Formula error: KaTeX parse error: Expected '}'…"；笔记的其余部分照常显示。
+Only that formula shows its source, marked in red, with the reason on hover (below it for a
+displayed one), e.g. "公式错误 Formula error: KaTeX parse error: Expected '}'…"; the rest of the
+note shows as usual.
+
+**安全和限制 / Safety and limits:** 公式不能加链接、图片、样式或 HTML（KaTeX `trust: false`）：`\href`、`\url`、`\includegraphics`、`\htmlClass` 等显示为红色文字，不会被执行或加载。一个公式最多 10,000 个字符、100 层 `{…}` 嵌套，宏展开最多 500 次（`\def` 循环会停止），尺寸最大 20 em；超出时只这个公式显示错误。
+Formulas can't add links, images, styles or HTML (KaTeX `trust: false`): `\href`, `\url`,
+`\includegraphics`, `\htmlClass` and the like show as red text and are never run or loaded. A
+formula may have at most 10,000 characters and 100 levels of `{…}`, 500 macro expansions (a
+`\def` loop stops) and sizes up to 20 em; beyond that, only that formula shows an error.
+
+**没有 KaTeX 时 / Without KaTeX:** 公式库没有安装、缺少文件或没有通过校验时，预览按原文显示公式，并在上方说明原因和安装方法：`uv run scripts/reader.py --setup-maths`；编辑和保存照常。
+If the maths library isn't installed, is missing a file or fails its check, the preview shows
+the formulas as written and says why at the top, with how to set it up:
+`uv run scripts/reader.py --setup-maths`; editing and saving work as always.
 
 ### 9.5 自动保存与状态 / Autosave and status
 
@@ -1108,7 +1160,6 @@ lets you choose.
 
 | 阶段 Phase | 计划 Plan |
 |---|---|
-| M5b | KaTeX 渲染 LaTeX 数学公式（`$…$`、`$$…$$`）。LaTeX maths rendered with KaTeX. |
 | M5c | 基于选择的 Markdown 格式工具栏（标题、粗体、列表、表格、公式……）和排版设置（字体、字号、行距）。A selection-based Markdown formatting toolbar and display settings (font, size, line height). |
 | M5d | 粘贴截图和图片（Ctrl+V），保存为笔记旁的本地文件并在预览中显示。Pasting screenshots and images (Ctrl+V), saved as local files beside the note and shown in the preview. |
 | 以后 Later | 把截图识别成可编辑的公式或表格。Turning a screenshot into an editable equation or table. |
@@ -1455,9 +1506,10 @@ it).
 | `uv run scripts/ocr_pdf.py <pdf>` | 为扫描件添加 OCR 文字层（`--yes` 不询问）。Add an OCR text layer to a scan (`--yes` not to ask). |
 | `uv run scripts/add_bookmarks.py [pdf]` | 为没有书签的书添加书签（`--dry-run`、`--yes`）。Add bookmarks to books without any. |
 | `uv run scripts/reader.py <word or phrase>` | 在终端中查词。Look up a word in the terminal. |
-| `uv run scripts/reader.py --setup` | 下载 PDF 阅读器、词典和预览库。Download the PDF viewer, dictionary and preview library. |
+| `uv run scripts/reader.py --setup` | 下载 PDF 阅读器、词典、预览库和公式库。Download the PDF viewer, dictionary, preview library and maths library. |
 | `uv run scripts/reader.py --setup-viewer` | 只下载 PDF 阅读器（PDF.js，固定版本，校验 checksum）。Only the PDF viewer (PDF.js, pinned, checksum-verified). |
 | `uv run scripts/reader.py --setup-preview` | 只下载笔记预览库（markdown-it，固定版本，校验 checksum）。Only the notes' preview (markdown-it, pinned, checksum-verified). |
+| `uv run scripts/reader.py --setup-maths` | 只下载预览中的公式库（KaTeX，固定版本，每个文件校验 checksum；损坏时重新安装）。Only the maths in the preview (KaTeX, pinned, every file checksum-verified; a damaged copy is replaced). |
 | `uv run scripts/book_search.py <term>` | 在所有书中搜索（`--status` 显示索引状态）。Search all books (`--status` for the index status). |
 | `uv run scripts/subjects.py [--apply]` | 显示 / 记录学科（[3.5](#35-学科与书架--subjects-and-shelves)）。Show / record subjects. |
 | `uv run scripts/shelves.py [--apply]` | 显示 / 应用书架建议。Show / apply shelf suggestions. |
@@ -1510,9 +1562,18 @@ there, then click **重试** (Retry).
 **The preview shows only plain text.** The preview library isn't installed:
 `uv run scripts/reader.py --setup-preview`, then reload the tab.
 
-**公式或图片在预览中没有显示。** 这是预期的：数学渲染（M5b）和图片（M5d）还没有实现（[9.10](#910-计划中的笔记功能--planned-notes-features)）。
-**Maths or images don't show in the preview.** Expected: maths rendering (M5b) and images (M5d)
-aren't implemented yet ([9.10](#910-计划中的笔记功能--planned-notes-features)).
+**预览中的公式按原文显示，上方有"公式无法显示"。** 公式库（KaTeX）没有安装、缺少文件或没有通过校验：`uv run scripts/reader.py --setup-maths`（会替换损坏的副本），然后刷新标签页。在安装包中：重新解压安装包。
+**Formulas show as written, with "Maths can't be shown" above them.** The maths library (KaTeX)
+isn't installed, is missing a file or failed its check: `uv run scripts/reader.py --setup-maths`
+(replaces a damaged copy), then reload the tab. In the package: unzip the package again.
+
+**一个公式显示为红色的源码。** KaTeX 读不懂它：把鼠标停在上面看原因（[数学公式](#数学公式--maths)）。
+**One formula shows as red source.** KaTeX can't read it: hover over it for the reason
+([Maths](#数学公式--maths)).
+
+**图片在预览中没有显示。** 这是预期的：图片（M5d）还没有实现（[9.10](#910-计划中的笔记功能--planned-notes-features)）。
+**Images don't show in the preview.** Expected: images (M5d) aren't implemented yet
+([9.10](#910-计划中的笔记功能--planned-notes-features)).
 
 **Continue 或 Read 打开了错误的页面或章节。** 章节起始页只查找一次并缓存。从书库的 `.cache/chapter_pages.json` 中删除这本书的条目（或整个文件）并重启服务器；如果章节**列表**本身错了，运行 `uv run scripts/add_book.py --refresh-chapters`。
 **Continue or Read opens the wrong page or chapter.** Chapter start pages are found once and
@@ -1566,7 +1627,7 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | 章节脚本和 `code/`（可执行学习）Chapter scripts and `code/` (executable learning) | 已实现；Python 测试。来源与代码之间的链接等扩展计划中（ROADMAP 第 6 节）。Implemented; Python tests. Extensions such as links between sources and code are planned (ROADMAP section 6). |
 | 现成安装包 The ready-to-use package | 可以构建；**没有自动测试**，在干净的环境中手动测试启动和退出。Builds; **no automated tests**, start and quit checked by hand in a clean environment. |
 | macOS / Linux | 未测试。Not tested. |
-| M5b 数学公式 Maths (KaTeX) | **计划中，未实现。** Planned, not implemented. |
+| M5b 预览中的数学公式 Maths in the preview (KaTeX) | 已实现；Python 测试、Edge 浏览器测试和安装包中的离线检查只在本地运行过，**CI 尚未验证**。Implemented; Python tests, Edge browser tests and an offline check in a built package run locally only, **not yet verified by CI**. |
 | M5c 格式工具栏和排版设置 Formatting toolbar and display settings | **计划中，未实现。** Planned, not implemented. |
 | M5d 粘贴截图和图片 Pasted screenshots and images | **计划中，未实现。** Planned, not implemented. |
 | 以后：截图识别为可编辑的公式和表格 Later: screenshots into editable equations and tables | **计划中，未实现。** Planned, not implemented. |
@@ -1616,6 +1677,7 @@ settings and server:
 uv sync --group browser
 uv run scripts/reader.py --setup-viewer
 uv run scripts/reader.py --setup-preview
+uv run scripts/reader.py --setup-maths
 uv run pytest tests/browser                   # --headed 观看 / to watch
 uv run pytest tests/browser --notes-closed    # 笔记面板关闭时 / with the notes panel closed
 uv run pytest tests/browser --tracing retain-on-failure   # 失败时的追踪在 test-results/ / traces in test-results/
@@ -1680,6 +1742,7 @@ the author include them in the paid package).
 - **[PDF.js](https://mozilla.github.io/pdf.js/)**（Mozilla）：PDF 阅读器 / the PDF viewer
 - **[ECDICT](https://github.com/skywind3000/ECDICT)**：离线英汉词典 / the offline English–Chinese dictionary
 - **[markdown-it](https://github.com/markdown-it/markdown-it)**：笔记预览 / the notes' preview
+- **[KaTeX](https://katex.org/)**：预览中的数学公式 / maths in the notes' preview
 - **numpy / scipy / sympy / matplotlib**（`science` 组 group）：章节脚本中的数值计算、符号运算和绘图 / numerics, symbolic maths and plots in chapter scripts
 - **pypdf / pypdfium2 / rapidocr / onnxruntime / reportlab / cryptography**：读取 PDF、扫描件 OCR、写入文字层、打开加密的出版社 PDF / reading PDFs, OCR for scans, writing text layers, opening encrypted publisher PDFs
 - **optiland / rayoptics**（可选 `optics` 组 optional group）：光学示例的镜头设计 / lens design for the optics example

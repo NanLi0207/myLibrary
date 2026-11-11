@@ -50,6 +50,13 @@ jobs:
           key: markdown-it-15.0.3-98a7453983ab0e268c17dbd5260bf7190ba46b4cca912327fc1c1a2578e4b56d
       - name: Install the notes' preview (checksum verified)
         run: uv run --group browser scripts/reader.py --setup-preview
+      - name: Cache the maths in the preview (KaTeX, by version and checksum)
+        uses: actions/cache@v4
+        with:
+          path: .cache/reader/katex
+          key: katex-0.19.1-24da5a599eb2fcede2e270b99a6ff48bca816beecc95feeb84e8cccbd1bb34fd
+      - name: Install the maths in the preview (every file checksum verified)
+        run: uv run --group browser scripts/reader.py --setup-maths
       - name: Check Edge, the PDF viewer and the versions
         run: |
           $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
@@ -64,6 +71,9 @@ jobs:
           $preview = uv run --group browser python -c "import sys; sys.path.insert(0, 'scripts'); import reader; print(reader.markdown_it_installed())"
           "markdown-it: $preview"
           if ($preview -ne "verified 15.0.3") { Write-Error "the notes' preview isn't the checksum-verified markdown-it 15.0.3"; exit 1 }
+          $maths = uv run --group browser python -c "import sys; sys.path.insert(0, 'scripts'); import reader; print(reader.katex_installed())"
+          "KaTeX: $maths"
+          if ($maths -ne "verified 0.19.1") { Write-Error "the maths in the preview isn't the checksum-verified KaTeX 0.19.1"; exit 1 }
       - name: Browser tests
         # Its own limit, so a hang still leaves time to upload the diagnostics
         timeout-minutes: 15
