@@ -145,5 +145,8 @@ def test_the_reader_page_loads_it_only_when_verified(cache, monkeypatch, tmp_pat
     reader.install_markdown_it(tmp_path / "markdown-it.tgz")
     page = reader.viewer_html("token").decode()
     order = [page.index(s) for s in ("/reader/note_session.js", "/vendor/markdown-it/",
-                                     "/reader/preview.js", "/reader/notes.js")]  # fmt: skip
-    assert order == sorted(order)
+                                     "/reader/preview.js", "/reader/format.js",
+                                     "/reader/notes.js")]  # fmt: skip
+    assert order == sorted(order)  # (format.js, M5c: notes.js uses it)
+    body, kind = reader.static_file("/reader/format.js")
+    assert b"myLibraryFormat" in body and kind.startswith("text/javascript")

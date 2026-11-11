@@ -285,7 +285,10 @@ identity (that's its `id`, see above). Inside the library it's the base of:
   and its saving are `note_session.js`'s `NoteSession` (one per note: revisions, one save in
   flight, base versions and 409 conflicts, retries, offline, a restarted server (403: reload
   needed), recovery drafts in `localStorage`, version checks). Future preview and visual modes
-  are views of the same session, never a second save path, and never lossy. It uses
+  are views of the same session, never a second save path, and never lossy. The formatting
+  toolbar (M5c) is `format.js` (text in, one replacement out; no page access), applied by
+  `notes.js` through one `insertText` per action, so Undo and the session see it as typing;
+  display preferences live in `localStorage` only. It uses
   lookup.js's `window.myLibraryReader` and only `/api/notes/list|get|version|save|keep-copy|open`,
   by document id and note key, never a path. Opening or viewing writes nothing; never position
   or reading time; lookup.js leaves the panel alone (`inNotes`). Browser tests:

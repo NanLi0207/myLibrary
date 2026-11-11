@@ -246,7 +246,12 @@ body.ml-dragging #outerContainer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   tab-size: 4;
-  font: 14px/1.6 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  /* M5c: the display preferences (Aa), set on the panel by notes.js; these are the defaults */
+  font-family: var(--ml-note-font, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif);
+  font-size: var(--ml-note-size, 14px);
+  line-height: var(--ml-note-line, 1.6);
+  max-width: min(100%, var(--ml-note-measure, 100%));
+  margin-inline: auto;
   background: var(--field-bg-color, #fff); /* like a page: white, or dark in dark mode */
   color: var(--field-color, #060606);
   outline: none;
@@ -274,11 +279,94 @@ body.ml-dragging #outerContainer {
   background: var(--toggled-btn-bg-color, rgb(0 0 0 / 0.15));
   font-weight: 600;
 }
+.ml-view-switch .ml-display-toggle {
+  margin-left: auto; /* Aa: at the right end */
+}
+.ml-view-switch .ml-display-toggle[aria-expanded="true"] {
+  background: var(--toggled-btn-bg-color, rgb(0 0 0 / 0.15));
+}
+
+/* --- M5c: the formatting toolbar and the display settings ------------------------------- */
+.ml-format-bar {
+  display: flex;
+  flex-wrap: wrap; /* a narrow panel: on two lines, never wider than the panel */
+  align-items: center;
+  gap: 2px;
+  padding: 3px 12px;
+  border-bottom: 1px solid var(--toolbar-border-color, #d0d0d0);
+}
+.ml-format-bar[hidden],
+.ml-display[hidden] {
+  display: none;
+}
+.ml-format-bar .ml-tool {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 5px;
+  background: none;
+  color: var(--main-color, #0c0c0d);
+  border: 0;
+  border-radius: 4px;
+  font: 13px/1 system-ui, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+.ml-format-bar .ml-tool[data-action="bold"] {
+  font-weight: 700;
+}
+.ml-format-bar .ml-tool[data-action="italic"] {
+  font-style: italic;
+  font-family: Georgia, serif;
+}
+.ml-format-bar .ml-tool[data-action="strike"] {
+  text-decoration: line-through;
+}
+.ml-format-bar .ml-tool:is([data-action="code"], [data-action="codeblock"]) {
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+.ml-format-bar .ml-tool:hover:not(:disabled) {
+  background: var(--button-hover-color, #dddedf);
+}
+.ml-format-bar :is(.ml-tool, select):disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ml-format-bar select,
+.ml-display select {
+  height: 24px;
+  background: var(--field-bg-color, #fff);
+  color: var(--field-color, #060606);
+  border: 1px solid var(--field-border-color, #bbb);
+  border-radius: 4px;
+  font: 12px system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+.ml-format-bar select {
+  margin-right: 4px;
+}
+.ml-display {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--toolbar-border-color, #d0d0d0);
+  font-size: 12px;
+}
+.ml-display-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ml-display .ml-small {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
 .ml-note-views {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  background: var(--field-bg-color, #fff); /* (around a narrower source, M5c) */
 }
 .ml-note-views > [hidden] {
   display: none;
@@ -310,10 +398,17 @@ body.ml-dragging #outerContainer {
   overflow: auto;
   overscroll-behavior: contain;
   overflow-wrap: anywhere;
-  font: 14px/1.6 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-family: var(--ml-note-font, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif);
+  font-size: var(--ml-note-size, 14px);
+  line-height: var(--ml-note-line, 1.6);
   background: var(--field-bg-color, #fff);
   color: var(--field-color, #060606);
   outline: none;
+}
+/* M5c: the width preference: each block at most that wide, centred */
+.ml-notes .ml-note-preview > * {
+  max-width: min(100%, var(--ml-note-measure, 100%));
+  margin-inline: auto;
 }
 .ml-note-preview:focus-visible {
   box-shadow: inset 0 0 0 2px rgb(11 107 203 / 0.5);
@@ -335,7 +430,7 @@ body.ml-dragging #outerContainer {
   font-size: 1.15em;
 }
 .ml-note-preview :is(p, ul, ol, blockquote, pre, table) {
-  margin: 0 0 0.8em;
+  margin: 0 0 var(--ml-note-para, 0.8em);
 }
 .ml-note-preview :is(ul, ol) {
   padding-left: 1.6em;
@@ -399,10 +494,10 @@ body.ml-dragging #outerContainer {
 }
 .ml-note-preview .ml-math-display {
   display: block;
-  max-width: 100%;
+  max-width: min(100%, var(--ml-note-measure, 100%));
   overflow-x: auto;
   overflow-y: hidden;
-  margin: 0 0 0.8em;
+  margin: 0 auto var(--ml-note-para, 0.8em);
 }
 .ml-note-preview .ml-math-display > .katex-display {
   margin: 0.4em 0;

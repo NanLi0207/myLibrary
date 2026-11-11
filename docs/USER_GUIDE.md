@@ -969,6 +969,51 @@ you typed it, and switching views saves nothing. Without the preview library, th
 the plain text and how to set it up: `uv run scripts/reader.py --setup-preview`; Source works
 as before.
 
+#### 格式工具栏 / Formatting toolbar
+
+源码和分屏视图上方有一排格式按钮。它们只是替你写 Markdown：结果和你自己输入的一样，保存在 `.md` 文件中，没有隐藏的格式。
+Above the source (in Source and Split) is a row of formatting buttons. They only write the
+Markdown for you: the result is what you could have typed, saved in the `.md` file, with no
+hidden formatting.
+
+| 按钮 Button | 写成 Writes |
+|---|---|
+| 标题 Heading（菜单 menu） | `#` … `######`；"正文 Plain text" 去掉标题。`#` to `######`; "Plain text" removes it. |
+| **B** / *I* / ~~S~~ | `**粗体 bold**`（Ctrl+B）、`*斜体 italic*`（Ctrl+I）、`~~删除 struck~~` |
+| • / 1. / ☑ | `- 项目 item`、`1. 项目 item`、`- [ ] 任务 task` |
+| ❝ | `> 引用 quote` |
+| `` ` `` / ```` ``` ```` | `` `行内代码 code` `` / 代码块 a fenced code block |
+| 🔗 / 🖼 | `[文字 text](https://)`、`![描述 description](image.png)`（图片尚不显示 images don't show yet, M5d） |
+| ▦ | 一个两列的小表格。A small two-column table. |
+| `$` / `$$` | 行内公式 `$…$` / 独立公式 `$$…$$`（见[数学公式](#数学公式--maths) see Maths） |
+
+- 先选中文字再点按钮，就作用于选中的文字；标题、列表和引用作用于选中的每一行。没有选中时，在光标处插入标记。
+  With text selected, a button works on it; headings, lists and quotes work on every selected
+  line. With nothing selected, the marks go in at the caret.
+- **再点一次就取消**（表格除外）：例如选中 `**粗体**` 再点 **B**。The same button again
+  **takes it off** (except the table): e.g. select `**bold**` and click **B**.
+- **Ctrl+Z 一次撤销一次操作**，Ctrl+Y 重做。One **Ctrl+Z undoes one action**; Ctrl+Y redoes it.
+- Ctrl+B 和 Ctrl+I 只在笔记中输入时有效；在书中，它们照旧交给 PDF.js 和浏览器。Ctrl+B and Ctrl+I work only
+  while typing in the note; in the book they stay PDF.js's and the browser's.
+- 只读（🔒）、载入中、有草稿或冲突的决定正在处理时，或者用输入法输入一个词还没选定时，按钮不可用。The buttons wait while
+  the note is read-only (🔒) or loading, a draft or conflict choice is being made, or an IME word
+  isn't chosen yet.
+- 有保存冲突时，你仍然可以输入和使用格式按钮：改动属于你的版本，在你选择**保留我的版本** (Keep mine) 或**载入磁盘版本** (Use the disk version) 之前不会写入文件。
+  During a save conflict you can still type and use the buttons: the changes are part of your
+  version and aren't written to the file until you choose **Keep mine** or **Use the disk
+  version**.
+- 自动保存、草稿和冲突的处理与输入时完全一样。Autosave, drafts and conflicts work exactly as for typing.
+
+#### 显示设置 / Display settings
+
+**Aa**（视图按钮的右边）打开显示设置：字体（系统、衬线、等宽）、字号、行距、段距（只影响预览）和宽度（整宽、宽、中、窄：文字列居中）。**恢复默认**
+(Reset) 回到原来的样子。设置只保存在这个浏览器中（不同浏览器、不同电脑各自设置），从不写入笔记或书库。
+**Aa** (right of the view buttons) opens the display settings: font (system, serif,
+monospace), size, line height, paragraph spacing (the preview only) and width (full, wide,
+medium, narrow: a centred column). **恢复默认** (Reset) goes back to the usual look. They're kept
+in this browser only (each browser and computer has its own) and never written into a note or
+the library.
+
 ### 9.4 Markdown 语法 / Markdown formatting
 
 预览使用 markdown-it 15.0.3（CommonMark 加表格和删除线）。
@@ -1075,7 +1120,8 @@ or **保存** (Save). (In the book, Ctrl+S is PDF.js's "save the PDF".)
 | 按键 Key | 作用 What it does |
 |---|---|
 | Ctrl+S | 保存笔记（从不保存 PDF）。Save the note (never the PDF). |
-| Ctrl+Z / Ctrl+Y | 撤销 / 重做你的输入（浏览器自带的撤销；PDF 标注的撤销不受影响）。Undo / redo your typing (the browser's own undo; the PDF marks' undo isn't affected). |
+| Ctrl+Z / Ctrl+Y | 撤销 / 重做你的输入和格式按钮的操作，每次一步（浏览器自带的撤销；PDF 标注的撤销不受影响）。Undo / redo your typing and the formatting buttons, one action at a time (the browser's own undo; the PDF marks' undo isn't affected). |
+| Ctrl+B / Ctrl+I | 粗体 / 斜体（只在笔记中）。Bold / italic (in the note only). |
 | Tab / Shift+Tab | 缩进 / 取消缩进（2 个空格；有选择时作用于每一行）。Indent / outdent (2 spaces; every selected line). |
 | Enter | 在列表（`-`、`*`、`+`、`1.`、`- [ ]`）或引用（`>`）中继续下一项；在空项上按 Enter 结束列表。Continues a list or quote; Enter on an empty item ends it. |
 | Alt+P | 源码 ↔ 预览。Source ↔ Preview. |
@@ -1160,7 +1206,6 @@ lets you choose.
 
 | 阶段 Phase | 计划 Plan |
 |---|---|
-| M5c | 基于选择的 Markdown 格式工具栏（标题、粗体、列表、表格、公式……）和排版设置（字体、字号、行距）。A selection-based Markdown formatting toolbar and display settings (font, size, line height). |
 | M5d | 粘贴截图和图片（Ctrl+V），保存为笔记旁的本地文件并在预览中显示。Pasting screenshots and images (Ctrl+V), saved as local files beside the note and shown in the preview. |
 | 以后 Later | 把截图识别成可编辑的公式或表格。Turning a screenshot into an editable equation or table. |
 
@@ -1627,8 +1672,8 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | 章节脚本和 `code/`（可执行学习）Chapter scripts and `code/` (executable learning) | 已实现；Python 测试。来源与代码之间的链接等扩展计划中（ROADMAP 第 6 节）。Implemented; Python tests. Extensions such as links between sources and code are planned (ROADMAP section 6). |
 | 现成安装包 The ready-to-use package | 可以构建；**没有自动测试**，在干净的环境中手动测试启动和退出。Builds; **no automated tests**, start and quit checked by hand in a clean environment. |
 | macOS / Linux | 未测试。Not tested. |
-| M5b 预览中的数学公式 Maths in the preview (KaTeX) | 已实现；Python 测试、Edge 浏览器测试和安装包中的离线检查只在本地运行过，**CI 尚未验证**。Implemented; Python tests, Edge browser tests and an offline check in a built package run locally only, **not yet verified by CI**. |
-| M5c 格式工具栏和排版设置 Formatting toolbar and display settings | **计划中，未实现。** Planned, not implemented. |
+| M5b 预览中的数学公式 Maths in the preview (KaTeX) | 已实现；Python 测试和 Edge 浏览器测试（CI）；安装包中的离线检查在本地做过。Implemented; Python and Edge browser tests (CI); an offline check in a built package done locally. |
+| M5c 格式工具栏和显示设置 Formatting toolbar and display settings | 已实现，**尚未提交**；Edge 浏览器测试（本地）。Implemented, **not yet committed**; Edge browser tests (locally). |
 | M5d 粘贴截图和图片 Pasted screenshots and images | **计划中，未实现。** Planned, not implemented. |
 | 以后：截图识别为可编辑的公式和表格 Later: screenshots into editable equations and tables | **计划中，未实现。** Planned, not implemented. |
 

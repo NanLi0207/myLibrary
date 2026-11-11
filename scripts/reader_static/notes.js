@@ -13,6 +13,11 @@
 // - Views (M5a): 源码 / 预览 / 分屏 (Source / Preview / Split), Alt+P, remembered in this
 //   browser. The preview (preview.js) is drawn from the session's text only: it never edits
 //   or saves, so switching views writes nothing.
+// - Formatting (M5c): a toolbar over the source (format.js turns each action into one edit of
+//   the Markdown, applied with insertText: one Undo reverts one action, and it reaches the
+//   session like typing); Ctrl+B / Ctrl+I only while typing in the note; nothing while the
+//   note can't be typed in or a word is being composed (IME). Display preferences (Aa: font,
+//   size, line height, paragraph spacing, width) are this browser's, never in the note.
 // - State on <body>, for tests and for the read-only and loading logic: data-ml-notes
 //   (open/closed), data-ml-notes-mode (side/drawer/full), data-ml-note-key, data-ml-note-state
 //   (loading/shown/empty/missing/none/error), data-ml-save-state (clean/dirty/saving/failed/
@@ -34,6 +39,7 @@
     last: `myLibrary.notes.last.${window.MYLIBRARY_SCOPE || "none"}:${docId}`,  // per library
     readOnly: "myLibrary.notes.readonly",
     view: "myLibrary.notes.view",
+    display: "myLibrary.notes.display",  // M5c: font, size, line height, spacing, width
   };
   const load = (key) => {
     try {
@@ -170,7 +176,53 @@
   preview.setAttribute("aria-label", "笔记预览 Note preview");
   const views = el("div", "ml-note-views");
   views.append(text, preview);
-  panel.append(divider, head, viewSwitch, status, bar, compare, views);
+  // M5c: the formatting toolbar (over the source) and the display preferences (Aa)
+  const HEADINGS = [["", "标题", "Heading"], ["h1", "H1", "Heading 1"], ["h2", "H2", "Heading 2"],
+    ["h3", "H3", "Heading 3"], ["h4", "H4", "Heading 4"], ["h5", "H5", "Heading 5"],
+    ["h6", "H6", "Heading 6"], ["h0", "正文", "Plain text"]];
+  const TOOLS = [  // action, label, Chinese, English, key
+    ["bold", "B", "粗体", "Bold", "Ctrl+B"], ["italic", "I", "斜体", "Italic", "Ctrl+I"],
+    ["strike", "S", "删除线", "Strikethrough"], ["bullet", "•", "项目列表", "Bulleted list"],
+    ["number", "1.", "编号列表", "Numbered list"], ["task", "☑", "任务列表", "Task list"],
+    ["quote", "❝", "引用", "Quote"], ["code", "`", "行内代码", "Inline code"],
+    ["codeblock", "```", "代码块", "Code block"], ["link", "🔗", "链接", "Link"],
+    ["image", "🖼", "图片（Markdown 语法）", "Image (Markdown syntax)"], ["table", "▦", "表格", "Table"],
+    ["math", "$", "行内公式", "Inline equation"], ["mathblock", "$$", "独立公式", "Displayed equation"],
+  ];
+  const tools = el("div", "ml-format-bar");
+  tools.id = "mlFormatBar";
+  tools.setAttribute("role", "toolbar");
+  tools.setAttribute("aria-label", "格式 Formatting");
+  const headingMenu = el("select", "ml-format-heading");
+  headingMenu.id = "mlFormatHeading";
+  headingMenu.title = "标题 Heading";
+  headingMenu.setAttribute("aria-label", headingMenu.title);
+  for (const [value, zh, en] of HEADINGS) {
+    const option = el("option", null, value ? `${zh} ${en}` : `${zh} ${en}…`);
+    option.value = value;
+    headingMenu.append(option);
+  }
+  tools.append(headingMenu);
+  const toolButtons = TOOLS.map(([action, label, zh, en, key]) => {
+    const b = el("button", "ml-tool", label);
+    b.type = "button";
+    b.dataset.action = action;
+    b.title = `${zh} ${en}${key ? ` (${key})` : ""}`;
+    b.setAttribute("aria-label", b.title);
+    tools.append(b);
+    return b;
+  });
+  const displayButton = el("button", "ml-small ml-display-toggle", "Aa");
+  displayButton.id = "mlDisplayToggle";
+  displayButton.type = "button";
+  displayButton.title = "显示设置 Display settings (this browser only)";
+  displayButton.setAttribute("aria-label", displayButton.title);
+  displayButton.setAttribute("aria-expanded", "false");
+  viewSwitch.append(displayButton);
+  const display = el("div", "ml-display");
+  display.id = "mlDisplay";
+  display.hidden = true;
+  panel.append(divider, head, viewSwitch, display, tools, status, bar, compare, views);
   body.append(panel);
 
   // 📝 on PDF.js's toolbar, at its right end
@@ -368,6 +420,7 @@
     body.dataset.mlNoteView = next;
     for (const [name, b] of viewButtons) b.setAttribute("aria-pressed", String(name === next));
     text.hidden = next === "preview";
+    tools.hidden = next === "preview";  // (formatting edits the source: shown with it)
     preview.hidden = next === "source";
     drawPreview();
     // The focus stays in the notes (never left to PDF.js, whose keys would turn pages)
@@ -441,6 +494,85 @@
       say(biEl("span", "ml-muted", `不是这份文档的笔记：${name}`, `Not a note of this document: ${name}`));
     }
   });
+
+  // --- display preferences (M5c): this browser's, never in the note ------------------------
+
+  const SYSTEM_FONT = 'system-ui, "Segoe UI", "Microsoft YaHei", sans-serif';
+  const DISPLAY = [  // name, Chinese, English, [value, label, CSS value], the default
+    ["font", "字体", "Font", [
+      ["system", "系统 System", SYSTEM_FONT],
+      ["serif", "衬线 Serif", 'Georgia, "Times New Roman", SimSun, serif'],
+      ["mono", "等宽 Monospace", 'Consolas, "Cascadia Mono", "Microsoft YaHei", monospace'],
+    ], "system"],
+    ["size", "字号", "Size", ["12", "13", "14", "15", "16", "18", "20"]
+      .map((n) => [n, `${n} px`, `${n}px`]), "14"],
+    ["line", "行距", "Line height", ["1.3", "1.45", "1.6", "1.8", "2"].map((n) => [n, n, n]), "1.6"],
+    ["para", "段距", "Paragraph spacing (preview)", ["0.4", "0.8", "1.2", "1.6"]
+      .map((n) => [n, `${n} em`, `${n}em`]), "0.8"],
+    ["width", "宽度", "Width", [
+      ["full", "整宽 Full", "100%"], ["wide", "宽 Wide", "56em"],
+      ["medium", "中 Medium", "44em"], ["narrow", "窄 Narrow", "34em"],
+    ], "full"],
+  ];
+  const CSS_VARS = { font: "--ml-note-font", size: "--ml-note-size", line: "--ml-note-line",
+    para: "--ml-note-para", width: "--ml-note-measure" };
+  const defaults = () => Object.fromEntries(DISPLAY.map(([name, , , , value]) => [name, value]));
+  // What's stored, each value checked against the choices (anything else: the default)
+  function storedDisplay() {
+    const chosen = defaults();
+    let saved = null;
+    try {
+      saved = JSON.parse(load(KEYS.display) || "null");
+    } catch {
+      saved = null;
+    }
+    if (saved && typeof saved === "object") {
+      for (const [name, , , options] of DISPLAY) {
+        if (options.some(([value]) => value === saved[name])) chosen[name] = saved[name];
+      }
+    }
+    return chosen;
+  }
+  let shown = storedDisplay();
+  const displayMenus = new Map();
+  function applyDisplay() {
+    for (const [name, , , options] of DISPLAY) {
+      const [, , css] = options.find(([value]) => value === shown[name]);
+      panel.style.setProperty(CSS_VARS[name], css);
+      const menuFor = displayMenus.get(name);
+      if (menuFor) menuFor.value = shown[name];
+    }
+    body.dataset.mlNoteDisplay = DISPLAY.map(([name]) => `${name}=${shown[name]}`).join(" ");
+  }
+  for (const [name, zh, en, options] of DISPLAY) {
+    const label = el("label", "ml-display-row");
+    const select = el("select");
+    select.dataset.pref = name;
+    for (const [value, text_] of options) {
+      const option = el("option", null, text_);
+      option.value = value;
+      select.append(option);
+    }
+    select.addEventListener("change", () => {
+      shown = { ...shown, [name]: select.value };
+      store(KEYS.display, JSON.stringify(shown));
+      applyDisplay();
+    });
+    label.append(bi(zh, en), select);
+    display.append(label);
+    displayMenus.set(name, select);
+  }
+  const resetDisplay = button("恢复默认", "Reset", () => {
+    shown = defaults();
+    store(KEYS.display, JSON.stringify(shown));
+    applyDisplay();
+  }, "mlDisplayReset");
+  display.append(resetDisplay);
+  displayButton.addEventListener("click", () => {
+    display.hidden = !display.hidden;
+    displayButton.setAttribute("aria-expanded", String(!display.hidden));
+  });
+  applyDisplay();
 
   function sessionFor(key) {
     if (!sessions.has(key)) {
@@ -529,6 +661,7 @@
     if (!entries.length) {
       text.value = "";
       text.readOnly = true;
+      syncTools();
       editButton.disabled = saveButton.disabled = true;
       setState("none", biEl("span", "ml-muted", "这份文档还没有笔记", "No notes for this document yet"));
       return;
@@ -561,6 +694,7 @@
     // Until this note's text is in the box, the box is read-only, and empty if it held
     // another note's text (that text stays in its own session)
     text.readOnly = true;
+    syncTools();
     if (text.dataset.key !== key) {
       text.value = "";
       delete text.dataset.key;
@@ -624,6 +758,7 @@
     lockButton.setAttribute("aria-pressed", String(readOnly));
     lockButton.textContent = readOnly ? "🔒" : "🔓";
     text.readOnly = readOnly || busy || state === "draft";
+    syncTools();
     // The state line (as in M3) and its hint
     if (!note.exists && !note.text) {
       setState("missing",
@@ -845,6 +980,67 @@
     return true;
   }
 
+  // --- formatting (M5c) ---------------------------------------------------------------------
+
+  const formatting = window.myLibraryFormat;
+  let composing = false;  // an IME word being composed: formatting waits for it
+  // (added after the session's own composition listeners, so the toolbar is set last)
+  text.addEventListener("compositionstart", () => {
+    composing = true;
+    syncTools();
+  });
+  text.addEventListener("compositionend", () => {
+    composing = false;
+    syncTools();
+  });
+  const canFormat = () => Boolean(formatting) && !text.readOnly && !composing && Boolean(typing());
+
+  // One action: one replacement of the source through insertText (so one Undo reverts it, and
+  // the input event hands it to the session), then the selection format.js gives
+  function format(action) {
+    if (!canFormat()) return false;
+    const edit = formatting.apply(text.value, text.selectionStart, text.selectionEnd, action);
+    text.focus({ preventScroll: true });
+    if (!edit) return true;
+    if (text.value.slice(edit.from, edit.to) !== edit.text) {
+      text.setSelectionRange(edit.from, edit.to);
+      if (!document.execCommand("insertText", false, edit.text)) {
+        // (no insertText: the text still changes and is saved, without the browser's Undo)
+        text.setRangeText(edit.text, edit.from, edit.to, "end");
+        text.dispatchEvent(new Event("input"));
+      }
+    }
+    text.setSelectionRange(edit.selStart, edit.selEnd);
+    return true;
+  }
+
+  function syncTools() {
+    const off = !canFormat();
+    headingMenu.disabled = off;
+    for (const b of toolButtons) b.disabled = off;
+    tools.dataset.state = off ? "off" : "on";
+  }
+  // The buttons never take the focus from the note (its selection stays where it was)
+  tools.addEventListener("mousedown", (event) => {
+    if (event.target.closest("button")) event.preventDefault();
+  });
+  for (const b of toolButtons) b.addEventListener("click", () => format(b.dataset.action));
+  headingMenu.addEventListener("change", () => {
+    const action = headingMenu.value;
+    headingMenu.value = "";
+    if (action) format(action);
+  });
+
+  // Ctrl+B / Ctrl+I: only here, while typing in the note (by the key's position, so any
+  // layout or IME); stopped here, so PDF.js and the browser never see them
+  text.addEventListener("keydown", (event) => {
+    const shortcut = { KeyB: "bold", KeyI: "italic" }[event.code];
+    if (!shortcut || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.isComposing && event.keyCode !== 229) format(shortcut);
+  });
+
   text.addEventListener("keydown", (event) => {
     if (text.readOnly || event.isComposing || event.keyCode === 229) return;
     if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
@@ -881,5 +1077,6 @@
 
   apply(false);
   setView(view, false);
+  syncTools();
   if (open) loadList();
 })();

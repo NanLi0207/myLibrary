@@ -117,7 +117,8 @@ not yet pushed.
 | M4 在面板中编辑和保存 M4 editing and saving in the panel | ✅ 用户人工验收已通过 user acceptance passed | `268a7cd` |
 | 审计后的数据安全修复 Data-safety fixes after the audit (D5, D13–D17, D19, D20, B26) | ✅ | `ac206d4`, `8f029a7`, `edb4dbe`, `8154293`, `0bb1ad7`, `d7b9fc5`, `aa4bf1c`, `a32f3fc`, `0692189` |
 | M5a Markdown 预览 M5a Markdown preview | 👀 已提交，CI 自 `d6c1a5d` 全绿。**未完成：**只用含 M5b 的工作区构建的安装包检查过离线预览（2026-11-11，可用），只含已提交 M5a 的构建从未检查；用户的人工验收没有记录。Committed; CI green since `d6c1a5d`. **Open:** the offline preview was checked only in a package built from the working tree with M5b (2026-11-11: it works), never in a build of the committed M5a alone; the user's manual acceptance isn't recorded. | `b9323dc`, `001b10f` |
-| M5b LaTeX 数学公式 M5b LaTeX maths | 👀 2026-11-11 批准、实现并提交。**只在本地验证**：Python、Edge 浏览器测试和安装包离线检查通过；**CI 尚未运行**（等待推送批准）。Approved, implemented and committed 2026-11-11. **Verified locally only**: Python and Edge tests and an offline package check pass; **CI hasn't run yet** (push awaiting approval). | 提交 commit "Add offline KaTeX maths rendering to notes preview" |
+| M5b LaTeX 数学公式 M5b LaTeX maths | ✅ 2026-11-11 提交、推送，CI 通过：`330362d`，运行 43007792666（第一次运行 43002486914 中浏览器测试失败：一个测试的误报，已在 `330362d` 修正，以及 L25）。Committed, pushed and CI-verified 2026-11-11: `330362d`, run 43007792666 (the first run, 43002486914, failed in the browser job: a false positive in one test, fixed in `330362d`, and L25). | `54c761e`, `330362d` |
+| M5c 格式工具栏与显示偏好 M5c Formatting toolbar and display preferences | 🧪 2026-11-11 批准并实现；Python 和 Edge 测试在本地通过；**未提交**，等待用户审核。Approved and implemented 2026-11-11; Python and Edge tests pass locally; **not committed**, awaiting the user's review. | — |
 | 第 4b 节：多个书库、测试/示例书库、可迁移书库 Section 4b: several libraries, Test & Demo library, portable libraries | ✅ 含 L15 修复 with the L15 fix | `2b0ff96`, `4094dc4` |
 | 页面重新载入时连接被拒（监听队列 5 → 64）Connections refused on reload (listen backlog 5 → 64) | ✅ | `d6c1a5d` |
 | 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
@@ -138,9 +139,10 @@ count. **L20** (one unidentified test failure) stays unresolved, see section 11.
 ## 2. 当前里程碑 / The current milestone
 
 **任务 4 / Task 4, M5（预览、公式、格式、粘贴图片 / preview, maths, formatting, pasted images）。**
-M5a 已提交；**M5b 于 2026-11-11 批准、实现并提交，已在本地验证，等待推送和 CI**；M5c 开始前需要用户批准（2026-11-08 的决定：M5b–M5d 各自单独批准）。
-M5a is committed; **M5b was approved, implemented and committed on 2026-11-11, verified locally;
-its push and CI are pending**; M5c needs the user's approval before work starts (decision of
+M5a 已提交；M5b 已提交、推送并通过 CI（`330362d`）；**M5c 于 2026-11-11 批准并已实现，等待用户审核后提交**；M5d 开始前需要用户批准（2026-11-08 的决定：M5b–M5d 各自单独批准）。
+M5a is committed; M5b is committed, pushed and CI-verified (`330362d`); **M5c was approved on 2026-11-11 and is
+implemented, awaiting the user's review before it is committed**; M5d needs the user's approval
+before work starts (decision of
 2026-11-08: M5b–M5d are each approved separately).
 
 在用户批准之前，开发会话只做：已批准工作的收尾（例如 M5a 的安装包验证）、经同意的第 11 节错误修复；不开始新的里程碑，
@@ -151,7 +153,7 @@ P2–P5, none of the new E/R/G/X/U items.
 
 **仍未完成 / Still open:** M5a 在只含已提交代码的安装包中的离线预览检查和用户的人工验收（第 1 节）；M5b 的用户审核、提交和 CI。
 M5a's offline-preview check in a package built from committed code and the user's manual
-acceptance (section 1); M5b's push and CI verification.
+acceptance (section 1); M5c's review by the user, its commit and CI.
 
 **L21**（数据完整性 data integrity）：2026-11-10 复现并修复（第 11 节"已修复"）。Reproduced and fixed 2026-11-10
 (section 11, "Fixed"). **新发现 / Found on the way:** B29（DOI 的同类问题 the DOI analogue）、B30（术语表并发测试间歇失败，
@@ -210,7 +212,7 @@ drafts, the leave warning); PDF.js reading, marks, search and reading progress a
 dependencies are exact versions with committed SHA-256 values, served locally, no CDN, no build
 step.
 
-### M5b — LaTeX 数学公式 / LaTeX maths 👀 已提交，CI 待验证 committed, CI pending (approved 2026-11-11)
+### M5b — LaTeX 数学公式 / LaTeX maths ✅ (`54c761e`, `330362d`; CI run 43007792666)
 
 - **目标 Objective:** 在预览中显示公式。Show equations in the preview.
 - **依赖 Dependencies:** M5a.
@@ -241,7 +243,7 @@ step.
     formula; a formula's result cached per text. `notes.css`: display and error styles.
   - `build_package.py`: `copy_reading_view` copies KaTeX (refuses to build if it isn't
     verified) and its licence; CI's browser job installs and caches it.
-- **验证 Verification (local only, 2026-11-11; CI pending):** `tests/test_maths_setup.py` (19);
+- **验证 Verification (2026-11-11; CI: run 43007792666 on `330362d`):** `tests/test_maths_setup.py` (19);
   `tests/browser/test_notes_maths.py` (13, Edge: the four delimiters and common constructs,
   amounts, escapes, code, unclosed delimiters, invalid formulas, hostile input, huge and nested
   formulas, light and dark, views, typing and saving, conflicts and leaving, three kinds of
@@ -250,7 +252,7 @@ step.
   Edge): maths typeset with KaTeX's fonts from the package, the PDF opened, nothing written into
   the package folder. Limits: L24 (section 11).
 
-### M5c — 格式工具栏与显示偏好 / Formatting toolbar and display preferences 📋 需批准 needs approval
+### M5c — 格式工具栏与显示偏好 / Formatting toolbar and display preferences 🧪 已实现，未提交 implemented, not committed (approved 2026-11-11)
 
 - **目标 Objective:** 不写 Markdown 也能排版，仍然只编辑 Markdown 源码。Formatting without typing Markdown,
   still editing only the Markdown source.
@@ -270,6 +272,28 @@ step.
   a conflict.
 - **验收 Acceptance:** 每个按钮生成正确的 Markdown；一次撤销还原一次操作；PDF.js 的快捷键不受影响。Every button
   produces the right Markdown; one undo reverts one action; PDF.js shortcuts unaffected.
+- **实现 Implementation (2026-11-11, not committed):**
+  - `reader_static/format.js` (new; `reader.viewer_html` loads it before `notes.js`): every
+    action as text in, one replacement out (`apply(value, start, end, action)`), no page access.
+    Toggles: inline marks (`**`, `*`, `~~`, `` ` ``, `$`: by the run of markers around or inside
+    the selection; several lines: each line), line prefixes (H0–H6, `- `, `1. `, `- [ ] `, `> `:
+    every line touched; the selection moves with its text), blocks (```` ``` ```` and `$$`:
+    the selection or the lines inside one), link and image (the whole link, or the target the
+    button selected). The table is inserted, never toggled.
+  - `notes.js`: the toolbar (a heading menu and 14 buttons, shown with the source: hidden in
+    Preview), each action one `insertText` (one Undo; the `input` event hands it to the
+    `NoteSession`), Ctrl+B / Ctrl+I on the note's textarea only (stopped there), nothing while
+    the note can't be typed in (read-only, loading, a draft, a conflict decision on its way) or
+    during IME composition; during an unresolved conflict it stays available, like typing (the
+    user's decision, 2026-11-11: the changes are part of "mine" until Keep mine / Use disk); Aa: display preferences in `localStorage`
+    (`myLibrary.notes.display`, each value checked against the choices) as CSS variables whose
+    defaults are the earlier look. `notes.css`: the toolbar, the settings, the variables.
+- **验证 Verification (local, 2026-11-11):** `tests/browser/test_notes_format.py` (16, Edge:
+  every action and its toggle, every button and heading level, the selection, Undo and Redo
+  one action at a time, Ctrl+B / Ctrl+I only in the note and PDF.js's keys unchanged, IME
+  composition, read-only, autosave, a conflict, the views, a narrow panel, display preferences
+  (applied, remembered, reset, invalid stored values, the note never touched));
+  `tests/test_preview_setup.py` (format.js served and loaded before notes.js). Limits: L26.
 
 ### M5d — 粘贴截图和图片 / Pasted screenshots and images 📋 需批准 needs approval
 
@@ -676,6 +700,8 @@ in the history, section 3; this table is the current state.
 | L19 | 没有作者和年份的文档，名字中有两个连字符。A document without author or year gets a slug with two hyphens. | — |
 | L22 | 安装包的启动器 `package/launch.py` 自己计算 `%APPDATA%/myLibrary`（日志），而不是用 `platform_services.user_data_dir()`；两者目前一致，但改其中一个时要同时改另一个。The package launcher computes `%APPDATA%/myLibrary` (its log) itself rather than through `platform_services.user_data_dir()`; they agree today, but changing one means changing the other. | 第 9 节 section 9 |
 | L25 (S) | CI 的 Windows 运行器上偶尔出现 `net::ERR_NO_BUFFER_SPACE`（Windows WSAENOBUFS：无法为连接分配套接字），页面的某个请求失败，测试超时：2026-11-08 运行 42527186504（`test_search_results_stay_on_screen`，在 KaTeX 之前）和 2026-11-11 运行 43002486914（`test_readable_in_light_and_dark[dark]`，PDF.js 的 `viewer.mjs`）。没有发现泄漏（本地运行中已建立和 CLOSE_WAIT 的连接数不增长）；服务器用 HTTP/1.0，每个请求一个连接，留下 TIME_WAIT；KaTeX 使每次阅读页面多 2 个请求（显示公式时最多再加约 4 个字体）。原因未确定，没有改动。Occasional `net::ERR_NO_BUFFER_SPACE` on CI's Windows runner (Windows WSAENOBUFS: no socket could be allocated for a connection): one of the page's requests fails and the test times out: run 42527186504 on 2026-11-08 (`test_search_results_stay_on_screen`, before KaTeX) and run 43002486914 on 2026-11-11 (`test_readable_in_light_and_dark[dark]`, PDF.js's `viewer.mjs`). No leak found (established and CLOSE_WAIT connections don't grow in local runs); the server speaks HTTP/1.0, one connection per request, leaving TIME_WAIT sockets; KaTeX adds 2 requests per reader page (up to about 4 more fonts when formulas show). Cause unresolved; nothing changed. | — |
+| B31 (S) | **未确认 UNCONFIRMED.** 用户报告 `$a^2 + b^2 = c^2$` 在自己实际使用的预览中没有显示为公式。没有复现，原因未知；测试书库和安装包中同一个公式可以渲染（M5b 测试）。可能的方向（未验证）：服务器启动时 KaTeX 还没安装（`--setup-maths`），或者浏览器用的是旧的页面。需要用户在真实环境中手动确认后才能关闭。The user reported `$a^2 + b^2 = c^2$` not shown as a formula in their own preview. Not reproduced, cause unknown; the same formula renders in test libraries and in a built package (M5b tests). Possible directions (unverified): KaTeX not yet installed when the server started (`--setup-maths`), or the browser using an old page. Stays open until the user confirms it by hand in their real setup. | — |
+| L26 | 格式工具栏的限制（`format.js`、`notes.js`）：表格只插入、不能取消；选中一个网址后点链接，网址成为目标，再点一次不会还原；段距只影响预览（源码没有段落）；宽度在源码中只限制文本框本身；工具栏和 Ctrl+B / Ctrl+I 只用 `insertText`，浏览器不支持时改为直接替换（仍然保存，但没有撤销）。Limits of the formatting toolbar: a table is only inserted, never toggled off; a selected web address becomes the link's target, and a second click doesn't undo that; paragraph spacing affects only the preview (the source has no paragraphs); the width only narrows the source box itself; actions go through `insertText`, with a plain replacement where a browser lacks it (still saved, but no Undo). | — |
 | L24 | 预览中公式的规则限制（`preview.js` 的 `mathInline`/`mathBlock`）：公式中不能有反引号（反引号结束查找，代码优先）；`[a $x](u)$` 这类链接与公式交错时公式优先；表格单元格中公式里的 `\|`（未转义的竖线）会把单元格分开（用 `\vert`）；没闭合的 `\(` 按 Markdown 显示为 `(`；`$a$$b$` 显示为错误；每次修改都重新渲染整条笔记（已渲染的公式有缓存；10,000 个公式约 1 秒）。Limits of the maths rules in the preview: no backtick inside a formula (a backtick ends the search: code comes first); a link interleaved with a formula, like `[a $x](u)$`, goes to the formula; an unescaped `\|` in a formula inside a table cell splits the cell (use `\vert`); an unclosed `\(` shows as `(`, as Markdown escapes it; `$a$$b$` shows as an error; every change redraws the whole note (typeset formulas are cached; 10,000 formulas take about a second). | — |
 
 **已修复（历史记录中仍列为未解决）/ Fixed (still listed as open in the history)**
