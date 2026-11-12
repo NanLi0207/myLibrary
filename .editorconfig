@@ -1,0 +1,48 @@
+# Optional editor-level companion for AGENTS.md and docs/AI_DEVELOPMENT.md.
+# An EditorConfig-aware editor applies these rules to every file it saves, existing files
+# included, so only rules that the repository's files already satisfy are set here.
+# Ruff and the tests remain the executable checks.
+# Deliberately NOT set anywhere: charset (would strip BOMs, e.g. catalog.csv is utf-8-sig) and
+# end_of_line except for .cmd (git core.autocrlf decides working-copy endings; forcing LF or CRLF
+# would rewrite every line of an existing file on save). Markdown, CSV, JSON and text files get
+# no rules: notes and fixtures keep their exact bytes.
+root = true
+
+[*.py]
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{js,css,html}]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# pyproject.toml and other TOML files use 4-space indentation.
+[*.toml]
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# GitHub Actions workflows use 2-space steps.
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Windows batch files need CRLF (same as .gitattributes).
+[*.cmd]
+end_of_line = crlf
+
+# Frozen showcase and test libraries: never normalized by an editor (last section wins).
+[{library,test_library}/**]
+charset = unset
+end_of_line = unset
+indent_style = unset
+indent_size = unset
+trim_trailing_whitespace = unset
+insert_final_newline = unset

@@ -1,5 +1,19 @@
 # myLibrary
 
+## Shared AI development rules (read first)
+
+@docs/AI_DEVELOPMENT.md
+
+- Claude Code and Codex follow the same shared development rules in `docs/AI_DEVELOPMENT.md`
+  (roles, approval gates, code style, tests, handoff); `AGENTS.md` is Codex's entry point to it.
+- Both agents also respect this file's myLibrary architecture and data-safety rules below; where
+  two rules differ, the stricter data-safety rule wins and the conflict is reported to the owner.
+- Only one agent writes to the working tree at a time (the Implementer); the other acts as the
+  Independent Reviewer and does not edit it.
+- Commits and pushes always need the owner's separate, explicit approval, each one.
+
+The rest of this file is the project-specific reference and is unchanged by the shared rules.
+
 A general study tool for learning from your own PDF books (any subject): reading view with
 English–Chinese lookup and subject glossaries, book search, progress, shelves, notes, topic notes,
 and per-chapter Python scripts for checking a book's worked examples. No marimo/notebooks.
