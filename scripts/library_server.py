@@ -69,6 +69,11 @@ LIBRARY = paths.LIBRARY
 CATALOG = LIBRARY / "catalog.csv"
 CACHE = LIBRARY / ".cache" / "chapter_pages.json"
 TOKEN = secrets.token_urlsafe(24)
+# This server process's identity (B35): not a secret, it grants nothing (every write needs
+# TOKEN), but it changes with every start. A page waiting for a Settings restart reloads only
+# once a server with another INSTANCE answers: the old one goes on answering while it lets its
+# running jobs finish, and reloading from it would give the page a token that is about to die
+INSTANCE = secrets.token_hex(8)
 _LIBRARY_LOCK = None  # the library's lock while this server runs (main, libraries.hold_library)
 # This library's key in the browser (recovery drafts: libraries.scope), and whether it's the
 # default library (the only one that can show drafts from before there were several)
@@ -358,7 +363,12 @@ def change_settings(updates: dict) -> dict:
             clean["library"] = folder.as_posix()
             restart = True
     paths.save_settings(clean)
-    return {"restart": restart}
+    if not restart:
+        return {"restart": False}
+    # The library the new server must show (B35): its scope (id and real folder, the server's
+    # own normalising), so the page reloads only from that library, never from a server that
+    # happens to answer on the port with another one
+    return {"restart": True, "expect": libraries.scope(folder)}
 
 
 # --- actions ------------------------------------------------------------------------------
@@ -858,7 +868,8 @@ class Handler(BaseHTTPRequestHandler):
             # (scope: this library's key in the browser, for stored ticks; tick_versions: taken
             # before the page's chapters are read, so never newer than what it shows; B32)
             ticks = {"start": TICK_START, "documents": tick_versions()}
-            api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE,
+            api = {"token": TOKEN, "instance": INSTANCE, "python": python_features(),
+                   "package": paths.IS_PACKAGE,
                    "backup": backup.available(),
                    "backup_deferred": backup.DEFERRED,  # (shown, paused: never hidden)
                    "folder_backup": bool(paths.load_settings().get("backup_folder"))
@@ -869,7 +880,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(HTTPStatus.OK, html.encode(), "text/html; charset=utf-8")
         if path == "/api/whoami":  # which library this is (libraries.server_at)
             test = libraries.is_test_library(LIBRARY)
-            about = {"library": str(LIBRARY), "id": libraries.info(LIBRARY)["id"], "test": test}
+            about = {"library": str(LIBRARY), "id": libraries.info(LIBRARY)["id"], "test": test,
+                     "instance": INSTANCE, "scope": SCOPE}  # fmt: skip
             return self._json(HTTPStatus.OK, about)
         if path == "/pdfjs/web/viewer.html" and reading_view.viewer_ready():
             html = reading_view.viewer_html(TOKEN, SCOPE, legacy_drafts=IS_DEFAULT)
@@ -1351,7 +1363,10 @@ def restart_later(server) -> None:
         subprocess.Popen([sys.executable, sys.argv[0], *args, "--no-browser"], cwd=paths.APP)
         os._exit(0)
 
-    threading.Thread(target=go, daemon=True).start()
+    # Not a daemon (B35): shutdown() above lets main()'s serve_forever return, and the
+    # interpreter, ending, would kill a daemon thread before it starts the new server (seen:
+    # sometimes no new server at all). Python waits for this thread instead; it ends in os._exit
+    threading.Thread(target=go, daemon=False).start()
 
 
 def finish_jobs(timeout: float = 120) -> None:

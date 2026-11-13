@@ -1490,17 +1490,81 @@ function toast(message) {
 }
 
 async function api(path, body) {
-  const response = await fetch(path, {
-    method: "POST",
-    keepalive: true,  // a click's write (tick, shelves, review answer) arrives even if the tab closes
-    headers: {"Content-Type": "application/json", "X-Library-Token": API.token},
-    body: JSON.stringify(body),
-  });
+  let response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      keepalive: true,  // a click's write (tick, shelves, review answer) arrives even if the tab closes
+      headers: {"Content-Type": "application/json", "X-Library-Token": API.token},
+      body: JSON.stringify(body),
+    });
+  } catch {  // no answer at all: myLibrary isn't running (or is between restarts)
+    throw Object.assign(new Error("myLibrary isn't reachable: is it running?"), {status: 0});
+  }
   const data = await response.json().catch(() => ({}));
+  if (response.status === 403) {
+    // Refused (B35): this page's key may belong to a myLibrary that has since restarted, or the
+    // request failed the Host check. Neither says what happened to earlier writes, so the
+    // message claims nothing about them; nothing is sent again with another key, and no key is
+    // ever shown
+    throw Object.assign(new Error("Request refused (403). This page may be outdated. Reload " +
+      "myLibrary and check whether your previous changes were saved."), {data, status: 403});
+  }
   if (!response.ok) {
     throw Object.assign(new Error(data.error || response.statusText), {data, status: response.status});
   }
   return data;
+}
+
+// After a Settings change that restarts myLibrary: wait for the NEW server of the intended
+// library, not just any answer (B35). The old one goes on answering while it lets running jobs
+// finish (up to 2 minutes), and a page reloaded from it would carry a dead key; another server on
+// the port may show another library. `expect` is the scope the server gave for the library
+// chosen (its id and real folder, normalised by the server). The instance id only tells servers
+// apart; it grants nothing.
+const RESTART_WAIT_MS = 150_000;  // in all, from the save; tests shorten it (mlRestartWaitMs)
+const RESTART_POLL_MS = 750;
+const RESTART_ASK_MS = 5_000;  // one /api/whoami, its whole answer included
+const INSTANCE_RE = /^[0-9a-f]{16}$/;
+const SCOPE_RE = /^[0-9a-f]{16}$/;
+
+function isReplacement(about, expect) {
+  return typeof expect === "string" && SCOPE_RE.test(expect)
+    && about !== null && typeof about === "object"
+    && typeof about.instance === "string" && INSTANCE_RE.test(about.instance)
+    && about.instance !== API.instance
+    && typeof about.scope === "string" && about.scope === expect;
+}
+
+// true once the intended server answers; else why not ("unreachable", "refused (403)",
+// "another server"...), always within the one overall deadline: each request is aborted when
+// its own time or the overall time runs out, the answer's body included
+async function waitForRestart(expect, total = window.mlRestartWaitMs || RESTART_WAIT_MS) {
+  const deadline = performance.now() + total;  // monotonic, never reset
+  const left = () => deadline - performance.now();
+  let why = "no answer";
+  while (left() > 0) {
+    await new Promise(done => setTimeout(done, Math.min(RESTART_POLL_MS, left())));
+    if (left() <= 0) break;
+    const stop = new AbortController();
+    const timer = setTimeout(() => stop.abort(), Math.min(RESTART_ASK_MS, left()));
+    try {
+      const r = await fetch("/api/whoami", {cache: "no-store", signal: stop.signal});
+      if (!r.ok) {
+        why = `refused (${r.status})`;
+        continue;
+      }
+      const about = await r.json();  // the abort cuts a stalled body off too
+      if (isReplacement(about, expect)) return {ok: true};
+      why = "another server or library";
+    } catch (err) {
+      why = err?.name === "AbortError" ? "no complete answer in time"
+        : err?.name === "TypeError" ? "unreachable" : "an unreadable answer";  // fetch: TypeError
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return {ok: false, why};
 }
 
 // The system's folder dialog (/api/pick-folder): the folder chosen, or null when cancelled or
@@ -1824,14 +1888,10 @@ async function saveSettings() {
     const r = await api("/api/settings", {save});
     document.getElementById("settingsDialog").close();
     if (!r.restart) return location.reload();
-    toast("Opening the library…");
-    for (let i = 0; i < 40; i++) {  // the server restarts with the new library
-      await new Promise(done => setTimeout(done, 750));
-      try {
-        if ((await fetch("/", {cache: "no-store"})).ok) return location.reload();
-      } catch {}
-    }
-    toast("The library didn't come back; start myLibrary again");
+    toast("Opening the library… (running jobs finish first)");
+    const back = await waitForRestart(r.expect);  // the server restarts with the new library
+    if (back.ok) return location.reload();
+    toast(`The library didn't come back (${back.why}); start myLibrary again`);
   } catch (err) {
     toast(`Couldn't save: ${err.message}`);
   }

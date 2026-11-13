@@ -1,5 +1,7 @@
 import io
 import json
+import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -8,7 +10,9 @@ import time
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
+from pathlib import Path
 
+import libraries
 import library_page
 import library_server
 import pytest
@@ -650,3 +654,114 @@ def test_pick_folder_answers(library, monkeypatch):
         assert data["status"] == "error" and data["detail"] == "PowerShell failed"
     finally:
         server.shutdown()
+
+
+def test_a_restarting_server_still_answers_as_itself_until_it_is_gone(library, monkeypatch):
+    """B35: while a Settings restart waits for running jobs, the old server goes on answering,
+    with its own instance id: a page must wait for another id, not just any answer. The id is
+    no secret (it grants nothing) and the Host check still applies to it."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), library_server.Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_port}"
+    holding, release, started, exited = (threading.Event() for _ in range(4))
+    spawned = []
+
+    def jobs_still_running(timeout=120):  # the old server is kept alive here, deliberately
+        holding.set()
+        assert release.wait(30)
+
+    monkeypatch.setattr(library_server, "finish_jobs", jobs_still_running)
+    monkeypatch.setattr(library_server.subprocess, "Popen",
+                        lambda args, **kw: (spawned.append(args), started.set()))  # fmt: skip
+    monkeypatch.setattr(library_server.os, "_exit", lambda code: exited.set())
+    monkeypatch.setattr(library_server.sys, "argv",
+                        ["library_server.py", "--library", "x", "--port", "8765"])  # fmt: skip
+
+    def whoami(host=None):
+        request = urllib.request.Request(base + "/api/whoami",
+                                         headers={"Host": host} if host else {})  # fmt: skip
+        with urllib.request.urlopen(request, timeout=10) as answer:
+            return answer.status, json.load(answer)
+
+    status, before = whoami()
+    assert status == 200 and before["instance"] == library_server.INSTANCE
+    assert before["scope"] == library_server.SCOPE  # which library, for the page's check
+    assert library_server.TOKEN not in json.dumps(before)
+    with pytest.raises(urllib.error.HTTPError) as foreign:
+        whoami(host="evil.example")  # DNS rebinding: refused, as every route
+    assert foreign.value.code == 403
+    try:
+        library_server.restart_later(server)
+        assert holding.wait(30)  # the restart has begun and waits for "jobs"
+        status, during = whoami()
+        assert status == 200 and during["instance"] == before["instance"]  # still the old one
+    finally:
+        release.set()
+    assert started.wait(30) and exited.wait(30)
+    args = spawned[0]
+    assert "--library" not in args and "--no-browser" in args  # the new one reads the settings
+
+
+def test_a_library_change_names_the_library_the_new_server_must_show(
+    library, tmp_path, monkeypatch
+):
+    """B35: the answer to a library change gives the scope the new server must show (the
+    library's id and real folder, normalised by the server), and the page reloads only from a
+    server with that scope: the same folder spelled otherwise matches, a copy (same id,
+    another folder) doesn't."""
+    monkeypatch.setattr(library_server.paths, "save_settings", lambda settings: None)
+    folder = tmp_path / "Next library 下一个书库"
+    result = library_server.change_settings({"library": str(folder)})
+    assert result == {"restart": True, "expect": libraries.scope(folder)}
+    assert re.fullmatch(r"[0-9a-f]{16}", result["expect"])
+    assert libraries.info(folder)["id"]  # it has an id, and the scope covers more than it
+    respelled = tmp_path / "elsewhere" / ".." / folder.name
+    if sys.platform == "win32":  # (folder names are case-insensitive there)
+        respelled = Path(str(respelled).upper())
+    assert libraries.scope(respelled) == result["expect"]
+    copy = tmp_path / "Copied library"
+    shutil.copytree(folder, copy)
+    assert libraries.info(copy)["id"] == libraries.info(folder)["id"]
+    assert libraries.scope(copy) != result["expect"]
+    # no library change: no restart, nothing to wait for
+    assert library_server.change_settings({"library": str(library)}) == {"restart": False}
+
+
+RESTART_RACE = """
+import sys, threading
+sys.path.insert(0, sys.argv[1])
+marker = sys.argv[3]
+sys.argv = ["library_server.py", "--library", sys.argv[2], "--port", "8765"]
+import library_server
+
+library_server.finish_jobs = lambda timeout=120: None
+closing = library_server.Server.server_close
+
+
+def slow_close(self):  # by then the main thread is surely ending (serve_forever has returned)
+    threading.Event().wait(1)
+    closing(self)
+
+
+library_server.Server.server_close = slow_close
+library_server.subprocess.Popen = lambda args, **kw: open(marker, "w").close()
+server = library_server.Server(("127.0.0.1", 0), library_server.Handler)
+library_server.restart_later(server)
+server.serve_forever()  # returns once the restart has shut the server down: the script ends
+"""
+
+
+def test_a_restart_starts_the_new_server_even_as_the_main_thread_ends(library, tmp_path):
+    """B35: the restart's shutdown() lets main()'s serve_forever return, so the interpreter
+    starts ending while the restart has yet to start the new server. It must not be cut off
+    there (it was, as a daemon thread: sometimes no new server at all, and the page waited for
+    one in vain). In a real process; the new server's start is recorded, not run."""
+    script, marker = tmp_path / "restart_race.py", tmp_path / "new server started"
+    script.write_text(RESTART_RACE, encoding="utf-8")
+    scripts = Path(library_server.__file__).parent
+    run = subprocess.run(
+        [sys.executable, str(script), str(scripts), str(library), str(marker)],
+        capture_output=True, text=True, timeout=60, cwd=tmp_path,
+    )  # fmt: skip
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert marker.exists(), run.stdout + run.stderr
