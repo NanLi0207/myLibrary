@@ -4,6 +4,7 @@ recognition responses for deterministic UI, late responses and error cases. Inve
 
 import base64
 import io
+import json
 import re
 
 import formula_ocr
@@ -206,6 +207,24 @@ def test_native_clipboard_ctrl_v(library, server_factory, reader_page):
     assert len(list((note_path(library, doc).parent / "assets").iterdir())) == 1
 
 
+def wait_until_captured(page, pending: list, timeout_ms: int = 15_000) -> None:
+    """Wait until the route handler has captured the request and its real server response.
+
+    In Playwright's synchronous API a route handler runs only while the test is inside a
+    Playwright call, so this waits with page.wait_for_timeout (which lets Playwright process
+    the handler and its route.fetch), never with a Python sleep or a bare loop. Bounded: an
+    informative failure if nothing is captured in time."""
+    step, waited = 50, 0
+    while not pending:
+        if waited >= timeout_ms:
+            raise AssertionError(
+                f"the image upload to /api/notes/asset wasn't intercepted and fetched from "
+                f"the server within {timeout_ms} ms"
+            )
+        page.wait_for_timeout(step)
+        waited += step
+
+
 def test_upload_finishing_after_note_switch_keeps_image_without_wrong_insertion(
     library,
     server_factory,
@@ -216,21 +235,29 @@ def test_upload_finishing_after_note_switch_keeps_image_without_wrong_insertion(
     pending = []
 
     def delay(route):
-        pending.append((route, route.fetch()))
+        pending.append((route, route.fetch()))  # (the real server write; the reply held)
 
     page.route("**/api/notes/asset", delay)
     paste(page)
     expect(page.locator("body")).to_have_attribute("data-ml-paste", "saving")
-    # A real server write is held back only on its return trip.
+    # The server has written the image (route.fetch); only its reply to the page is held back,
+    # captured before the note is switched (CI run 43414437518: asserted too early before)
+    wait_until_captured(page, pending)
+    assert len(pending) == 1
+    saved = json.loads(pending[0][1].body())
+    image = note_path(library, doc).parent / saved["path"]
+    assert image.read_bytes() == image_bytes()  # on disk already, before the page knows
     page.locator("#mlNoteSelect").select_option("file:ch02-aberrations.md")
     expect(page.locator(EDITOR)).to_have_value(re.compile("# Chapter 2"))
-    assert pending
+    # the page still waits for the reply
+    assert page.evaluate("() => document.body.dataset.mlPaste") == "saving"
     pending[0][0].fulfill(response=pending[0][1])
     expect(page.locator(".ml-paste-kept")).to_be_visible()
-    assert "![image]" not in editor_text(page)
+    assert "![image]" not in editor_text(page)  # never put into the note now shown
     page.locator(".mlInsertKept").click()
-    assert "![image](assets/" in editor_text(page)
-    assert "![image]" not in note_path(library, doc).read_text("utf-8")
+    assert f"![image]({saved['path']})" in editor_text(page)  # only on the user's choice
+    assert "![image]" not in note_path(library, doc).read_text("utf-8")  # nor the first note
+    assert image.read_bytes() == image_bytes()  # the image itself kept throughout
 
 
 @pytest.mark.parametrize("candidates", [[r"E=h\nu"], ["x_1", "x_l", "x_I"]])
