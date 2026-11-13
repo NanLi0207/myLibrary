@@ -120,7 +120,7 @@ not yet pushed.
 | M5b LaTeX 数学公式 M5b LaTeX maths | ✅ 2026-11-11 提交、推送，CI 通过：`330362d`，运行 43007792666（第一次运行 43002486914 中浏览器测试失败：一个测试的误报，已在 `330362d` 修正，以及 L25）。Committed, pushed and CI-verified 2026-11-11: `330362d`, run 43007792666 (the first run, 43002486914, failed in the browser job: a false positive in one test, fixed in `330362d`, and L25). | `54c761e`, `330362d` |
 | M5c 格式工具栏与显示偏好 M5c Formatting toolbar and display preferences | ✅ 2026-11-11 提交、推送，CI 通过：`9088646`，运行 43027506402（第一次运行 43022257625 中浏览器测试超过 15 分钟的限制，之后分到几个运行器上；那次的两个失败见 L25、B32）。Committed, pushed and CI-verified 2026-11-11: `9088646`, run 43027506402 (in the first run, 43022257625, the browser tests ran past their 15-minute limit; they were then split across runners; that run's two failures: L25, B32). | `ab9c666`, `9088646` |
 | B32 章节勾选的可靠保存 B32 reliable chapter-tick saving | ✅ 2026-11-11 提交、推送，CI 通过：运行 43051704210。原来那次 CI 失败的原因仍未确定（第 11 节）。Committed, pushed and CI-verified 2026-11-11: run 43051704210. The cause of the original CI failure is still unknown (section 11). | `3dc9d2b`, `eee608c` |
-| RS1 阅读状态与按进度排序 RS1 Reading status and progress sorting | 👀 2026-11-11 批准（在 M5d 之前）、实现并在本地提交；Python 和 Edge 测试在本地通过；**尚未推送，CI 待验证**。Approved 2026-11-11 (before M5d), implemented and committed locally; Python and Edge tests pass locally; **not pushed yet, CI pending**. | 提交 commit "Add reading status management and progress sorting" |
+| RS1 阅读状态与按进度排序 RS1 Reading status and progress sorting | ✅ 2026-11-11 批准（在 M5d 之前），已提交、推送，CI 通过：`e4c6d11`，运行 43061713059。Approved 2026-11-11 (before M5d); committed, pushed and CI-verified: `e4c6d11`, run 43061713059. | 提交 commit "Add reading status management and progress sorting" |
 | 第 4b 节：多个书库、测试/示例书库、可迁移书库 Section 4b: several libraries, Test & Demo library, portable libraries | ✅ 含 L15 修复 with the L15 fix | `2b0ff96`, `4094dc4` |
 | 页面重新载入时连接被拒（监听队列 5 → 64）Connections refused on reload (listen backlog 5 → 64) | ✅ | `d6c1a5d` |
 | 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
@@ -140,23 +140,28 @@ count. **L20** (one unidentified test failure) stays unresolved, see section 11.
 
 ## 2. 当前里程碑 / The current milestone
 
-**任务 4 / Task 4, M5（预览、公式、格式、粘贴图片 / preview, maths, formatting, pasted images）。**
-M5a 已提交；M5b 已提交、推送并通过 CI（`330362d`）；M5c 已提交、推送并通过 CI（`9088646`）；**RS1（阅读状态，第 3 节）于 2026-11-11 批准、排在 M5d 之前，已实现并在本地提交，等待推送和 CI**；M5d 开始前需要用户批准（2026-11-08 的决定：M5b–M5d 各自单独批准）。
-M5a is committed; M5b is committed, pushed and CI-verified (`330362d`); **M5c is committed, pushed and
-CI-verified (`9088646`)**; **RS1 (reading status, section 3) was approved on 2026-11-11, to come
-before M5d, and is implemented and committed locally, awaiting its push and CI**; M5d needs
-the user's approval before work starts (decision of 2026-11-08: M5b–M5d are each approved
-separately).
+**2026-11-12 更新 / Update:** 用户已批准继续并完成 M5d + M5e 的现有工作区实现和本地验证；不开始 M6/M7，不提交或推送。
+The user has approved completion and local verification of the existing M5d + M5e working
+tree. This updates the earlier approval decision for these two milestones only. No
+M6/M7, commit or push. Implementation and verification details:
+[M5 verification record](docs/M5_VERIFICATION.md). M5a acceptance, L24–L27 and B33 remain open.
 
-在用户批准之前，开发会话只做：已批准工作的收尾（例如 M5a 的安装包验证）、经同意的第 11 节错误修复；不开始新的里程碑，
+**任务 4 / Task 4, M5（预览、公式、格式、粘贴图片 / preview, maths, formatting, pasted images）。**
+M5a 已提交；M5b 已提交、推送并通过 CI（`330362d`）；M5c 已提交、推送并通过 CI（`9088646`）；RS1（阅读状态，第 3 节）已提交、推送并通过 CI（`e4c6d11`，运行 43061713059）；M5d/M5e 已于 2026-11-12 获批继续实现和本地验证，并在独立审查后获批一轮修正。
+M5a is committed; M5b is committed, pushed and CI-verified (`330362d`); M5c is committed, pushed and
+CI-verified (`9088646`); RS1 (reading status, section 3) is committed, pushed and CI-verified
+(`e4c6d11`, run 43061713059); M5d/M5e continuation and local verification were approved on
+2026-11-12, and one remediation pass after the independent review.
+
+开发会话只做已批准的 M5d/M5e、已有工作的收尾（例如 M5a 的安装包验证）和经同意的第 11 节错误修复；不开始未批准的里程碑，
 也不开始 P2–P5 或新条目 E/R/G/X/U。
-Until the user approves it, a development session only does: finishing approved work (e.g.
+The session covers approved M5d/M5e, finishing earlier approved work (e.g.
 M5a's package check) and fixes from section 11 with agreement; no new milestone, nothing from
 P2–P5, none of the new E/R/G/X/U items.
 
-**仍未完成 / Still open:** M5a 在只含已提交代码的安装包中的离线预览检查和用户的人工验收（第 1 节）；RS1 的推送和 CI。
+**仍未完成 / Still open:** M5a 在只含已提交代码的安装包中的离线预览检查和用户的人工验收（第 1 节）。
 M5a's offline-preview check in a package built from committed code and the user's manual
-acceptance (section 1); RS1's push and CI verification.
+acceptance (section 1).
 
 **L21**（数据完整性 data integrity）：2026-11-10 复现并修复（第 11 节"已修复"）。Reproduced and fixed 2026-11-10
 (section 11, "Fixed"). **新发现 / Found on the way:** B29（DOI 的同类问题 the DOI analogue）、B30（术语表并发测试间歇失败，
@@ -298,7 +303,7 @@ step.
   (applied, remembered, reset, invalid stored values, the note never touched));
   `tests/test_preview_setup.py` (format.js served and loaded before notes.js). Limits: L26.
 
-### RS1 — 阅读状态与按进度排序 / Reading status and progress sorting 👀 已提交，CI 待验证 committed, CI pending (approved 2026-11-11)
+### RS1 — 阅读状态与按进度排序 / Reading status and progress sorting ✅ 已提交、推送，CI 通过 committed, pushed and CI-verified (`e4c6d11`, run 43061713059; approved 2026-11-11)
 
 独立的里程碑，用户决定排在 M5d 之前。（编号 RS1：R1–R3 已经是第 7 节的复习提议。）An independent milestone, put
 before M5d by the user. (The id RS1: R1–R3 are already the review proposals of section 7.)
@@ -341,7 +346,7 @@ before M5d by the user. (The id RS1: R1–R3 are already the review proposals of
   remembered, a failed save with Retry and the leave warning, rapid choices, two tabs with OK and
   with Apply mine, a line it doesn't understand, the static page). Limits: L27.
 
-### M5d — 粘贴截图和图片 / Pasted screenshots and images 📋 需批准 needs approval
+### M5d — 粘贴截图和图片 / Pasted screenshots and images 🧪 本地实现并验证，未提交 implemented and locally verified, uncommitted
 
 - **目标 Objective:** Ctrl+V 粘贴截图，图片成为笔记旁的本地文件。Ctrl+V a screenshot; the image becomes a
   local file beside the note.
@@ -361,6 +366,37 @@ before M5d by the user. (The id RS1: R1–R3 are already the review proposals of
   atomic writes, types, sizes); Edge (paste, display, conflict).
 - **验收 Acceptance:** 粘贴的截图立刻显示并已在磁盘上；任何链接或 `..` 都不能写到笔记文件夹之外。A pasted
   screenshot shows at once and is on disk; no link or `..` can write outside the notes folder.
+
+### M5e — 截图识别为公式 / Recognize screenshots as formulas 🧪 本地实现并验证，未提交 implemented and locally verified, uncommitted
+
+- **范围 Scope (2026-11-12):** optional, free local Pix2Text MFR 1.5 ONNX recognition;
+  editable LaTeX and live local KaTeX; explicit insertion through the normal note session.
+  本机识别、编辑和预览，确认后经正常笔记会话插入；不上传图片。Local processing; no image upload to a cloud.
+- **本里程碑的硬性要求 This milestone's requirements (owner, 2026-11-12):** 公式识别必须完全免费、
+  在本机运行；没有云端推理或付费 OCR 接口；不需要账号、订阅、API 密钥或任何持续费用；安装后离线可用。
+  Formula OCR must stay completely free and run locally: no cloud inference or paid OCR APIs; no
+  required account, subscription, API key or recurring fee; once installed it works offline. (The
+  shared network and cost policy, docs/AI_DEVELOPMENT.md section 5, lets a milestone's own limits
+  take precedence; these are M5e's.)
+- **安装 Installation:** one explicit download of pinned, SHA-256-checked weights (about
+  120 MB); offline thereafter. Existing scan-OCR runtime dependencies are reused, loaded
+  lazily; no PyTorch, Transformers or Pix2Text Python package added. Missing runtime is an
+  actionable error; reading and note editing stay available.
+- **候选 Candidates:** up to three distinct completed sequences from beam search over real
+  decoder logits, deduplicated; one if only one exists. Scores are model log-probabilities,
+  never measured confidence or accuracy. Results need the user's review.
+- **验证 Verification:** real model tests with sockets blocked, deterministic mocked API
+  integration, and Edge UI tests are recorded separately in
+  [docs/M5_VERIFICATION.md](docs/M5_VERIFICATION.md). No release/package or CI acceptance is
+  implied. Licenses and redistribution conditions: [docs/FORMULA_OCR_LICENSES.md](docs/FORMULA_OCR_LICENSES.md).
+  本地结果只以验证记录中"冻结的最终工作区"那一轮为准；审查前的那一轮浏览器测试作废（运行期间文件仍在改动）。
+  Local results: only the run on the frozen final tree in the verification record counts. The
+  earlier browser runs (before the independent review) are superseded: files changed while they
+  ran. 六个合成公式的期望结果均在候选中（示例，不是准确率）。Six synthetic equations had the
+  expected result among candidates (examples, not an accuracy measure).
+- **边界 Limits:** printed, tightly cropped single formulas; confusing glyphs, handwriting,
+  low-resolution or complex multi-line input can be wrong; CPU timeout and token limits.
+  No table recognition, M6 or M7 work.
 
 ### M6 — 引用到笔记（PDF → 笔记）/ Quote to note (PDF → note) 📋 ★ J2
 
@@ -713,11 +749,16 @@ in the history, section 3; this table is the current state.
 
 **未解决 / Open**
 
+**M5d/M5e 新限制（2026-11-12）/ New limits:** L28 and L29 apply to the uncommitted implementation below.
+
 | ID | 问题 Issue | 计划在 Planned in |
 |---|---|---|
+| L28 | M5d/M5e（`notes_store.py`、`formula_ocr.py`）：图片的原子创建需要硬链接支持（如 NTFS）；主题笔记不支持图片上传；撤销、失败或丢失响应后，已保存图片保留，不自动清理。公式可能识别错误；最多三个候选，不是校准置信度；30 秒限制在 ONNX 调用之间检查，不能中断单次原生调用或载入。安装包/CI 未验证。Atomic image creation requires hard-link support (e.g. NTFS); no image uploads to topic notes; retained images are not garbage-collected after Undo, failures or lost responses. Recognition may be wrong; at most three hypotheses, not calibrated confidence; the cooperative 30 s timeout cannot interrupt loading or a native ONNX call. Package/CI unverified. Full record: [M5_VERIFICATION.md](docs/M5_VERIFICATION.md). 另外（2026-11-12 审查后）：关闭 ∑ 对话框不会停止已在服务器上进行的识别：它继续运行（最多约 30 秒，单次原生调用或载入可能更久），期间新的识别请求最多等待 20 秒，然后提示"忙"；真正取消需要改动原生运行时，暂不做。☁ 自动 Git 备份暂停（L29）；笔记和图片的完整备份是 💾 文件夹备份。模型安装被中断后，下次安装、状态查询或识别时会把旁边完整的副本（按固定 SHA-256 校验）放回，无需重新下载。模型位置：开发版在工具的 `.cache/formula-ocr/`，安装包在 `%APPDATA%\myLibrary\formula-ocr\`（工具缓存，不在书库中，更新或重装安装包不会删除）。Also (after the 2026-11-12 review): closing the ∑ dialog doesn't stop a recognition already running on the server: it goes on (up to about 30 s; a single native call or the model load can take longer), and a new request meanwhile waits up to 20 s and then says "busy"; true cancellation would need native-runtime changes and isn't done. ☁ Automatic Git backup is paused (L29); the complete backup of notes and images is the 💾 folder backup. After a cut-off model install, the next install, status check or recognition puts a whole copy left beside the model (checked against the pinned SHA-256) back in place, with no new download. Model location: `.cache/formula-ocr/` in the tool's folder in development; `%APPDATA%\myLibrary\formula-ocr\` in the package (a tool cache, not in the library; package updates and reinstalls leave it). | — |
+| **L29** | **☁ 自动 Git 备份暂停（2026-11-12，用户决定）**：第三次独立审查（Codex）在自动 Git 备份中仍发现五个高严重度问题（发布、暂存区和恢复事务），逐条列在本表下方的“L29 暂缓的安全问题”中。本版本中 `backup.DEFERRED` 使 ☁ Back up 不提交、不推送、不改动暂存区、分支或任何引用，也不重放或删除遗留的恢复记录（只报告）；按钮仍显示为"☁ Back up (paused)"并说明原因；💾 文件夹备份照常（含笔记图片），没有选备份文件夹时也会显示；用户自己的 Git 操作不受影响。这些问题**没有修复**，留给单独的安全重新设计；现有实现和测试保留（`tests/test_backup.py` 以 DEFERRED 关闭运行）。**Automatic Git backup deferred (2026-11-12, owner decision):** the third independent review (Codex) still found five High-severity publication, index and recovery-transaction issues in it, listed one by one below the table ("L29 — deferred security findings"). In this release `backup.DEFERRED` makes ☁ Back up commit nothing, push nothing, leave the index, branches and every ref alone, and never replay or delete a leftover recovery record (it is only reported); the button stays visible as "☁ Back up (paused)" and says why; the 💾 folder backup works as before (note images included) and is shown even with no backup folder chosen; the user's own git use is unaffected. The issues are **not fixed**: they await a separate security redesign; the implementation and its tests are kept (`tests/test_backup.py` runs it with DEFERRED off). | 安全重新设计 Security redesign (to be planned) |
+| **L30** | **安装包发行前的许可问题（2026-11-13）**：已补齐 FlatBuffers 许可证、markdown-it 浏览器版内含库的许可证、Python 内置软件的声明和完整的第三方清单（THIRD_PARTY_NOTICES.md）；安装包已不含 OpenCV 未使用的 FFmpeg 插件（LGPL）和 ReportLab 没有许可文本的 Type 1 字体及测试字体（用户决定，2026-11-13；扫描 OCR 文字层在 Arial 和 Helvetica 下都已验证）。仍未解决：（1）GEOS 3.14.1（LGPL-2.1，Shapely 必需）：对应源代码和构建材料已准备为 GitHub Release 资产但**尚未发布**；对应关系基于公开的构建脚本、delvewheel 记录、wheel 和 GEOS 发布的哈希，未重新构建核对，构建日志未查看；在发布这些资产并接受这些证据之前，**安装包不得公开分发**；myLibrary 自身许可是否满足 LGPL-2.1 第 6 节需要**法律审查**；（2）公式模型训练数据的权利未经审计。**Licence questions before distributing the package (2026-11-13):** the FlatBuffers licence, the licences of the libraries inlined in markdown-it's browser build, the notices for software incorporated in Python and a complete inventory (THIRD_PARTY_NOTICES.md) are in place; the package no longer contains OpenCV's unused FFmpeg plugin (LGPL) or ReportLab's unlicensed Type 1 fonts and test font (owner decision, 2026-11-13; the scan-OCR text layer verified with Arial and with the Helvetica fallback). Unresolved: (1) GEOS 3.14.1 (LGPL-2.1, needed by Shapely): its corresponding source and build materials are prepared as GitHub Release assets but **not published**; the correspondence rests on the published build scripts, the delvewheel record, the wheel's and GEOS's release hashes, not on a rebuild, and the build logs weren't inspected; until those assets are published and that evidence is accepted, **the package must not be distributed publicly**; whether myLibrary's own terms meet LGPL-2.1 section 6 needs **legal review**; (2) the formula model's training-data rights are unaudited. Details: THIRD_PARTY_NOTICES.md sections 5–6, package/licenses/GEOS-LGPL-NOTICE.txt, docs/M5_VERIFICATION.md. | 发行前 Before a package release |
 | **L20** | **未解决 UNRESOLVED.** 2026-11-09 一次完整运行中有一个未识别的失败，之后没能复现。现在每次运行都写 `test-results/pytest-junit.xml`；下次失败时运行 `uv run pytest -rfE --tb=long` 并保留该文件。One unidentified failure in one full run (2026-11-09), not reproduced since. Every run now writes `test-results/pytest-junit.xml`; on the next failure run `uv run pytest -rfE --tb=long` and keep that file. | — |
 | D18 (C, latent) | 重命名失败时可能丢失恢复日志（`add_book.rename_document`）。A failed rename can lose its recovery journal. | Task 8 |
-| B2 (C) | ☁ 备份不支持非 ASCII 文件名。☁ Back up fails with non-ASCII file names. | Task 7 |
+| B2 (C) | ☁ 备份不支持非 ASCII 文件名。☁ Back up fails with non-ASCII file names. 暂缓的实现中已用 `git -z` 处理并有测试，但 Git 备份暂停期间不算修复（L29）。Handled with `git -z` and tested in the deferred implementation, but not fixed while Git backup is paused (L29). | L29 |
 | B4 (C) | 设置了 `MYLIBRARY_LIBRARY` 时更换书库可能悄悄不生效。A library change can silently not take effect when `MYLIBRARY_LIBRARY` is set. | Task 8 |
 | B5 (C) | 保存的释义可能与弹窗不同。The saved meaning can differ from the popup. | Task 8 |
 | B6 (C) | 连字符断词影响查词和搜索。Hyphenation breaks lookup and search. | v0.4-1 |
@@ -745,14 +786,84 @@ in the history, section 3; this table is the current state.
 | L18 | 测试语料上的章节检测限制。Chapter detection limits on the test corpus. | Task 6 |
 | L19 | 没有作者和年份的文档，名字中有两个连字符。A document without author or year gets a slug with two hyphens. | — |
 | L22 | 安装包的启动器 `package/launch.py` 自己计算 `%APPDATA%/myLibrary`（日志），而不是用 `platform_services.user_data_dir()`；两者目前一致，但改其中一个时要同时改另一个。The package launcher computes `%APPDATA%/myLibrary` (its log) itself rather than through `platform_services.user_data_dir()`; they agree today, but changing one means changing the other. | 第 9 节 section 9 |
-| L25 (S) | CI 的 Windows 运行器上偶尔出现 `net::ERR_NO_BUFFER_SPACE`（Windows WSAENOBUFS：无法为连接分配套接字），页面的某个请求失败，测试超时：2026-11-08 运行 42527186504（`test_search_results_stay_on_screen`，在 KaTeX 之前）和 2026-11-11 运行 43002486914（`test_readable_in_light_and_dark[dark]`，PDF.js 的 `viewer.mjs`）。没有发现泄漏（本地运行中已建立和 CLOSE_WAIT 的连接数不增长）；服务器用 HTTP/1.0，每个请求一个连接，留下 TIME_WAIT；KaTeX 使每次阅读页面多 2 个请求（显示公式时最多再加约 4 个字体）。第三次：2026-11-11 运行 43022257625（`test_without_any_move_the_match_is_centred`，`/reader/lookup.js`）。三次都在测试集的后半段（63%、74%、84%）。本地测量（2026-11-11）：动态端口 49152–65535（16384 个），TIME_WAIT 120 秒；16 个测试约 72 秒留下约 770 个 TIME_WAIT（约 48 个/测试），稳定时约 1300 个，远少于端口数，所以没有证明是端口耗尽；已建立和 CLOSE_WAIT 的连接、python/msedge 进程数都不增长。原因未确定，没有改动；浏览器测试分成几个运行器后每个运行器的负载减半（是否有帮助尚待观察）。Occasional `net::ERR_NO_BUFFER_SPACE` on CI's Windows runner (Windows WSAENOBUFS: no socket could be allocated for a connection): one of the page's requests fails and the test times out: run 42527186504 on 2026-11-08 (`test_search_results_stay_on_screen`, before KaTeX) and run 43002486914 on 2026-11-11 (`test_readable_in_light_and_dark[dark]`, PDF.js's `viewer.mjs`). No leak found (established and CLOSE_WAIT connections don't grow in local runs); the server speaks HTTP/1.0, one connection per request, leaving TIME_WAIT sockets; KaTeX adds 2 requests per reader page (up to about 4 more fonts when formulas show). A third: run 43022257625 on 2026-11-11 (`test_without_any_move_the_match_is_centred`, `/reader/lookup.js`). All three came in the second half of the suite (63%, 74%, 84%). Measured locally (2026-11-11): dynamic ports 49152–65535 (16,384), TIME_WAIT 120 s; 16 tests in about 72 s left about 770 TIME_WAIT sockets (about 48 per test), about 1,300 at steady state, far below the port count, so port exhaustion isn't shown; established and CLOSE_WAIT connections and python/msedge processes don't grow. Cause unresolved; nothing changed; splitting the browser tests across runners halves each runner's load (whether that helps is to be seen). | — |
+| L25 (S) | CI 的 Windows 运行器上偶尔出现 `net::ERR_NO_BUFFER_SPACE`（Windows WSAENOBUFS：无法为连接分配套接字），页面的某个请求失败，测试超时：2026-11-08 运行 42527186504（`test_search_results_stay_on_screen`，在 KaTeX 之前）和 2026-11-11 运行 43002486914（`test_readable_in_light_and_dark[dark]`，PDF.js 的 `viewer.mjs`）。没有发现泄漏（本地运行中已建立和 CLOSE_WAIT 的连接数不增长）；服务器用 HTTP/1.0，每个请求一个连接，留下 TIME_WAIT；KaTeX 使每次阅读页面多 2 个请求（显示公式时最多再加约 4 个字体）。第三次：2026-11-11 运行 43022257625（`test_without_any_move_the_match_is_centred`，`/reader/lookup.js`）。三次都在测试集的后半段（63%、74%、84%）。本地测量（2026-11-11）：动态端口 49152–65535（16384 个），TIME_WAIT 120 秒；16 个测试约 72 秒留下约 770 个 TIME_WAIT（约 48 个/测试），稳定时约 1300 个，远少于端口数，所以没有证明是端口耗尽；已建立和 CLOSE_WAIT 的连接、python/msedge 进程数都不增长。原因未确定，没有改动；浏览器测试分成几个运行器后每个运行器的负载减半（是否有帮助尚待观察）。Occasional `net::ERR_NO_BUFFER_SPACE` on CI's Windows runner (Windows WSAENOBUFS: no socket could be allocated for a connection): one of the page's requests fails and the test times out: run 42527186504 on 2026-11-08 (`test_search_results_stay_on_screen`, before KaTeX) and run 43002486914 on 2026-11-11 (`test_readable_in_light_and_dark[dark]`, PDF.js's `viewer.mjs`). No leak found (established and CLOSE_WAIT connections don't grow in local runs); the server speaks HTTP/1.0, one connection per request, leaving TIME_WAIT sockets; KaTeX adds 2 requests per reader page (up to about 4 more fonts when formulas show). A third: run 43022257625 on 2026-11-11 (`test_without_any_move_the_match_is_centred`, `/reader/lookup.js`). All three came in the second half of the suite (63%, 74%, 84%). Measured locally (2026-11-11): dynamic ports 49152–65535 (16,384), TIME_WAIT 120 s; 16 tests in about 72 s left about 770 TIME_WAIT sockets (about 48 per test), about 1,300 at steady state, far below the port count, so port exhaustion isn't shown; established and CLOSE_WAIT connections and python/msedge processes don't grow. Cause unresolved; nothing changed; splitting the browser tests across runners halves each runner's load (whether that helps is to be seen). 第四次：2026-11-12 运行 43206917253 第 1 次尝试（提交 `69c684a`，只改文档），浏览器分片 1（作业 131144297375）：`test_notes_maths.py::test_typed_maths_is_saved_as_typed` 的功能断言通过，但页面启动时 PDF.js 本地化文件 `/pdfjs/web/locale/en-US/viewer.ftl` 的请求以 `net::ERR_NO_BUFFER_SPACE` 失败，留下三个未捕获的 `TypeError: Failed to fetch`（fetchData → createBundle → generateBundles），测试在清理阶段失败；笔记的读取和保存都返回 200。经用户批准只重试这一个作业，第 2 次尝试（作业 131161806282）通过，整个运行成功。重试通过不说明原因；根本原因仍未知。A fourth: run 43206917253, attempt 1, on 2026-11-12 (commit `69c684a`, documentation only), browser shard 1 (job 131144297375): `test_notes_maths.py::test_typed_maths_is_saved_as_typed` passed its functional assertions, but during viewer startup the request for PDF.js's localisation file `/pdfjs/web/locale/en-US/viewer.ftl` failed with `net::ERR_NO_BUFFER_SPACE`, leaving three uncaught `TypeError: Failed to fetch` (fetchData → createBundle → generateBundles), so the test failed at teardown; the note's load and save both returned 200. With the user's approval only that job was retried: attempt 2 (job 131161806282) passed and the run succeeded. A passing retry explains nothing: the root cause remains unknown. | — |
 | B32 | **已改进 IMPROVED**：`3dc9d2b`（保存状态、重试、离开提醒、中断后恢复）和 `eee608c`（版本检查），已推送，CI 通过（运行 43051704210）。`3dc9d2b` (save states, Retry, the leave warning, recovery after an interruption) and `eee608c` (the version check), pushed and CI-verified (run 43051704210), 2026-11-11。**原来的失败**：CI 运行 43022257625 中，`test_small_writes_sent_just_before_closing_arrive` 的章节勾选没有到达服务器；本地 5 次带记录的重复全部成功；CI 中的原因**仍未确定**（与 L25 的关系未证实）；没有证实是应用的数据丢失缺陷。**The original failure:** the chapter tick in `test_small_writes_sent_just_before_closing_arrive` didn't reach the server in CI run 43022257625; 5 logged local repetitions all succeeded; the cause in CI is **still unknown** (any link to L25 unproven); not shown to be an application data-loss defect. **保存 Saving** (`library_page.py`: `setTick`/`sendTick`/`replayTicks`/`applyMine`/`keepTheirs`)：服务器确认前标为"正在保存"；失败时保留、标红、可重试；离开页面先询问；同一章一次一个请求。A tick is "saving" until the server confirms it; kept, marked and retryable when it fails; leaving asks first; one request per chapter at a time. **版本检查 Version check** (`library_server.tick_with_version`, `check_base`, `TICK_START`)：服务器在内存中记录每个文档的勾选版本和每章最后一次写入的版本（在 README 的锁内修改，从服务器进程启动时的毫秒数开始）；页面随页面数据、刷新和每个回答得到版本（总是和对应的章节状态一起取得，从不比它们新），每次点击带上 `base`；该章在 `base` 之后被写过、而请求的状态又不同时拒绝（409，附当前章节和版本）；已经是请求的状态时成功且不写入（丢失回答后的重试安全）；不同章节不冲突。冲突时页面保留并显示用户的点击，持续提示，提供 **Apply mine**（用最新版本再发送，必须由用户点击）和 **OK**（保留 README 的状态）；从不自动重试。The server keeps, in memory, each document's tick version and each chapter's last-write version (changed under the README's lock, starting at the server process's start time in ms); the page gets versions with its data, refreshes and every answer (always together with the chapter states they belong to, never newer), and every click carries `base`; a click whose chapter was written after `base` and differs is refused (409, with the current chapters and version); already in the requested state succeeds without writing (retries after a lost answer are safe); different chapters don't conflict. On a conflict the page keeps showing the user's click, with a notice offering **Apply mine** (sent again on the newest version, only on the user's click) and **OK** (keeps the README's state); never retried by itself. **恢复 Recovery**：每个勾选在发送前存入浏览器（每个标签页、每章一条，键 `myLibrary.tick.<书库>.<文档>.<章>.<点击 id>`），确认后删除；页面关闭或崩溃后，每章最新的一条带点击时间 `since`（毫秒，有限、大于 0、不晚于服务器时间 + 1 秒，否则 400）再发送，README 在点击之后改过就成为冲突（同样由用户决定）；无法发送的（超过 30 天、损坏、文档或章节已不在）删除并说明数量。Each tick is stored in the browser before it is sent (one entry per tab and chapter, key `myLibrary.tick.<library>.<document>.<chapter>.<click id>`), removed once confirmed; after a closed or crashed page, each chapter's newest entry is sent again with the click's time `since` (ms; finite, above 0, no later than the server's time + 1 s, else 400), and a README changed after the click makes it a conflict (the user decides as above); entries that can't be sent (over 30 days, damaged, document or chapter gone) are removed and their number said. **限制 Limits**：VS Code 等外部编辑器绕过服务器的锁和版本：过时的标签页仍可能覆盖它们的修改，服务器读写之间极短时间内的外部写入也可能被覆盖；版本只在内存中，服务器重启后重新开始（旧页面的令牌也失效，需要重新载入）；中断后的恢复依靠浏览器记录的点击时间，时钟被往回调过或伪造的请求可以绕过；没有 `base` 的旧式内部调用（不是页面）是无条件的，没有这种保护；并发的修改可能需要用户明确选择；恢复只在同一个浏览器、同一书库，保留 30 天。External editors such as VS Code bypass the server's lock and versions: a stale tab can still overwrite their changes, and an external write in the instant between the server's read and write can be lost; versions live in memory and start again when the server restarts (that run's pages also need a reload: new token); recovery after an interruption relies on the browser's click time, which a clock set back or a crafted request can get past; internal calls without `base` (not the page) are unconditional, without this protection; concurrent changes may need the user's explicit choice; recovery only in the same browser and library, kept 30 days. | — |
 | L26 | 格式工具栏的限制（`format.js`、`notes.js`）：表格只插入、不能取消；选中一个网址后点链接，网址成为目标，再点一次不会还原；段距只影响预览（源码没有段落）；宽度在源码中只限制文本框本身；工具栏和 Ctrl+B / Ctrl+I 只用 `insertText`，浏览器不支持时改为直接替换（仍然保存，但没有撤销）。Limits of the formatting toolbar: a table is only inserted, never toggled off; a selected web address becomes the link's target, and a second click doesn't undo that; paragraph spacing affects only the preview (the source has no paragraphs); the width only narrows the source box itself; actions go through `insertText`, with a plain replacement where a browser lacks it (still saved, but no Undo). | — |
 | B33 (C) | 勾选章节（`library_server.tick_snapshot` 经 `safe_io.update_text`）和合并（`add_book.merge_into`）用通行的换行读写 README：在 Windows 上，换行为 LF 的 README 第一次被勾选时整个文件变成 CRLF（内容不变）。RS1 写阅读状态时按字节处理，不受影响。2026-11-11 在 RS1 中发现，尚未修复。Ticking a chapter (`tick_snapshot` through `safe_io.update_text`) and merging (`merge_into`) read and write the README with newline translation: on Windows, an LF README becomes CRLF throughout on its first tick (the text itself unchanged). RS1's status writes work on bytes and aren't affected. Found during RS1, 2026-11-11; not fixed. | Task 8 |
 | L27 | RS1 的限制：状态的修改不存进浏览器，浏览器在保存完成前被关闭或崩溃时，这次修改会丢失（下次打开时显示原来的状态）；版本只在内存中、外部编辑器绕过锁和版本（同 B32）；无法理解的状态行要在 README 中手动改正；"Mark as finished?" 只在进度 100% 时出现；论文的 "Mark as read" 仍然只改进度。RS1's limits: a status change isn't stored in the browser meanwhile, so one made just before the browser is closed or crashes can be lost (the old status shows next time); versions are in memory only and external editors bypass the lock and versions (as for B32); a status line it doesn't understand has to be corrected in the README by hand; "Mark as finished?" appears only at 100%; a paper's "Mark as read" still changes only its progress. | — |
 | L24 | 预览中公式的规则限制（`preview.js` 的 `mathInline`/`mathBlock`）：公式中不能有反引号（反引号结束查找，代码优先）；`[a $x](u)$` 这类链接与公式交错时公式优先；表格单元格中公式里的 `\|`（未转义的竖线）会把单元格分开（用 `\vert`）；没闭合的 `\(` 按 Markdown 显示为 `(`；`$a$$b$` 显示为错误；每次修改都重新渲染整条笔记（已渲染的公式有缓存；10,000 个公式约 1 秒）。Limits of the maths rules in the preview: no backtick inside a formula (a backtick ends the search: code comes first); a link interleaved with a formula, like `[a $x](u)$`, goes to the formula; an unescaped `\|` in a formula inside a table cell splits the cell (use `\vert`); an unclosed `\(` shows as `(`, as Markdown escapes it; `$a$$b$` shows as an error; every change redraws the whole note (typeset formulas are cached; 10,000 formulas take about a second). | — |
 
+**L29 暂缓的安全问题 / L29 — deferred security findings** (Codex, third independent review,
+2026-11-12; recorded as written, owner's request 2026-11-13). **Unresolved** in the dormant
+implementation in `scripts/backup.py`; not to be fixed in the packaging pass, and automatic Git
+backup stays switched off (`backup.DEFERRED`) until a redesign addresses all five. Line numbers
+are the review's, in the file as it was then; function names are given because lines drift.
+They don't block M5d/M5e image paste and OCR, since Git backup is off.
+
+1. **High — Branch movement remains possible during index reconciliation**
+   (`_bring_up_to_date`; review: `backup.py:280`, publication at line 316). The branch is
+   checked after acquiring `index.lock`, but that lock does not protect Git refs. Failing
+   interleaving: reconciliation checks that the branch points to backup commit B; another
+   process advances the branch to C with a ref operation that does not need `index.lock`;
+   reconciliation publishes an index containing B's note version against HEAD C, which can
+   stage an older note version unintentionally. The comment that "nothing can change" is
+   incorrect. Correction: coordinate branch identity/ref protection with index publication,
+   or refuse automatic reconciliation when that guarantee can't be given; another check alone
+   leaves a race.
+2. **High — Recovery can overwrite intentional staging after successful index publication**
+   (`_bring_up_to_date`, `_finish_pending`, journal removal in `_back_up`; review:
+   `backup.py:302`, `:344`, line 439). Failing interleaving: a backup changes a note from A to
+   B and publishes the reconciled index; the process crashes before deleting its journal; the
+   user intentionally stages A to revert the note; recovery sees the old blob A and replaces
+   it with B. The journal can't tell an unreconciled entry from a deliberately restaged old
+   version. Correction: make recovery publication-aware and bind it to verified index state;
+   an ambiguous replay must preserve staging and require intervention.
+3. **High — Concurrent backups can overwrite or delete each other's recovery record**
+   (`_finish_pending`, journal write and deletion in `_back_up`; review: `backup.py:330`, write
+   at line 428, deletion at line 431). There is one shared journal and no operation-wide
+   backup lock. Two backups can both begin from A: one overwrites the other's journal; the
+   winner advances the branch while the loser fails its ref compare-and-swap and deletes the
+   shared journal; the winner can then meet an index-lock failure or crash with no
+   recoverable record. Correction: serialise backup and recovery across processes; journal
+   deletion must verify transaction ownership.
+4. **High — Incomplete indexes can be published** (`_bring_up_to_date`; review:
+   `backup.py:285`, `:311`). A missing real index is treated as an empty one: if
+   reconciliation includes a newly added file, it can publish an index holding only those
+   additions, without the unrelated tracked entries. And `os.write()`'s returned byte count is
+   ignored: a short write can be followed by `fsync()` and the real index replaced by
+   truncated data. Correction: fail closed on a missing or unreadable index; write the whole
+   buffer and validate the resulting index before publishing it.
+5. **High — The effective push endpoint is not pinned** (`_destination`, `_still`, the push in
+   `_back_up`; review: `backup.py:140`, checks at line 167, push at line 447). The snapshot
+   captures a remote's name, not its effective push URL or configuration, and `_still()`
+   checks refs but not remote configuration. A changed `remote.<name>.pushurl` can redirect
+   the later push; the explicit object id, refspec and lease don't prevent publication to a
+   different endpoint that holds the expected base. Multiple push URLs aren't rejected as
+   ambiguous. Correction: resolve and validate the effective destination, reject ambiguous
+   ones, and push to the approved destination and configuration rather than resolving
+   mutable settings again.
+
 **已修复（历史记录中仍列为未解决）/ Fixed (still listed as open in the history)**
+
+**M5d/M5e 工作区修复（2026-11-12，未提交）/ Working-tree fixes (uncommitted):** the install
+handler's `stop` local shadowed Quit's function (HTTP 500); modal formula insertion lost Undo;
+stale install/clipboard replies could affect a reopened dialog; model-load errors escaped
+structured handling; served images were only signature-checked; Git backup could stage
+personal assets (Git backup is now deferred altogether: L29). Fixed with the regressions and evidence in
+[M5_VERIFICATION.md](docs/M5_VERIFICATION.md). 修复记录与验证见该文件。
+**独立审查后的修正（2026-11-12，三轮，未提交）/ Corrections after the independent reviews
+(three rounds, uncommitted):** merges copy images first and reuse identical copies, notes and
+scripts too; Refresh reports a merge that stopped, archiving nothing. Served images are always
+validated in full; the ETag is a digest of the validated bytes. Formulas are written with
+delimiters that read back whole, the LaTeX unchanged; `\cfrac` is no longer rewritten to
+`\frac`. Model installs hold an operating-system lock (a second one is refused and never
+deletes a running one's folder) and recover from a cut-off install: a whole copy (pinned
+SHA-256) left beside the model is put back, offline, before anything is deleted; the last
+whole copy is never deleted. **☁ Git backup is not fixed:** two rounds of redesign (a
+temporary index, whole-history audit, bound destination and lease, hook and signing refusals,
+a locked index compare-and-swap with a journal) still left five High findings in the third
+review, so automatic Git backup is **deferred** for this release (L29). That implementation
+is kept, unused, with its tests, for the redesign.
 - **B3** 💾 备份按名称前缀匹配会互相删除 zip：在 `2b0ff96` 中修复（精确名称，按书库区分的名称）。Zips pruned by
   name prefix: fixed in `2b0ff96` (exact names, library-scoped names).
 - **B26** `safe_io` 文档字符串中的无效转义：在 `0692189` 中修复。An invalid escape in a `safe_io` docstring:

@@ -285,6 +285,21 @@ def free_path(path: Path) -> Path:
     return target
 
 
+def holds_copy(path: Path, data: bytes) -> bool:
+    """`path` or one of the names free_path gives after it (-2, -3, ...) is a plain file
+    holding `data`: a copy made already (a merge that was cut off and runs again). Line
+    endings aside: safe_io.write_text writes the system's."""
+    target, n = path, 2
+    same = data.replace(b"\r\n", b"\n")
+    while target.exists():
+        if (target.is_file() and not target.is_symlink()
+                and target.read_bytes().replace(b"\r\n", b"\n") == same):  # fmt: skip
+            return True
+        target = path.with_name(f"{path.stem}-{n}{path.suffix}")
+        n += 1
+    return False
+
+
 # --- names ------------------------------------------------------------------------------------
 
 
@@ -493,7 +508,9 @@ def has_marks(pdf: Path) -> bool:
 
 def has_own_work(notes_dir: Path, examples_dir: Path | None = None) -> bool:
     """Whether a document's notes hold anything of yours: a ticked chapter, the page you last
-    read, notes you wrote, saved words, or a chapter script."""
+    read, notes you wrote, saved words, a pasted image (M5d), or a chapter script."""
+    if notes_store.has_assets(notes_dir):
+        return True
     readme = notes_dir / "README.md"
     if readme.exists():
         text = readme.read_text(encoding="utf-8")
@@ -619,7 +636,18 @@ def merge_into(src: str, dst: str) -> list[str]:
     # (NoteError) leaves the catalog and both documents as they were
     src_dir, dst_dir = notes_dir_of(rows[src]), notes_dir_of(rows[dst])
     readme = notes_store.notes_file(LIBRARY, rows[dst], "README.md")
+    src_name = rows[src]["slug"]
     moved = []
+    # Pasted images (M5d) first, before anything of dst's changes: copying is the step that
+    # can fail (no hard links on this drive, no free name), and then only images were added,
+    # which a second try uses again rather than copying twice. One whose name is taken by a
+    # different image gets a new name; the notes copied below follow it (renamed)
+    images, renamed = 0, {}
+    if notes_store.has_assets(src_dir):
+        notes_store.check_assets_target(dst_dir)
+        images, renamed = notes_store.copy_assets(src_dir, dst_dir, src_name)
+    if images:
+        moved.append(f"{images} image{'s' if images > 1 else ''}")
     # Catalog: details dst lacks, and the shelves of both
     fill = {
         k: rows[src].get(k, "") for k in INFO_FIELDS if not rows[dst].get(k) and rows[src].get(k)
@@ -630,7 +658,6 @@ def merge_into(src: str, dst: str) -> list[str]:
     catalog.update(CATALOG, dst, fill)
     catalog.set_field(CATALOG, dst, "shelves", "; ".join(shelves))
 
-    src_name = rows[src]["slug"]
     dst_dir.mkdir(parents=True, exist_ok=True)
     if src_dir.exists() and readme.exists():
         old_readme = src_dir / "README.md"
@@ -674,13 +701,17 @@ def merge_into(src: str, dst: str) -> list[str]:
             continue  # (a link out of the folder: never read)
         if is_untouched_template(note):
             continue
+        text = notes_store.relink(note.read_text(encoding="utf-8"), renamed)
         target = dst_dir / note.name
         if m := re.match(r"(ch\d{2})-", note.name):
             target = next(iter(sorted(dst_dir.glob(f"{m[1]}-*.md"))), target)
         if target.exists() and not is_untouched_template(target):
             # never over notes of yours, nor over a copy from an earlier merge
-            target = free_path(target.with_name(f"{target.stem}-from-{src_name}.md"))
-        safe_io.write_text(target, note.read_text(encoding="utf-8"))
+            copy = target.with_name(f"{target.stem}-from-{src_name}.md")
+            if holds_copy(target, text.encode("utf-8")) or holds_copy(copy, text.encode("utf-8")):
+                continue  # copied by an earlier merge that was cut off
+            target = free_path(copy)
+        safe_io.write_text(target, text)
         moved.append("vocabulary" if note.name == "vocabulary.md" else f"notes {note.name}")
     # Chapter scripts
     scripts = sorted(examples_dir_of(rows[src]).glob("*.py"))
@@ -689,7 +720,10 @@ def merge_into(src: str, dst: str) -> list[str]:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
             suffix = src_name.replace("-", "_")
-            target = free_path(target.with_name(f"{target.stem}_from_{suffix}.py"))
+            copy = target.with_name(f"{target.stem}_from_{suffix}.py")
+            if holds_copy(target, script.read_bytes()) or holds_copy(copy, script.read_bytes()):
+                continue  # the same script, or copied by an earlier merge that was cut off
+            target = free_path(copy)
         shutil.copy2(script, target)
     if scripts:
         moved.append(f"{len(scripts)} script{'s' if len(scripts) > 1 else ''}")

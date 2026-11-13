@@ -213,13 +213,15 @@ shows two different files to be one document, so nothing replaces a library PDF 
 chapter template, vocabulary, scripts, shelves) before archiving it; both with work: report only; Settings → Clear archive (`library_jobs.clear_archive`) deletes only
 documents (.pdf/.djvu/.epub), empty note templates and .gitkeep, and keeps everything else; ⟳ Refresh = `library_jobs.refresh`;
 `cryptography` is a core dependency because publisher PDFs are often AES-encrypted),
-OCR button for scans (background, progress), ☁ Back up (`scripts/backup.py`: commits only the
-library folder with `--only`, refuses when unpushed commits touch code, never prompts for a
-password; shown only when the library is in a repo with an upstream), 💾 Back up
+OCR button for scans (background, progress), ☁ Back up (`scripts/backup.py`: **paused**,
+`backup.DEFERRED`, since 2026-11-12: it commits, pushes and changes nothing in git and only says
+so, shown as "☁ Back up (paused)" when the library is in a repo with an upstream; the dormant
+implementation is kept for a security redesign with five High findings open, ROADMAP L29;
+never switch it back on without that redesign and the owner's approval), 💾 Back up
 (`scripts/folder_backup.py`: dated zip of everything but PDFs/archive/caches in the Settings
 `backup_folder`, `KEEP` 30; with `backup_pdfs`, on in the package, PDFs copied once into
 `PDFs/`, never deleted there; `auto_backup` once a day at start, only if something changed;
-shown without git or with a folder set), Settings (incl. `openalex_key`: sent as a Bearer
+shown without git, with a folder set, or while ☁ Back up is paused), Settings (incl. `openalex_key`: sent as a Bearer
 header to api.openalex.org only, checked on save; never ask OpenAlex for a key on the user's
 behalf), Quit. Keep it that way: every feature the
 package needs must work from the page.

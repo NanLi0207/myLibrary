@@ -10,6 +10,8 @@ __pycache__/
 # Both spellings: macOS and Linux tell .pdf and .PDF apart, so one rule alone would miss some
 *.pdf
 *.PDF
+# Pasted note images may contain copyrighted pages or personal work.
+**/notes/**/assets/
 library/books/*
 !library/books/.gitkeep
 library/papers/*

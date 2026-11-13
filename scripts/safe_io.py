@@ -282,14 +282,16 @@ def _no_hard_links(error: OSError) -> bool:
             or error.errno in _NO_HARD_LINKS_ERRNO)  # fmt: skip
 
 
-def create_bytes(path: Path, data: bytes) -> None:
+def create_bytes(path: Path, data: bytes, *, require_atomic: bool = False) -> None:
     """Create `path` with `data` only if nothing is there: never replaces anything, not a file,
     not a link, not a dangling link (FileExistsError). The whole content appears at once: it is
     written to a temporary file next to it, flushed to disk, then given its name with a hard
     link, which fails if the name is taken. Where the file system has no hard links, the file
     is created exclusively (O_EXCL) and written: still never over anything, but a crash while
     writing could leave that new file incomplete (it held nothing of the user's). Also works
-    past Windows' usual path limit (_os_path). Never into a frozen folder (freeze)."""
+    past Windows' usual path limit (_os_path). Never into a frozen folder (freeze).
+    With require_atomic, refuse a filesystem without hard links instead of falling back
+    to writing the visible destination in place."""
     path = Path(path)
     _refuse_frozen(path)
     target = _os_path(path)
@@ -310,6 +312,12 @@ def create_bytes(path: Path, data: bytes) -> None:
             except OSError as e:
                 if not _no_hard_links(e):
                     raise
+                if require_atomic:
+                    raise OSError(
+                        errno.ENOTSUP,
+                        "atomic image storage requires a filesystem supporting hard links",
+                        str(path),
+                    ) from e
                 _create_exclusively(target, data)
         finally:
             _os_path(tmp).unlink(missing_ok=True)

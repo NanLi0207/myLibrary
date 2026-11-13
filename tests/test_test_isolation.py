@@ -158,7 +158,13 @@ def test_a_server_started_by_a_test_serves_the_runs_library():
             found["base"] + "/api/quit", data=b"{}", method="POST",
             headers={"Content-Type": "application/json", "X-Library-Token": token},
         )  # fmt: skip
-        urllib.request.urlopen(quitting, timeout=10).close()
+        try:
+            urllib.request.urlopen(quitting, timeout=10).close()
+        except urllib.error.HTTPError as error:
+            pytest.fail(
+                f"Quit returned {error.code}: {error.read().decode('utf-8', 'replace')}\n"
+                + "".join(lines)
+            )
         server.wait(30)
     finally:
         if server.poll() is None:

@@ -212,6 +212,14 @@
     tools.append(b);
     return b;
   });
+  // M5e: a formula from a screenshot (the ∑ dialog, formula.js); M5d's pasted images need no
+  // button: Ctrl+V in the note
+  const formulaButton = el("button", "ml-tool ml-tool-formula", "∑⌕");
+  formulaButton.id = "mlFormulaButton";
+  formulaButton.type = "button";
+  formulaButton.title = "识别公式截图 Recognize a formula from a screenshot (Ctrl+Shift+V)";
+  formulaButton.setAttribute("aria-label", formulaButton.title);
+  tools.append(formulaButton);
   const displayButton = el("button", "ml-small ml-display-toggle", "Aa");
   displayButton.id = "mlDisplayToggle";
   displayButton.type = "button";
@@ -330,9 +338,12 @@
 
   // --- keys ---------------------------------------------------------------------------------
 
+  // (the ∑ dialog of M5e is modal: nothing behind it changes while it is open)
+  const formulaOpen = () => Boolean(window.myLibraryFormula?.isOpen());
   // Alt+N anywhere in the reader (by the key's position, so any keyboard layout or IME)
   addEventListener("keydown", (event) => {
-    if (event.code !== "KeyN" || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.code !== "KeyN" || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+      || formulaOpen()) return;
     event.preventDefault();
     event.stopPropagation();
     setOpen(!open, true);
@@ -340,7 +351,7 @@
   // Alt+P while the notes are open: Source ↔ Preview (from Split: Preview)
   addEventListener("keydown", (event) => {
     if (event.code !== "KeyP" || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
-      || !open) return;
+      || !open || formulaOpen()) return;
     event.preventDefault();
     event.stopPropagation();
     setView(view === "source" ? "preview" : "source");
@@ -442,7 +453,30 @@
     }
     const { scrollTop } = preview;
     if (markdown?.available) {
-      preview.innerHTML = markdown.html(note.text);  // markdown-it, html: false (preview.js)
+      // Images already shown are kept (moved into the new rendering): no flicker and no new
+      // request while typing; the scroll position stays right because they keep their size
+      const shown = new Map();
+      for (const img of preview.querySelectorAll("img.ml-image")) {
+        if (img.complete && img.naturalWidth) {
+          const src = img.getAttribute("src");
+          shown.set(src, [...(shown.get(src) || []), img]);
+        }
+      }
+      // markdown-it, html: false (preview.js); images only from this document's assets/
+      preview.innerHTML = markdown.html(note.text, { image: assetUrl });
+      for (const img of preview.querySelectorAll("img.ml-image")) {
+        const src = img.getAttribute("src");
+        if (missingImages.has(src)) {
+          img.replaceWith(missingImage(img));
+          continue;
+        }
+        const kept = shown.get(src)?.shift();
+        if (kept) {
+          kept.alt = img.alt;
+          kept.title = img.title;
+          img.replaceWith(kept);
+        }
+      }
     } else {
       const plain = el("pre", "ml-preview-plain");
       plain.textContent = note.text;
@@ -452,6 +486,41 @@
     }
     preview.scrollTop = scrollTop;
   }
+  // M5d: a note's image link → the server's contained route for this document's assets/, or
+  // null (then preview.js shows a placeholder and nothing is requested). Only "assets/<name>"
+  // or "./assets/<name>", with a name as notes_store.asset_name_ok takes it; the server checks
+  // the name and the folder again
+  const ASSET_NAME = /^[^\x00-\x1f\x7f/\\:*?"<>|.\s][^\x00-\x1f\x7f/\\:*?"<>|]{0,140}\.(png|jpe?g|webp)$/iu;
+  function assetUrl(src) {
+    let path = String(src).trim().replace(/^\.\//, "");
+    if (!path.startsWith("assets/")) return null;
+    path = path.slice("assets/".length).split(/[?#]/)[0];
+    let name;
+    try {
+      name = decodeURIComponent(path);
+    } catch {
+      return null;
+    }
+    if (!ASSET_NAME.test(name)) return null;
+    return `/notes-assets/${docId}/${encodeURIComponent(name)}`;
+  }
+  // An image that couldn't be shown (missing, not an image): a placeholder saying so, also
+  // in later redraws (never asked for again until another note is shown)
+  const missingImages = new Set();
+  function missingImage(img) {
+    const name = decodeURIComponent(img.getAttribute("src").split("/").pop());
+    const box = biEl("span", "ml-image-placeholder ml-image-missing", `图片无法显示：${name}`,
+      `Image can't be shown: ${img.alt ? `${img.alt} — ` : ""}assets/${name}`);
+    box.title = `assets/${name}`;
+    return box;
+  }
+  preview.addEventListener("error", (event) => {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement) || !img.classList.contains("ml-image")) return;
+    missingImages.add(img.getAttribute("src"));
+    img.replaceWith(missingImage(img));
+  }, true);  // (an image's error doesn't bubble)
+
   // While typing in Split: a moment after the last key; otherwise at once
   function schedulePreview(now) {
     if (view === "source") return;
@@ -687,6 +756,7 @@
     current = key;
     menu.value = key;
     comparing = false;
+    missingImages.clear();  // (an image added by hand meanwhile is asked for again)
     body.dataset.mlNoteKey = key;
     if (chosen) store(KEYS.last, key);
     const note = sessionFor(key);
@@ -1018,8 +1088,239 @@
     const off = !canFormat();
     headingMenu.disabled = off;
     for (const b of toolButtons) b.disabled = off;
+    formulaButton.disabled = off || !window.myLibraryFormula;
     tools.dataset.state = off ? "off" : "on";
   }
+
+  // --- pasted images (M5d) and formulas (M5e) ------------------------------------------------
+  //
+  // Saving an image and saving the note are separate: the image is written at once (its own
+  // request, a new file in the document's assets/), then its link is typed into the note like
+  // any other edit (one insertText: one Undo; the session saves it). An image is never deleted
+  // here: not when the note's save fails or meets a conflict, not when its link is undone.
+  // Anything that finishes later is put in only where it was asked for: the same note, still
+  // in the box, its text unchanged since; otherwise the image is kept and the user is offered
+  // to insert its link where they are now.
+
+  const MAX_IMAGE = 10 * 1024 * 1024;
+  const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+  const MAX_IMAGES = 10;  // in one paste
+  let formulaNext = 0;  // Ctrl+Shift+V was pressed just now: the next image is a formula
+
+  // Where an insertion was asked for: the note, its text then, the selection then
+  const target = () => ({
+    note: typing(), key: text.dataset.key, value: text.value,
+    start: text.selectionStart, end: text.selectionEnd,
+  });
+  // The box still shows that note, unchanged, and it can be typed in
+  const sameTarget = (at) => at.note && typing() === at.note && text.dataset.key === at.key
+    && !text.readOnly && !composing;
+
+  // One edit of the source, as the toolbar's: insertText (one Undo, the input event reaches
+  // the session), or without it a plain change that is still saved
+  function replaceRange(from, to, value) {
+    text.focus({ preventScroll: true });
+    text.setSelectionRange(from, to);
+    if (!document.execCommand("insertText", false, value)) {
+      text.setRangeText(value, from, to, "end");
+      text.dispatchEvent(new Event("input"));
+    }
+  }
+
+  function imagesOf(data) {
+    const found = [];
+    for (const item of data?.items || []) {
+      if (item.kind === "file" && item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) found.push(file);
+      }
+    }
+    if (!found.length) found.push(...[...(data?.files || [])].filter((f) => f.type.startsWith("image/")));
+    return found;
+  }
+
+  async function uploadImage(file, key) {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 60_000);
+    try {
+      const response = await fetch("/api/notes/asset", {
+        method: "POST",
+        headers: {
+          "X-Library-Token": reader.token, "X-Document-Id": docId,
+          "X-Note-Key": encodeURIComponent(key), "Content-Type": "application/octet-stream",
+        },
+        body: file,
+        signal: abort.signal,
+      });
+      const data = await response.json();
+      if (response.status === 403) throw new Error("the server was restarted: reload this page");
+      if (!response.ok) throw new Error(data.error || response.statusText);
+      if (typeof data.path !== "string" || !assetUrl(data.path)) {
+        throw new Error("the server returned an invalid image path");
+      }
+      return data;
+    } catch (error) {
+      if (error.name === "AbortError") throw new Error("no answer from the server in time");
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const imageLink = (saved) => `![image](${saved.path})`;
+
+  // Saved images whose links couldn't go where they were asked for: kept, and offered here
+  function offerLinks(links) {
+    body.dataset.mlPaste = "kept";
+    const markdown = links.join("\n");
+    const insertHere = button("插入到当前位置", "Insert here", () => {
+      const at = target();
+      if (!sameTarget(at) || !at.key?.startsWith("file:")) {
+        say(biEl("span", "ml-error", "现在不能编辑这条笔记", "This note can't be edited right now"));
+        return;
+      }
+      replaceRange(at.start, at.end, markdown);
+      line.remove();
+    });
+    insertHere.classList.add("mlInsertKept");
+    const line = el("div", "ml-paste-kept");
+    line.append(biEl("span", "ml-muted", `图片已保存，但没有插入（笔记在此期间变了）：${markdown}`,
+      `The image is saved but its link wasn't inserted (the note changed meanwhile): ${markdown}`),
+    insertHere);
+    status.append(line);
+    setTimeout(() => line.remove(), 120_000);
+  }
+
+  // Ctrl+V of one or more images: each saved, then their links inserted at once
+  async function pasteImages(files, at = target()) {
+    if (!sameTarget(at)) {
+      body.dataset.mlPaste = "refused";
+      say(biEl("span", "ml-error", "这条笔记现在不能编辑（只读或正在载入）",
+        "This note can't be edited right now (read-only or loading): nothing was pasted"));
+      return;
+    }
+    if (!at.key?.startsWith("file:")) {
+      body.dataset.mlPaste = "refused";
+      say(biEl("span", "ml-error", "图片只能粘贴到这份文档自己的笔记中", "Images can be pasted only into this document's own notes"));
+      return;
+    }
+    const wrong = files.find((f) => !IMAGE_TYPES.includes(f.type) || f.size > MAX_IMAGE);
+    if (wrong || files.length > MAX_IMAGES) {
+      body.dataset.mlPaste = "refused";
+      say(biEl("span", "ml-error", "只能粘贴 PNG、JPEG 或 WebP 图片，每张不超过 10 MB，一次最多 10 张",
+        "Only PNG, JPEG and WebP images of at most 10 MB, up to 10 at a time, can be pasted"), 8000);
+      return;
+    }
+    body.dataset.mlPaste = "saving";
+    const saving = biEl("span", "ml-muted", "正在保存图片…", "Saving the image…");
+    say(saving, 60_000);
+    const links = [];
+    let failure = null;
+    for (const file of files) {
+      try {
+        links.push(imageLink(await uploadImage(file, at.key)));
+      } catch (error) {
+        failure = error;
+        break;  // (the ones saved before are still inserted)
+      }
+    }
+    saving.parentElement?.remove();
+    if (failure) {
+      say(biEl("span", "ml-error", "图片没有保存", `The image wasn't saved: ${failure.message}`), 10_000);
+    }
+    if (!links.length) {
+      body.dataset.mlPaste = "failed";
+      return;
+    }
+    if (sameTarget(at) && text.value === at.value) {
+      replaceRange(at.start, at.end, links.join("\n"));
+      body.dataset.mlPaste = failure ? "failed" : "inserted";
+    } else {
+      offerLinks(links);
+    }
+  }
+
+  text.addEventListener("keydown", (event) => {
+    if (event.code === "KeyV" && (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey) {
+      formulaNext = Date.now();
+    }
+  });
+
+  // Ctrl+V: text as before; an image (and no text) is saved and linked. Ctrl+Shift+V with an
+  // image: the ∑ dialog. Nothing during IME composition or while the note can't be typed in
+  text.addEventListener("paste", (event) => {
+    const asFormula = Date.now() - formulaNext < 1000;
+    formulaNext = 0;
+    const files = imagesOf(event.clipboardData);
+    if (!files.length || composing) return;  // text: the browser's own paste
+    if (!asFormula && event.clipboardData.getData("text/plain").trim()) return;  // text wins
+    event.preventDefault();
+    event.stopPropagation();  // (never PDF.js's paste)
+    if (asFormula) openFormula(files[0]);
+    else pasteImages(files);
+  });
+
+  // The delimiters a confirmed formula is written with, so that the preview reads it back
+  // whole (preview.js closesAtEnd, its own rules): $…$ / $$…$$ as usual; \(…\) / \[…\] when
+  // the LaTeX itself would end those early (a "$" of its own, as in \text{$x$}, or a digit
+  // right after an inline one). The LaTeX is kept exactly as confirmed. Only if no pair reads
+  // back whole are its unpaired dollar signs escaped (\$, a dollar sign to KaTeX)
+  function delimited(body, pairs, next) {
+    const fits = window.myLibraryPreview?.closesAtEnd;
+    for (const [open, close] of pairs) {
+      if (!fits || fits(body, close, next)) return `${open}${body}${close}`;
+    }
+    const [open, close] = pairs[0];
+    // (a backslash and the character after it are a pair, as LaTeX and the preview read them)
+    return `${open}${body.replace(/\\[\s\S]|\$/g, (m) => (m === "$" ? "\\$" : m))}${close}`;
+  }
+
+  // $$…$$ on lines of its own (a blank line around it, so it is a block), or $…$ in the line
+  function formulaMarkdown(latex, display, before, after) {
+    // (right after an unpaired backslash, a delimiter would be read as an escaped character)
+    const space = /(^|[^\\])(\\\\)*\\$/.test(before) ? " " : "";
+    if (!display) {
+      const body = latex.replace(/\s*\n\s*/g, " ");
+      // "$" right after another "$" would make "$$": then only \(…\)
+      const pairs = before.endsWith("$") ? [["\\(", "\\)"]] : [["$", "$"], ["\\(", "\\)"]];
+      return space + delimited(body, pairs, after.slice(0, 1));
+    }
+    const lines = latex.replace(/\n\s*\n/g, "\n");
+    const lead = !before || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+    const tail = after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : after ? "\n\n" : "\n";
+    const block = delimited(`\n${lines}\n`, [["$$", "$$"], ["\\[", "\\]"]], "");
+    return `${lead}${block}${tail}`;
+  }
+
+  function openFormula(image = null) {
+    const formula = window.myLibraryFormula;
+    const at = target();
+    if (!formula) return;
+    if (!sameTarget(at)) {
+      say(biEl("span", "ml-error", "这条笔记现在不能编辑（只读或正在载入）",
+        "This note can't be edited right now (read-only or loading)"));
+      return;
+    }
+    formula.open({
+      host: panel,
+      image,
+      // The confirmed LaTeX, into the note it was asked for, or a reason why not
+      insert(latex, display) {
+        if (!sameTarget(at)) {
+          return ["这条笔记已不在编辑器中或不能编辑：没有插入", "The note it was for is no longer open or can't be edited: nothing was inserted"];
+        }
+        if (text.value === at.value) text.setSelectionRange(at.start, at.end);
+        const { selectionStart: from, selectionEnd: to, value } = text;
+        replaceRange(from, to, formulaMarkdown(latex, display, value.slice(0, from), value.slice(to)));
+        body.dataset.mlFormula = "inserted";
+        return null;
+      },
+      asImage(blob) {
+        pasteImages([blob], at);
+      },
+    });
+  }
+  formulaButton.addEventListener("click", () => openFormula());
   // The buttons never take the focus from the note (its selection stays where it was)
   tools.addEventListener("mousedown", (event) => {
     if (event.target.closest("button")) event.preventDefault();

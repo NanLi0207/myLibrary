@@ -8,7 +8,10 @@
 // - links: only http(s), #heading, a relative name (another note) and /read/<id> become links
 //   (validateLink, which markdown-it applies after decoding entities and normalising); any
 //   other scheme (javascript:, data:, file:, vbscript:, …) stays plain text;
-// - images aren't loaded (pasted images are M5d): shown as their description, no request made;
+// - images: only the document's own pasted images (M5d) are loaded: notes.js passes a
+//   function (options.image) that turns "assets/<name>" into the server's contained route,
+//   /notes-assets/<id>/<name>; any other image (a web address, data:, a path elsewhere) stays
+//   a placeholder with its description, and no request is made for it;
 // - heading ids are prefixed (ml-h-…), so they can never collide with PDF.js's own ids.
 // Without markdown-it (not set up: reader.py --setup-preview) `available` is false and notes.js
 // shows the plain text instead.
@@ -85,6 +88,11 @@
       const token = tokens[idx];
       const alt = self.renderInlineAsText(token.children || [], options, env);
       const src = token.attrGet("src") || "";
+      const url = typeof env.mlImage === "function" ? env.mlImage(src) : null;
+      if (url) {  // (a same-origin path made by notes.js from a checked name; escaped anyway)
+        return `<img class="ml-image" src="${escape(url)}" alt="${escape(alt)}"`
+          + ` title="${escape(alt || src)}" decoding="async">`;
+      }
       return `<span class="ml-image-placeholder" title="${escape(src)}">`
         + `图片 Image: ${escape(alt || src)}</span>`;
     };
@@ -298,18 +306,40 @@
     + " didn't pass its check (uv run scripts/reader.py --setup-maths); formulas are shown as"
     + " written.</span></div>\n";
 
-  // The HTML for a note's text (markdown-it's own output, html: false); null without it
-  function render(text) {
+  // The HTML for a note's text (markdown-it's own output, html: false); null without it.
+  // options.image(src): the URL to load a note's image from, or null (a placeholder)
+  function render(text, options = {}) {
     if (!md) return null;
-    const env = {};
+    const env = { mlImage: options.image };
     const html = md.render(String(text), env);
     return env.mlMaths && !katex() ? NO_MATHS + html : html;
+  }
+
+  // One formula on its own (M5e's dialog): the same KaTeX, options and limits as the
+  // preview's. {html} or {error}; without KaTeX {error} saying so
+  function formulaHtml(source, display = true) {
+    const engine = katex();
+    if (!engine) return { error: "KaTeX isn't installed (uv run scripts/reader.py --setup-maths)" };
+    return typesetFormula(engine, String(source), display);
+  }
+
+  // M5e: whether `body` followed by the closing delimiter `close` ($, $$, \) or \]) is read
+  // here as one formula ending exactly there, `next` being the note's character after it (a
+  // digit after "$" means it was a dollar sign). The ∑ dialog asks before writing a formula
+  // into a note, so the note says what the user confirmed, read back the same way
+  function closesAtEnd(body, close, next = "") {
+    const text = String(body);
+    const src = text + close + next;
+    const [found] = findClose(src, 0, text.length + close.length, close);
+    return found === text.length;
   }
 
   window.myLibraryPreview = {
     available: Boolean(md),
     maths: () => Boolean(katex()),
     html: render,
+    formulaHtml,
+    closesAtEnd,
     isWeb,
     headingId: (fragment) => `ml-h-${slug(fragment)}`,
   };

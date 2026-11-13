@@ -33,7 +33,40 @@ SKIP_SCRIPTS = {"build_package.py", "make_shortcut.py"}  # build-time / developm
 # Model-conversion tools in onnxruntime: OCR only *runs* models. They also hold the package's
 # deepest file paths, which can break unzipping into a deep folder (Windows' 260-character limit)
 PRUNE = ["onnxruntime/tools", "onnxruntime/transformers", "onnxruntime/quantization"]
+# Single files left out of the package (owner decision, 2026-11-13, for the public beta), each
+# unused by myLibrary:
+# - OpenCV's FFmpeg plugin (LGPL-2.1): loaded by OpenCV only to open video, which neither
+#   myLibrary nor RapidOCR does; OpenCV itself stays.
+# - ReportLab's test TrueType font and its Type 1 core fonts, which come with no licence text:
+#   ReportLab's PDF output (the OCR text layer) uses its built-in font metrics or a system
+#   TrueType font, never these files (only reportlab.graphics' bitmap rendering does).
+# Kept: Bitstream Vera and DarkGarden with their licences (and DarkGarden's source).
+T1_FONTS = ["_a______", "_ab_____", "_abi____", "_ai_____", "_eb_____", "_ebi____", "_ei_____",
+            "_er_____", "callig15", "cob_____", "cobo____", "com_____", "coo_____", "sy______",
+            "zd______", "zx______", "zy______"]  # fmt: skip
+EXCLUDE = ["cv2/opencv_videoio_ffmpeg500_64.dll", "reportlab/fonts/hb-test.ttf"] + [
+    f"reportlab/fonts/{name}{ext}" for name in T1_FONTS for ext in (".afm", ".pfb")
+]
+KEEP = ["reportlab/fonts/" + n for n in (
+    "Vera.ttf", "VeraBd.ttf", "VeraIt.ttf", "VeraBI.ttf", "bitstream-vera-license.txt",
+    "DarkGardenMK.afm", "DarkGardenMK.pfb", "DarkGarden.sfd", "DarkGarden-copying.txt",
+    "DarkGarden-copying-gpl.txt", "DarkGarden-readme.txt")]  # fmt: skip
 LONGEST_OK = 130  # characters, from the package's own folder down
+LICENSES = APP / "package" / "licenses"
+# Licence texts a bundled distribution doesn't ship in its *.dist-info itself (the build stops
+# if any other one ships none: check_licenses), and where the package's copy comes from
+LICENSE_FROM_US = {"flatbuffers": "FlatBuffers-LICENSE.txt"}  # (its wheel has no licence file)
+LICENSE_IN_PACKAGE = {
+    "onnxruntime": ["onnxruntime/LICENSE", "onnxruntime/ThirdPartyNotices.txt"],
+}
+# Copied into third_party_licenses/ as they are (package/licenses/)
+OUR_LICENSE_FILES = [
+    "ECDICT-LICENSE.txt",
+    "FlatBuffers-LICENSE.txt",
+    "GEOS-LGPL-NOTICE.txt",
+    "markdown-it-bundled-LICENSES.txt",
+    "Python-incorporated-software.txt",
+]
 
 
 def run(command: list[str]) -> None:
@@ -61,6 +94,68 @@ def install_packages(python: Path, target: Path) -> None:
     requirements.unlink()
     for folder in PRUNE:
         shutil.rmtree(target / folder, ignore_errors=True)
+    exclude(target)
+
+
+def exclude(site_packages: Path) -> list[str]:
+    """Leave out EXCLUDE; then make sure no FFmpeg file is left anywhere and everything in
+    KEEP is still there (else the build stops). Returns the files removed."""
+    removed = []
+    for name in EXCLUDE:
+        path = site_packages / name
+        if path.is_file():
+            path.unlink()
+            removed.append(name)
+    left = [p.relative_to(site_packages).as_posix() for p in site_packages.rglob("*ffmpeg*")]
+    missing = [name for name in KEEP if not (site_packages / name).is_file()]
+    if left or missing:
+        sys.exit(f"  ! FFmpeg files left: {left}; kept files missing: {missing}")
+    print(f"  left out {len(removed)} unused files (FFmpeg plugin, unlicensed fonts)")
+    return removed
+
+
+def unlicensed(site_packages: Path) -> list[str]:
+    """The installed distributions that ship no licence, copying or notice file in their
+    *.dist-info and aren't provided for (LICENSE_FROM_US, LICENSE_IN_PACKAGE)."""
+    missing = []
+    for info in sorted(site_packages.glob("*.dist-info")):
+        name = info.name.split("-")[0].lower().replace("_", "-")
+        # (by the path inside the dist-info: pypdfium2 keeps its texts in licenses/LICENSES/,
+        # named after the licence, e.g. Apache-2.0.txt)
+        words = ("licen", "copying", "notice")
+        own = [p for p in info.rglob("*") if p.is_file()
+               and any(w in p.relative_to(info).as_posix().lower() for w in words)]  # fmt: skip
+        provided = name in LICENSE_FROM_US or all(
+            (site_packages / f).is_file() for f in LICENSE_IN_PACKAGE.get(name, ["-"])
+        )
+        if not own and not provided:
+            missing.append(info.name.removesuffix(".dist-info"))
+    return missing
+
+
+def check_licenses(site_packages: Path) -> None:
+    """Every bundled Python distribution comes with its licence text: else the build stops."""
+    if missing := unlicensed(site_packages):
+        sys.exit(f"  ! no licence text for: {', '.join(missing)} (add it to package/licenses "
+                 "and LICENSE_FROM_US)")  # fmt: skip
+
+
+def copy_licenses(root: Path, site_packages: Path) -> None:
+    """third_party_licenses/: our copies (package/licenses), the reader's components', the
+    Python runtime's, and the licence files a bundled distribution keeps outside its
+    dist-info (each dist-info's own stay where they are, in runtime/site-packages/)."""
+    licenses = root / "third_party_licenses"
+    licenses.mkdir()
+    for name in OUR_LICENSE_FILES:
+        shutil.copy2(LICENSES / name, licenses / name)
+    shutil.copy2(reader.PDFJS / "LICENSE", licenses / "PDF.js-LICENSE.txt")
+    shutil.copy2(reader.MARKDOWN_IT / "LICENSE", licenses / "markdown-it-LICENSE.txt")
+    shutil.copy2(reader.KATEX / "LICENSE", licenses / "KaTeX-LICENSE.txt")
+    shutil.copy2(root / "runtime" / "python" / "LICENSE.txt", licenses / "Python-LICENSE.txt")
+    for files in LICENSE_IN_PACKAGE.values():
+        for f in files:
+            target = licenses / f.replace("/", "-")
+            shutil.copy2(site_packages / f, target)
 
 
 def check_path_lengths(root: Path) -> None:
@@ -103,7 +198,9 @@ def main() -> None:
     python = copy_python(root / "runtime" / "python")
 
     print("3/5 packages")
-    install_packages(python, root / "runtime" / "site-packages")
+    site_packages = root / "runtime" / "site-packages"
+    install_packages(python, site_packages)
+    check_licenses(site_packages)
 
     print("4/5 the tool")
     shutil.copytree(
@@ -115,13 +212,7 @@ def main() -> None:
         shutil.copy2(APP / "package" / f, root / f)
     shutil.copy2(APP / "LICENSE", root / "LICENSE")
     shutil.copy2(APP / "THIRD_PARTY_NOTICES.md", root / "THIRD_PARTY_NOTICES.md")
-    licenses = root / "third_party_licenses"
-    licenses.mkdir()
-    shutil.copy2(APP / "package" / "licenses" / "ECDICT-LICENSE.txt", licenses)
-    shutil.copy2(reader.PDFJS / "LICENSE", licenses / "PDF.js-LICENSE.txt")
-    shutil.copy2(reader.MARKDOWN_IT / "LICENSE", licenses / "markdown-it-LICENSE.txt")
-    shutil.copy2(reader.KATEX / "LICENSE", licenses / "KaTeX-LICENSE.txt")
-    shutil.copy2(root / "runtime" / "python" / "LICENSE.txt", licenses / "Python-LICENSE.txt")
+    copy_licenses(root, site_packages)
     (root / "package.toml").write_text(
         f'# The ready-to-use package of myLibrary (see scripts/paths.py)\nversion = "{version}"\n'
         f'built = "{date.today().isoformat()}"\n',

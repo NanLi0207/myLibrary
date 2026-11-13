@@ -1,0 +1,68 @@
+GEOS in this package: LGPL-2.1 notice, corresponding source and replacement
+=========================================================================
+
+This package contains GEOS (Geometry Engine Open Source) 3.14.1, licensed under the GNU Lesser
+General Public License, version 2.1 (text: runtime/site-packages/shapely-2.2.0.dist-info/
+licenses/LICENSE_GEOS). It is used by Shapely, which RapidOCR (scan OCR) uses. myLibrary does
+not modify GEOS; it redistributes the binaries exactly as they come in Shapely's wheel.
+
+1. The binaries (runtime/site-packages/shapely.libs/)
+
+   geos-bf067cd6ff74ee0ad5f3ff52c7ef08c9.dll     SHA-256 0948bdb5c70b82e5055b55e9419b78d68372b1d0ec877277fa6e79276f6299b9
+   geos_c-6dd9fd915eef8a7928285416bef1e666.dll   SHA-256 6e65985b30831761887de3217853a720147626b18cb41668cd2bdc43d1bcded1
+
+   Both are byte-identical to the files in the wheel
+   shapely-2.2.0-cp314-cp314-win_amd64.whl (PyPI, uploaded 2026-10-07,
+   SHA-256 48dd1d961391f314ab7fa8812c86ca2a727bee2bdca1478730eacaea007da18e, the hash pinned in
+   myLibrary's uv.lock) and match that wheel's RECORD.
+
+2. How Shapely built them (from Shapely's repository at tag 2.2.0, commit
+   229c71f7128713b37201f3c77336d32b52467454)
+
+   - .github/workflows/release.yml: GEOS_VERSION "3.14.1"; runner windows-2025; MSVC toolset
+     14.44 (TheMrMilchmann/setup-msvc-dev@v4, arch x64); cibuildwheel v4.2.1 runs
+     ci\install_geos.cmd before the build.
+   - ci/install_geos.cmd: downloads http://download.osgeo.org/geos/geos-3.14.1.tar.bz2 and
+     builds it unmodified (no patches) with CMake and Ninja:
+     -D CMAKE_BUILD_TYPE=Release -D BUILD_SHARED_LIBS=ON -D BUILD_TESTING=OFF, then installs.
+   - The wheel was then repaired with delvewheel 1.13.1 (recorded in the wheel's
+     shapely-2.2.0.dist-info/DELVEWHEEL: "repair --add-path D:\a\_temp\geos-3.14.1\bin"). delvewheel
+     copies the DLLs into shapely.libs/, renames them with a hash suffix and rewrites the import
+     entries that refer to them; GEOS's code isn't changed.
+   - The public run: Shapely's "Build and publish" workflow, run 37597567800 (2026-10-07,
+     https://github.com/shapely/shapely/actions/runs/37597567800).
+
+3. The corresponding source
+
+   - GEOS 3.14.1: geos-3.14.1.tar.bz2, 7,013,834 bytes,
+     SHA-256 3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716; identical to the
+     asset of GEOS's own GitHub release 3.14.1 (https://github.com/libgeos/geos/releases/tag/3.14.1,
+     whose published digest is that SHA-256; git tag 3.14.1 = commit
+     c389f532d25fe6228861d9b19339f9cb57ca4bdb) and to https://download.osgeo.org/geos/geos-3.14.1.tar.bz2.
+   - The scripts that controlled its build: Shapely's ci/install_geos.cmd, .github/workflows/
+     release.yml and pyproject.toml at the commit above, and the wheel's DELVEWHEEL record.
+   - myLibrary's distributor offers these as release assets next to the package:
+     geos-3.14.1.tar.bz2 and shapely-2.2.0-geos-build-materials.zip (with SHA256SUMS.txt).
+
+   Evidence limits: install_geos.cmd downloads the tarball without checking a checksum, and the
+   build may have come from Shapely's CI cache (keyed on the GEOS version and Shapely's ci/
+   files); the run's logs have not been inspected and the binaries have not been rebuilt bit
+   for bit. The correspondence above rests on the published workflow, scripts, delvewheel record,
+   wheel hashes and GEOS release digest.
+
+4. Replacing GEOS with your own build
+
+   The DLLs are loaded at run time: shapely\lib.cp314-win_amd64.pyd and
+   shapely\_geometry_helpers.cp314-win_amd64.pyd import
+   geos_c-6dd9fd915eef8a7928285416bef1e666.dll, which imports
+   geos-bf067cd6ff74ee0ad5f3ff52c7ef08c9.dll. To use a modified, interface-compatible GEOS:
+   build it for Windows x64 as in section 2 (BUILD_SHARED_LIBS=ON); build Shapely 2.2.0 from its
+   source (sdist shapely-2.2.0.tar.gz, SHA-256
+   e8865e553d874a1ec4a032057ea81fca9def37b188cd8fb550af3b3480b3f88c) against it and repair the
+   wheel with delvewheel as in release.yml; then replace runtime/site-packages/shapely/ and
+   runtime/site-packages/shapely.libs/ with the new wheel's. (Replacing only the DLLs also
+   works if the new files take the names above and geos_c's import of the GEOS C++ DLL is
+   renamed to match, which is what delvewheel does.)
+
+This notice describes the GEOS binaries only; myLibrary itself is under its own licence
+(LICENSE). The other components and their licences: THIRD_PARTY_NOTICES.md.

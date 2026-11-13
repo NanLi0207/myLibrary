@@ -21,6 +21,7 @@ so other websites can't trigger it. Stop with Ctrl+C.
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -47,6 +48,8 @@ import book_search
 import catalog
 import find_online
 import folder_backup
+import formula_ocr
+import image_check
 import libraries
 import library_jobs
 import library_page
@@ -857,6 +860,7 @@ class Handler(BaseHTTPRequestHandler):
             ticks = {"start": TICK_START, "documents": tick_versions()}
             api = {"token": TOKEN, "python": python_features(), "package": paths.IS_PACKAGE,
                    "backup": backup.available(),
+                   "backup_deferred": backup.DEFERRED,  # (shown, paused: never hidden)
                    "folder_backup": bool(paths.load_settings().get("backup_folder"))
                    and not libraries.is_test_library(LIBRARY),
                    "library": page_library(), "scope": SCOPE,
@@ -890,12 +894,86 @@ class Handler(BaseHTTPRequestHandler):
             status = HTTPStatus.GONE if catalog.resolve(CATALOG, m[1])["status"] == "removed" \
                 else HTTPStatus.NOT_FOUND  # fmt: skip
             return self._send(status, unknown_document(m[1]).encode(), "text/plain; charset=utf-8")
+        if m := re.fullmatch(r"/notes-assets/([0-9a-f-]{36})/([^/]+)", path):
+            return self._asset(m[1], m[2])
         if m := re.fullmatch(r"/((?:books|papers|theses)/[a-z0-9-]+\.pdf)", path):
             known = {r["file"] for r in catalog.load(CATALOG).values()}
             pdf = LIBRARY / m[1]
             if m[1] in known and pdf.exists():
                 return self._send(HTTPStatus.OK, pdf.read_bytes(), "application/pdf")
         self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
+
+    # A pasted image's response: never anything but the image (no sniffing, no scripts even
+    # if opened on its own, not for other sites' pages); revalidated cheaply (ETag) since the
+    # preview is redrawn while typing
+    ASSET_HEADERS = {
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Cache-Control": "private, no-cache",
+    }
+
+    def _asset(self, raw_id: str, raw_name: str):
+        """GET /notes-assets/<document id>/<image name, percent-encoded> (M5d): one image in the
+        document's notes folder's assets/ (notes_store.asset_file: a valid name, contained,
+        links followed). No token in the URL: like the PDFs, only for this computer (the Host
+        check), and only for this server's own pages (Sec-Fetch-Site, when the browser sends
+        it). Its type is read from its bytes, never from its name: anything that isn't a PNG,
+        JPEG or WebP image is refused."""
+        if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+            return self._send(HTTPStatus.FORBIDDEN, b"forbidden", "text/plain")
+        try:
+            name = unquote(raw_name, errors="strict")
+        except UnicodeDecodeError:
+            name = ""
+        doc_id = live_id(raw_id)
+        try:
+            if not doc_id:
+                raise notes_store.NoteError("no such document")
+            path = notes_store.asset_file(LIBRARY, catalog.load(CATALOG)[doc_id], name)
+            stat = os.stat(safe_io._os_path(path))
+        except notes_store.NoteError, OSError:
+            return self._send(HTTPStatus.NOT_FOUND, b"no such image", "text/plain")
+        if stat.st_size > image_check.MAX_BYTES:
+            return self._send(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, b"too large", "text/plain")
+        try:
+            data = safe_io.read_bytes(path)
+        except OSError:
+            return self._send(HTTPStatus.NOT_FOUND, b"no such image", "text/plain")
+        # Always checked in full, also for a "not modified" answer: a file's size, time or id
+        # never prove what it holds now
+        try:
+            info = image_check.inspect(data)
+        except image_check.ImageError:
+            return self._send(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, b"not an image", "text/plain")
+        # The ETag names these very bytes (checked just now), so "not modified" can only ever
+        # confirm the image the tab already has
+        etag = f'"{hashlib.sha256(data).hexdigest()[:32]}"'
+        if etag in {t.strip() for t in self.headers.get("If-None-Match", "").split(",")}:
+            self.send_response(HTTPStatus.NOT_MODIFIED)
+            for key, value in {**self.ASSET_HEADERS, "ETag": etag}.items():
+                self.send_header(key, value)
+            return self.end_headers()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", info.mime)
+        self.send_header("Content-Length", str(len(data)))
+        for key, value in {**self.ASSET_HEADERS, "ETag": etag}.items():
+            self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _formula(self, data: bytes):
+        """/api/formula/recognize (M5e): the image's LaTeX candidates (formula_ocr). Errors
+        come back with a `code` the page acts on: not-installed, damaged, busy, timeout,
+        failed (and 400 for an image it can't take)."""
+        try:
+            return self._json(HTTPStatus.OK, formula_ocr.recognize(data))
+        except formula_ocr.FormulaError as e:
+            status = {
+                "timeout": HTTPStatus.GATEWAY_TIMEOUT,
+                "failed": HTTPStatus.INTERNAL_SERVER_ERROR,
+            }.get(e.code, HTTPStatus.SERVICE_UNAVAILABLE)  # not installed, damaged, busy
+            return self._json(status, {"error": str(e), "code": e.code})
 
     def _save_marks(self, file: str, data: bytes):
         """/api/save-marks (D5): the body is the tab's whole PDF; X-PDF-Version the version
@@ -992,7 +1070,34 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too big"})
                 data = self._body(length)
                 return self._save_marks(row["file"], data)
+            if self.path in ("/api/notes/asset", "/api/formula/recognize"):  # raw image bytes
+                if length > image_check.MAX_BYTES:
+                    return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                                      {"error": "the image is larger than 10 MB"})  # fmt: skip
+                data = self._body(length)
+                if self.path == "/api/formula/recognize":  # M5e: nothing is stored
+                    return self._formula(data)
+                # M5d: a pasted image, for one of the document's own notes (a file: note: its
+                # folder's assets/), checked before anything is written
+                doc_id = live_id(self.headers.get("X-Document-Id", ""))
+                if not doc_id:
+                    return self._json(HTTPStatus.NOT_FOUND, {"error": unknown_document(
+                        self.headers.get("X-Document-Id"))})  # fmt: skip
+                row = catalog.load(CATALOG)[doc_id]
+                key = unquote(self.headers.get("X-Note-Key", ""))
+                if not key.startswith("file:"):
+                    refusal = "images can be pasted only into a document's own notes"
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": refusal})
+                notes_store.path_of(LIBRARY, row, key, creating=True)  # NoteError: 400
+                return self._json(HTTPStatus.OK, notes_store.save_asset(LIBRARY, row, data))
             body = json.loads(self._body(length) or b"{}")
+            if self.path == "/api/formula/status":  # M5e: is the model installed?
+                return self._json(HTTPStatus.OK, formula_ocr.status())
+            if self.path == "/api/formula/install":  # only on the user's explicit choice
+                if body.get("consent") is not True:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": "no consent given"})
+                cancelled = library_jobs._stopping.is_set
+                return self._json(HTTPStatus.OK, formula_ocr.start_install(cancelled))
             if self.path == "/api/books":  # the page refreshes itself after reading
                 # (the tick versions first: never newer than the chapters read after them)
                 versions = {"start": TICK_START, "documents": tick_versions()}

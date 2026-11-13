@@ -14,6 +14,11 @@ been changed in VS Code meanwhile. Keeping your text over a changed file is an e
 
 Files keep their form: line endings (CRLF or LF, whichever the file uses), a byte-order mark,
 and the final newline (or its absence). A save that changes nothing doesn't touch the file.
+
+Pasted images (M5d) are the document's assets: files in its notes folder's assets/ folder,
+linked from its notes as ![…](assets/<name>). Saving one is separate from saving a note: an
+image is written once under a new name (never over anything) and is never deleted by this
+module, whatever happens to the note that links it (a failed save, a conflict, an Undo).
 """
 
 from __future__ import annotations
@@ -22,9 +27,13 @@ import codecs
 import hashlib
 import os
 import re
+import secrets
+import stat
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
+import image_check
 import library_page
 import safe_io
 
@@ -287,6 +296,205 @@ def keep_copy(library: Path, row: dict, key: str, text: str) -> str:
     copy = _archive_path(library, path, ".mine")
     safe_io.write_bytes(copy, kept)
     return copy.relative_to(library).as_posix()
+
+
+# --- pasted images (M5d) -------------------------------------------------------------------
+
+ASSETS = "assets"
+# An image file's name in assets/: ours are img-<date>-<time>-<random>.<ext>, but one put there
+# by hand may have spaces or any language's letters. Never a path (/ \ :), a control
+# character, a character Windows refuses, a leading dot or space (hidden and temporary files),
+# and always an image extension
+ASSET_NAME_RE = re.compile(
+    r'[^\x00-\x1f\x7f/\\:*?"<>|.\s][^\x00-\x1f\x7f/\\:*?"<>|]{0,140}\.(?i:png|jpe?g|webp)'
+)
+WINDOWS_DEVICES = frozenset(
+    ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"]
+    + [f"{d}{n}" for d in ("COM", "LPT") for n in "123456789¹²³"]
+)
+NEW_NAME_TRIES = 5
+
+
+def asset_name_ok(name) -> bool:
+    return (
+        isinstance(name, str)
+        and bool(ASSET_NAME_RE.fullmatch(name))
+        and name.split(".")[0].strip().upper() not in WINDOWS_DEVICES
+    )
+
+
+def _assets_dir(library: Path, row: dict) -> tuple[Path, Path]:
+    """(the notes folder, its assets/ folder), checked: the notes folder exists (a document
+    being renamed or removed meanwhile is never given a new one), and assets/ is a folder in
+    it, or not there yet. A link or junction named assets/ pointing elsewhere is refused (a
+    link on the notes folder itself is the user's own arrangement, as for notes)."""
+    folder = notes_dir(library, row)
+    if not safe_io.exists(folder) or not os.path.isdir(safe_io._os_path(folder)):
+        raise NoteError("this document has no notes folder")
+    assets = folder / ASSETS
+    if os.path.lexists(safe_io._os_path(assets)) and not os.path.isdir(safe_io._os_path(assets)):
+        raise NoteError("the notes folder's assets is a file, not a folder")
+    if not _inside(assets, folder):
+        raise NoteError("the notes folder's assets folder is a link pointing elsewhere")
+    return folder, assets
+
+
+def save_asset(library: Path, row: dict, data: bytes, *, now: datetime | None = None) -> dict:
+    """Keep a pasted image (PNG, JPEG or WebP, checked from its bytes: image_check) as a new
+    file in the document's assets/ folder; its bytes are kept exactly as they came. Returns
+    {path: "assets/<name>", name, width, height, bytes}: `path` is what a note in the folder
+    links to. Never over an existing file: a new name is made until one is free. ImageError
+    for an image it doesn't take, NoteError for a folder it can't write into."""
+    info = image_check.inspect(data)  # (outside critical(): decoding may take a moment)
+    folder, assets = _assets_dir(library, row)
+    stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    with safe_io.critical():
+        for _ in range(NEW_NAME_TRIES):
+            name = f"img-{stamp}-{secrets.token_hex(3)}{info.extension}"
+            path = assets / name
+            try:
+                safe_io.create_bytes(path, data, require_atomic=True)
+            except FileExistsError:
+                continue  # taken (by a file or a link): another name
+            _check_created(path, assets, folder, len(data))
+            return {
+                "path": f"{ASSETS}/{name}",
+                "name": name,
+                "width": info.width,
+                "height": info.height,
+                "bytes": len(data),
+            }
+    raise NoteError("no free name for the image in assets/; try again")
+
+
+def _check_created(path: Path, assets: Path, folder: Path, size: int) -> None:
+    """After writing: the new file really is in the notes folder (assets/ wasn't replaced by
+    a link meanwhile). If not, it is removed again, but only if it is still the very file
+    just made (same file id and size): never anything else."""
+    made = os.lstat(safe_io._os_path(path))
+    if _inside(path, assets) and _inside(assets, folder):
+        return
+    try:
+        now = os.lstat(safe_io._os_path(path))
+        if now.st_ino == made.st_ino and now.st_size == made.st_size == size:
+            os.unlink(safe_io._os_path(path))
+    except OSError:
+        pass
+    raise NoteError("the notes folder's assets folder changed into a link while saving")
+
+
+def asset_file(library: Path, row: dict, name) -> Path:
+    """The existing image `name` in the document's assets/ (for showing it), checked: a valid
+    image name (asset_name_ok), assets/ in the notes folder, the file in assets/ once links
+    are followed, a plain file. NoteError otherwise (the page shows "image missing")."""
+    if not asset_name_ok(name):
+        raise NoteError("not an image name")
+    folder = notes_dir(library, row)
+    assets = folder / ASSETS
+    path = assets / name
+    if not (_inside(assets, folder) and _inside(path, assets)) or not safe_io.is_file(path):
+        raise NoteError("there is no such image")
+    return path
+
+
+def has_assets(folder: Path) -> bool:
+    """Any image in the notes folder's assets/ (the user's own work, like a written note)."""
+    assets = folder / ASSETS
+    try:
+        return os.path.isdir(safe_io._os_path(assets)) and any(
+            asset_name_ok(p.name) and safe_io.is_file(p) for p in safe_io._os_path(assets).iterdir()
+        )
+    except OSError:
+        return True  # can't tell: treated as there, so nothing is thrown away
+
+
+def check_assets_target(folder: Path) -> Path:
+    """`folder`'s assets/, if images may be copied into it: a folder inside it, or not there
+    yet. NoteError otherwise (checked before a merge changes anything)."""
+    assets = folder / ASSETS
+    not_a_folder = os.path.lexists(safe_io._os_path(assets)) and not os.path.isdir(
+        safe_io._os_path(assets)
+    )
+    if not_a_folder or not _inside(assets, folder):
+        raise NoteError("the kept document's assets folder isn't a folder in its notes folder")
+    return assets
+
+
+def copy_assets(src_folder: Path, dst_folder: Path, tag: str) -> tuple[int, dict[str, str]]:
+    """Merging two documents (add_book.merge_into): the images of `src_folder` into
+    `dst_folder`'s assets/, never over one there. Each tries its own name, then
+    <name>-from-<tag>.<ext>, -from-<tag>-2, ...: a name already holding the very same image
+    (a plain file in assets/, not a link) is used as it is, a free one gets a copy, any other
+    file is passed over. So a merge cut off and run again copies nothing twice. The new names
+    are returned as {old name: new name}, so links in the merged notes can follow. Only plain
+    image files inside the folder (no links out of it). Returns (images copied, renames)."""
+    src_assets = src_folder / ASSETS
+    if not os.path.isdir(safe_io._os_path(src_assets)) or not _inside(src_assets, src_folder):
+        return 0, {}
+    dst_assets = check_assets_target(dst_folder)
+    copied, renamed = 0, {}
+    for path in sorted(safe_io._os_path(src_assets).iterdir()):
+        if (
+            not asset_name_ok(path.name)
+            or not safe_io.is_file(path)
+            or not _inside(path, src_assets)
+        ):
+            continue
+        data = safe_io.read_bytes(path)
+        for target in _merge_names(dst_assets, path.name, tag):
+            if _same_image(target, dst_assets, data):
+                break  # already there (the same name, or an earlier merge's copy)
+            if os.path.lexists(safe_io._os_path(target)):
+                continue  # another image (or a link): never touched
+            try:
+                safe_io.create_bytes(target, data, require_atomic=True)
+            except FileExistsError:  # taken just now: is it this very image?
+                if _same_image(target, dst_assets, data):
+                    break
+                continue
+            copied += 1
+            break
+        else:
+            raise NoteError(f"no free name for {path.name} in the kept document's assets")
+        if target.name != path.name:
+            renamed[path.name] = target.name
+    return copied, renamed
+
+
+def _merge_names(assets: Path, name: str, tag: str):
+    """The names an image coming from a merge may take, always in the same order: its own,
+    then <stem>-from-<tag>, -from-<tag>-2, ... (99 in all)."""
+    yield assets / name
+    stem, ext = os.path.splitext(name)
+    for n in range(1, 99):
+        suffix = f"-from-{tag[:40]}{'' if n == 1 else f'-{n}'}"
+        # A valid long source name must still be servable after adding a collision tag.
+        yield assets / f"{stem[: 141 - len(suffix)]}{suffix}{ext}"
+
+
+def _same_image(target: Path, assets: Path, data: bytes) -> bool:
+    """`target` is a plain file in `assets` (no link, nothing pointing elsewhere) holding
+    exactly `data`."""
+    try:
+        info = os.lstat(safe_io._os_path(target))
+    except OSError:
+        return False
+    if not stat.S_ISREG(info.st_mode) or info.st_size != len(data) or not _inside(target, assets):
+        return False
+    try:
+        return safe_io.read_bytes(target) == data
+    except OSError:
+        return False
+
+
+def relink(text: str, renamed: dict[str, str]) -> str:
+    """A note's links to images that were given new names (copy_assets) made to follow them:
+    ](assets/<old>) and ](./assets/<old>), also written <…> or percent-encoded."""
+    for old, new in renamed.items():
+        for spelled, replacement in ((old, new), (quote(old), quote(new))):
+            pattern = r"(\]\(\s*<?(?:\./)?" + ASSETS + "/)" + re.escape(spelled) + r"(?=[\s)>#?])"
+            text = re.sub(pattern, lambda m, r=replacement: m[1] + r, text)
+    return text
 
 
 def save(

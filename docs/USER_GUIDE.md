@@ -183,7 +183,7 @@ the reading log work **fully offline**. These need the internet:
 | 🔎 Find online 和 ＋ Add to library | OpenAlex、Crossref、DataCite、arXiv、Open Library，以及开放获取 PDF 的网站 and the open-access PDF's site |
 | 保存 OpenAlex 密钥时检查 Checking an OpenAlex key when saved | api.openalex.org |
 | 弹窗中的链接 Links in the popup | Wikipedia、维基百科 (Chinese Wikipedia)、百度百科 (Baidu Baike)、Bing 翻译 (Bing Translator)：只在你点击时，并把所选文字发送给该网站 only when you click, and they send the selected text to that site |
-| ☁ Back up | 你的 Git 远程仓库（如 GitHub）Your git remote (e.g. GitHub) |
+| ☁ Back up | 你的 Git 远程仓库（如 GitHub）；**目前暂停** Your git remote (e.g. GitHub); **paused for now** |
 
 离线时，添加文档仍然可以：缺少的标题、年份和作者会从 PDF 本身读取。离线时每次在线查询会先重试几秒再放弃，所以离线添加较慢。
 Offline, adding documents still works: a missing title, year or author is read from the PDF
@@ -231,8 +231,8 @@ the top.
 | **⟳ Refresh** | 登记你手动复制到 `books/`、`papers/` 或 `theses/` 中的 PDF；为没有学科的条目查找学科；检查重复（见 [4.8](#48-刷新--refresh)）。Registers PDFs you copied into `books/`, `papers/` or `theses/` yourself; looks up subjects for items without one; checks for repeats (see [4.8](#48-刷新--refresh)). |
 | **🔎 Find online** | 在网上查找书、论文和学位论文（见 [8.3](#83-在线查找--find-online)）。Searches the internet for books, papers and theses (see [8.3](#83-在线查找--find-online)). |
 | **📇 Review words** | 生词复习卡片；数字表示今天要复习的个数（见 [10.2](#102-复习生词--review-words)）。Vocabulary review cards; the number shows how many are due (see [10.2](#102-复习生词--review-words)). |
-| **☁ Back up** | 把书库提交并推送到 Git 远程仓库。只在书库位于有上游分支的 Git 仓库中时显示（见 [11.4](#114-备份与恢复--backup-and-restore)）。Commits and pushes the library to its git remote. Shown only when the library is in a git repository with an upstream (see [11.4](#114-备份与恢复--backup-and-restore)). |
-| **💾 Back up** | 把书库备份成带日期的 zip，放到你选择的文件夹。没有 Git 上游、或已设置备份文件夹时显示。Saves a dated zip of the library to a folder you choose. Shown without a git upstream, or when a backup folder is set. |
+| **☁ Back up** | 自动 Git 备份，**目前暂停**：显示为 ☁ Back up (paused)，点击只说明原因，不提交也不推送；只在书库位于有上游分支的 Git 仓库中时显示（见 [11.4](#114-备份与恢复--backup-and-restore)）。The automatic Git backup, **paused for now**: shown as ☁ Back up (paused); clicking it only says why, committing and pushing nothing. Shown only when the library is in a git repository with an upstream (see [11.4](#114-备份与恢复--backup-and-restore)). |
+| **💾 Back up** | 把书库备份成带日期的 zip，放到你选择的文件夹。没有 Git 上游、已设置备份文件夹、或 ☁ Git 备份暂停时（目前如此）显示。Saves a dated zip of the library to a folder you choose. Shown without a git upstream, when a backup folder is set, or while the ☁ Git backup is paused (as now). |
 | **⚙ Settings** | 设置（见[第 12 节](#12-设置--settings)）。Settings (see [section 12](#12-设置--settings)). |
 | **Quit** | 停止 myLibrary（先询问）。正在运行的任务会先到达安全点再停止。Stops myLibrary (asks first). Running jobs reach a safe point before it stops. |
 
@@ -1044,7 +1044,7 @@ hidden formatting.
 | • / 1. / ☑ | `- 项目 item`、`1. 项目 item`、`- [ ] 任务 task` |
 | ❝ | `> 引用 quote` |
 | `` ` `` / ```` ``` ```` | `` `行内代码 code` `` / 代码块 a fenced code block |
-| 🔗 / 🖼 | `[文字 text](https://)`、`![描述 description](image.png)`（图片尚不显示 images don't show yet, M5d） |
+| 🔗 / 🖼 | `[文字 text](https://)`、`![描述 description](assets/image.png)`（本地图片见下方 local images below） |
 | ▦ | 一个两列的小表格。A small two-column table. |
 | `$` / `$$` | 行内公式 `$…$` / 独立公式 `$$…$$`（见[数学公式](#数学公式--maths) see Maths） |
 
@@ -1097,9 +1097,9 @@ The preview uses markdown-it 15.0.3 (CommonMark plus tables and strikethrough).
 
 **目前不支持 / Not supported yet:**
 
-- **图片**：显示为虚线占位框 "图片 Image: <描述>"，不加载图片（计划在 M5d）。
-  **Images**: shown as a dashed placeholder "图片 Image: <description>", never loaded (planned
-  for M5d).
+- **外部图片**：网络地址、`data:` 和文档资源文件夹以外的图片只显示占位框，不发出请求。
+  **External images**: web URLs, `data:` and images outside the document's assets folder stay
+  placeholders; no request is made. Local pasted images render in Preview and Split.
 - **笔记中的 HTML** 显示为文本，从不执行。其他协议的链接（`javascript:`、`data:`……）不可点击。
   **HTML in a note** is shown as text, never run. Links with other schemes (`javascript:`,
   `data:`, ...) aren't clickable.
@@ -1261,13 +1261,90 @@ lets you choose.
 > updating "Last read"), saving in VS Code can write over that change. Read VS Code's prompt
 > before saving.
 
-### 9.10 计划中的笔记功能 / Planned notes features
+### 9.10 图片与公式识别，以及后续功能 / Images, formula recognition and later features
+
+**粘贴图片（M5d）/ Paste images:** 在可编辑的文档笔记中按 Ctrl+V。支持 PNG、JPEG、WebP，每张最多 10 MiB、
+4000 万像素、每边 16,384 像素，一次最多 10 张，不支持动画。图片保存在该文档笔记的 `assets/` 中；插入相对 Markdown
+链接，通过正常的自动保存保存笔记。预览和分屏显示本地图片；撤销链接不会删除图片。主题笔记暂不支持图片。
+Press Ctrl+V in an editable document note. PNG, JPEG and WebP are accepted, up to 10 MiB,
+40 million pixels and 16,384 pixels per side, ten images per paste; animations are refused.
+Images stay in the document notes' `assets/` folder. A relative Markdown link is inserted as
+one undoable edit and saved by normal autosave. Preview and Split display it. Undo removes
+the link, never the saved image. Topic notes do not support image uploads.
+图片的原子保存需要支持硬链接的文件系统（如 NTFS）；不支持时明确报错，不改用不完整的写入方式。
+Atomic image storage requires a filesystem with hard-link support, such as NTFS;
+unsupported storage is refused explicitly.
+
+上传期间切换或修改笔记时，不自动插入到错误的位置；提示已保存的链接，点 **Insert here** 才插入。图片不会因为
+保存失败、冲突或撤销而被删除。把整个书库一起移动，或用文件夹备份恢复，图片链接仍可使用。
+If the note changes during upload, the saved link is offered for explicit **Insert here**
+instead of inserted automatically. Failed saves, conflicts and Undo retain the image. Move
+the whole library or restore its folder backup to keep relative links working.
+
+**图片与备份 / Images and backups:**
+1. **💾 文件夹备份（本地 zip）包含笔记图片。** 💾 The folder backup (a local zip) includes note images.
+2. **☁ 自动 Git 备份目前暂停**（见 [11.4](#114-备份与恢复--backup-and-restore)），不会提交或推送任何内容。
+   ☁ The automatic Git backup is paused for now (see 11.4): it commits and pushes nothing.
+3. **只从 Git 恢复时，笔记里的图片链接会缺失**（显示"图片无法显示"）：个人笔记图片不应发布到 Git。
+   Restoring from Git alone leaves the notes' image links missing (shown as "Image can't be
+   shown"): personal note images aren't meant to be published to Git.
+4. **要完整恢复笔记和图片，需要 💾 文件夹备份。** A complete restore of notes and images needs the
+   💾 folder backup.
+
+**识别为公式（M5e）/ Recognize as Formula:** 点击工具栏 **∑ Recognize as Formula**，粘贴公式截图；或在笔记
+中按 Ctrl+Shift+V 粘贴。首次使用时明确选择下载约 120 MB 的 Pix2Text MFR 1.5 模型，文件逐一校验 SHA-256。
+之后完全在本机离线识别，不需要账户、API key 或付费服务，图片不上传到云端，也不会因为识别而保存在书库中。
+Click **∑ Recognize as Formula** and paste a cropped formula screenshot, or paste with
+Ctrl+Shift+V in the note. The first use offers an explicit one-time download of about 120 MB
+of pinned, SHA-256-verified Pix2Text MFR 1.5 weights. Afterwards recognition is entirely local
+and offline, without an account, API key or paid service. Recognition sends nothing to a cloud
+and does not save the screenshot in the library.
+
+比较最多三个不同候选公式，直接编辑 LaTeX，查看实时 KaTeX 预览，选择行内或独立显示，再点 **Insert into the note**。
+确认之前不修改笔记。也可以取消、重试或 **Insert as an image instead**。结果可能把 l/1/I、0/O、v/ν 等认错；
+务必检查。模型评分不是准确率；界面不显示虚构的置信度。公式太复杂、模糊或识别超时应重新裁剪或手动改正。
+Compare up to three distinct model hypotheses, edit the LaTeX with a live KaTeX preview,
+choose inline or displayed maths, then click **Insert into the note**. Nothing changes before
+confirmation. Cancel, Retry and **Insert as an image instead** are also available. Check every
+result: l/1/I, 0/O and v/ν can be confused. Model scores are not accuracy; the UI invents no
+confidence percentages. Crop again or correct manually if an image is blurred, complex or
+times out. Handwriting and mixed text/formula pages are not reliably supported.
+
+源码安装的命令 / Source installation commands:
+
+```powershell
+uv run scripts/formula_ocr.py --status
+uv run scripts/formula_ocr.py --setup
+uv run scripts/formula_ocr.py path/to/formula.png
+```
+
+模型是可选的；没有安装也能阅读、粘贴图片和编辑笔记。复用扫描 OCR 已有的 ONNX Runtime、NumPy 和 Pillow，
+不额外要求 PyTorch、Transformers 或 Pix2Text Python 包。缺少运行环境时按提示修复依赖（源码安装用 `uv sync`），
+不必重复下载模型。开发版模型在工具文件夹的 `.cache/formula-ocr/`，安装包中在
+`%APPDATA%\myLibrary\formula-ocr\`（工具缓存，不在个人书库中；更新或重装安装包不会删除它）。
+关闭 ∑ 对话框不会停止已经开始的识别：它在后台最多再运行约 30 秒，这期间新的识别会等待，可能提示"忙"。
+同一时间只能有一个模型安装（网页或终端）；安装被中断（例如断电）后，下次安装、打开 ∑ 对话框或识别时，
+会把旁边完整的模型副本（按固定的 SHA-256 校验）放回原处，离线即可继续使用，不必重新下载；最后一份完整副本从不被删除。
+Only one model install runs at a time (from the page or the terminal). After an interrupted
+install (a power cut, say), the next install, opening the ∑ dialog or a recognition puts a
+whole copy of the model left beside it (checked against the pinned SHA-256) back in place, so
+it works offline again with no new download; the last whole copy is never deleted.
+The model is optional; reading, image pasting and editing work without it. It reuses scan
+OCR's ONNX Runtime, NumPy and Pillow; no PyTorch, Transformers or Pix2Text Python package is
+added. Repair missing runtime dependencies as instructed (`uv sync` for a source checkout);
+do not download the model again. Development weights live in the tool's `.cache/formula-ocr/`;
+the package keeps them in `%APPDATA%\myLibrary\formula-ocr\` (a tool cache, not in any
+library; package updates and reinstalls leave it). Closing the ∑ dialog doesn't stop a
+recognition already started: it runs on for up to about 30 s, and a new one meanwhile waits
+and may say "busy". Licensing and
+redistribution details: [FORMULA_OCR_LICENSES.md](FORMULA_OCR_LICENSES.md). Actual local test
+status: [M5_VERIFICATION.md](M5_VERIFICATION.md); release/package acceptance is separate.
 
 以下功能**尚未实现**，只是计划 / These are **not implemented yet**, only planned:
 
 | 阶段 Phase | 计划 Plan |
 |---|---|
-| M5d | 粘贴截图和图片（Ctrl+V），保存为笔记旁的本地文件并在预览中显示。Pasting screenshots and images (Ctrl+V), saved as local files beside the note and shown in the preview. |
+| M5d / M5e | 已实现，本地验证记录见上方。Implemented; local verification linked above. |
 | 以后 Later | 把截图识别成可编辑的公式或表格。Turning a screenshot into an editable equation or table. |
 
 ---
@@ -1393,7 +1470,7 @@ myLibrary/                   工具（本仓库）/ the tool (this repository)
 |---|---|
 | PDF（含你的标注）PDFs (with your marks) | `books/`、`papers/`、`theses/` |
 | Markdown 笔记 Markdown notes | `notes/<name>/*.md`、`notes/topics/*.md` |
-| 图片 Images | 笔记中的图片还不显示（M5d）；你自己放在笔记文件夹中的图片就是普通文件。Images in notes aren't shown yet (M5d); images you put into a notes folder are ordinary files. |
+| 图片 Images | 文档笔记 `assets/` 中的 PNG/JPEG/WebP 用相对链接显示；移动和文件夹备份时一起保留。PNG/JPEG/WebP in a document note's `assets/` render through relative links; keep them with notes when moving or backing up. |
 | 设置 Settings | 工具文件夹的 `local.toml`；安装包中是 `%APPDATA%\myLibrary\settings.toml`。`local.toml` in the tool's folder; in the package, `%APPDATA%\myLibrary\settings.toml`. |
 | 恢复草稿和界面偏好 Recovery drafts and view preferences | 浏览器的本地存储（这台电脑、这个浏览器、这个端口）。The browser's local storage (this PC, this browser, this port). |
 
@@ -1478,19 +1555,23 @@ each zip's `RESTORE.txt`）:
 Unzipping overwrites files of the same name in the library: if the library holds anything newer
 than the backup, copy the whole library folder somewhere first.
 
-**☁ Back up（备份到 GitHub / to GitHub）.** 书库在有远程仓库的 Git 仓库中时，一键提交并推送**只有书库文件夹**（笔记、阅读进度、生词、书架、主题笔记、术语表、书目；从不包括 PDF，也从不包括仓库中的其他改动）。如果有未推送的**代码**提交，它会停止，请你自己推送；连不上 GitHub 时会提示（改动仍保存在本地）。从不等待密码输入。
-When the library is in a git repository with a remote, one click commits and pushes **only the
-library folder** (notes, reading progress, vocabulary, shelves, topic notes, glossaries,
-catalog; never PDFs, and never other changes in the repository). If there are unpushed *code*
-commits, it stops and asks you to push those yourself; if GitHub can't be reached, it says so
-(your changes stay saved locally). It never waits for a password.
+**☁ Back up（自动 Git 备份 / automatic Git backup）：目前暂停 / paused for now.** 为了安全，自动 Git 备份在本版本中暂停，等待安全方面的重新设计：按钮显示为 **☁ Back up (paused)**，点击后只说明原因，**不提交、不推送**，也不改动 Git 的暂存区（staged）、分支或任何引用；以前备份留下的恢复记录只会被报告，不会被执行或删除。你自己用 Git（提交、推送、VS Code 的 Git 功能）完全不受影响。笔记和图片的备份请用 **💾 Back up**（本地 zip，含笔记图片；暂停期间即使还没有选备份文件夹也会显示）。
+For safety, the automatic Git backup is paused in this release, pending a security redesign:
+the button shows as **☁ Back up (paused)**, and clicking it only says why. It **commits and
+pushes nothing**, and leaves git's staging area, branches and every ref alone; a recovery
+record left by an earlier backup is only reported, never replayed or deleted. Your own use of
+git (commits, pushes, VS Code's git features) is entirely unaffected. Back up notes and images
+with **💾 Back up** (a local zip that includes note images; shown during the pause even before
+a backup folder is chosen).
 
 ```powershell
-uv run scripts/backup.py   # 同 ☁ Back up / like ☁ Back up
+uv run scripts/backup.py   # 同 ☁ Back up：目前只说明暂停 / like ☁ Back up: says it is paused
 ```
 
-> 限制 Limitation：☁ Back up 遇到含中文等非 ASCII 字符的文件名时会拒绝备份。
-> ☁ Back up refuses to back up when a library file has a non-ASCII (e.g. Chinese) name.
+为什么暂停 Why paused：独立审查在自动提交和推送中仍发现高严重度的问题（发布内容、暂存区和中断后的恢复），
+这些问题没有修复，留给单独的重新设计（路线图 L29）。The independent review still found high-severity
+issues in the automatic commit and push (what gets published, git's staging area, recovery
+after an interruption); they are not fixed and await a separate redesign (ROADMAP L29).
 
 ### 11.5 移动或恢复书库之前 / Before moving or restoring a library
 
@@ -1621,7 +1702,7 @@ it).
 | `uv run scripts/shelves.py [--apply]` | 显示 / 应用书架建议。Show / apply shelf suggestions. |
 | `uv run scripts/library_page.py` | 写出静态的 `library.html`。Write the static `library.html`. |
 | `uv run scripts/folder_backup.py [--to FOLDER] [--pdfs]` | 备份到文件夹（同 💾 Back up）。Back up to a folder (like 💾 Back up). |
-| `uv run scripts/backup.py` | 备份到 GitHub（同 ☁ Back up）。Back up to GitHub (like ☁ Back up). |
+| `uv run scripts/backup.py` | 同 ☁ Back up：目前暂停，只说明原因。Like ☁ Back up: paused for now, it only says why. |
 | `uv run scripts/migrate_ids.py --library <folder> [--apply \| --resume \| --rollback \| --check]` | 转换 0.2 之前的书库（[11.6](#116-永久-id-与旧书库迁移--permanent-ids-and-migrating-an-old-library)）。Convert a pre-0.2 library. |
 | `uv run scripts/build_package.py` | 构建安装包 `dist/myLibrary-<version>-win64.zip`。Build the package. |
 | `uv run "<library>/examples/<book>/chNN_<topic>.py"` | 运行章节脚本。Run a chapter script. |
@@ -1677,9 +1758,10 @@ isn't installed, is missing a file or failed its check: `uv run scripts/reader.p
 **One formula shows as red source.** KaTeX can't read it: hover over it for the reason
 ([Maths](#数学公式--maths)).
 
-**图片在预览中没有显示。** 这是预期的：图片（M5d）还没有实现（[9.10](#910-计划中的笔记功能--planned-notes-features)）。
-**Images don't show in the preview.** Expected: images (M5d) aren't implemented yet
-([9.10](#910-计划中的笔记功能--planned-notes-features)).
+**图片在预览中没有显示。** 检查链接是否是 `assets/<文件名>`，文件是否随笔记一起保留，以及是否为有效的 PNG/JPEG/WebP。
+**Images don't show in the preview.** Check that the link is `assets/<filename>`, that the
+file was kept with the note, and that it is a valid PNG/JPEG/WebP. External image URLs are
+deliberately shown as placeholders.
 
 **Continue 或 Read 打开了错误的页面或章节。** 章节起始页只查找一次并缓存。从书库的 `.cache/chapter_pages.json` 中删除这本书的条目（或整个文件）并重启服务器；如果章节**列表**本身错了，运行 `uv run scripts/add_book.py --refresh-chapters`。
 **Continue or Read opens the wrong page or chapter.** Chapter start pages are found once and
@@ -1732,12 +1814,13 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | 多个书库、测试/示例书库、可迁移书库（[LIBRARIES.md](LIBRARIES.md)）Several libraries, Test & Demo library, portable libraries | 已实现；Python 测试（含并发启动、复制和移动书库）和浏览器测试（CI）。Implemented; Python tests (incl. concurrent launches, copying and moving libraries) and browser tests (CI). |
 | 章节脚本和 `code/`（可执行学习）Chapter scripts and `code/` (executable learning) | 已实现；Python 测试。来源与代码之间的链接等扩展计划中（ROADMAP 第 6 节）。Implemented; Python tests. Extensions such as links between sources and code are planned (ROADMAP section 6). |
 | 现成安装包 The ready-to-use package | 可以构建；**没有自动测试**，在干净的环境中手动测试启动和退出。Builds; **no automated tests**, start and quit checked by hand in a clean environment. |
-| 阅读状态与按进度排序（RS1）Reading status and progress sorting (RS1) | 已实现；Python 测试和 Edge 浏览器测试只在本地运行过，**CI 尚未验证**。Implemented; Python and Edge browser tests run locally only, **not yet verified by CI**. |
+| 阅读状态与按进度排序（RS1）Reading status and progress sorting (RS1) | 已提交、推送，CI 通过（`e4c6d11`，运行 43061713059）。Committed, pushed and CI-verified (`e4c6d11`, run 43061713059). |
 | macOS / Linux | 未测试。Not tested. |
 | M5b 预览中的数学公式 Maths in the preview (KaTeX) | 已实现；Python 测试和 Edge 浏览器测试（CI）；安装包中的离线检查在本地做过。Implemented; Python and Edge browser tests (CI); an offline check in a built package done locally. |
 | M5c 格式工具栏和显示设置 Formatting toolbar and display settings | 已实现；Edge 浏览器测试（CI）。Implemented; Edge browser tests (CI). |
-| M5d 粘贴截图和图片 Pasted screenshots and images | **计划中，未实现。** Planned, not implemented. |
-| 以后：截图识别为可编辑的公式和表格 Later: screenshots into editable equations and tables | **计划中，未实现。** Planned, not implemented. |
+| M5d 粘贴截图和图片 Pasted screenshots and images | 已实现；本地 Python/Edge 验证状态见 [记录](M5_VERIFICATION.md)，未发布、CI 未验证。Implemented; local Python/Edge status in the record; unreleased, CI pending. |
+| M5e 截图识别为可编辑公式 Screenshots into editable equations | 已实现；真实本机 OCR 与模拟集成、浏览器验证分别记录，未发布。Implemented; real local OCR, mocked integration and browser verification recorded separately; unreleased. |
+| 以后：截图识别为表格 Later: screenshots into editable tables | **计划中，未实现。** Planned, not implemented. |
 
 更多计划（引用到笔记、从笔记回到 PDF 段落、修正书目信息和章节、桌面应用）见 [ROADMAP.md](../ROADMAP.md)；产品目标和原则见 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md)。
 More plans (quote to note, back from a note to the passage, correcting details and chapters, a

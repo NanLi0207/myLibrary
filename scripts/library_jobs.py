@@ -16,6 +16,7 @@ import book_meta
 import book_search
 import catalog
 import library_page
+import notes_store
 import ocr_pdf
 import safe_io
 import shelves
@@ -360,7 +361,19 @@ def _check_catalog_repeats() -> list[dict]:
             _finish(job, "error", f"“{keep}” is in the library twice ({pair['reason']}: "
                     f"{name[pair['keep']]} and {name[pair['other']]}), {why}")  # fmt: skip
         else:
-            moved = add_book.merge_into(pair["drop"], pair["keep"])
+            try:
+                moved = add_book.merge_into(pair["drop"], pair["keep"])
+            except (notes_store.NoteError, OSError) as e:
+                # Nothing archived: both documents stay, and the next Refresh tries again
+                # (images already copied are used again, never copied twice). The reason only,
+                # never a full path
+                e = getattr(e, "strerror", None) or e
+                job = _new_job("repeat", file=name[pair["drop"]])
+                _finish(job, "error", f"“{keep}” is in the library twice ({pair['reason']}: "
+                        f"{name[pair['keep']]} and {name[pair['drop']]}), but merging them "
+                        f"stopped: {e}. Neither was moved to archive/.")  # fmt: skip
+                jobs.append(job)
+                continue
             # Its tombstone points to the one kept: its reading history counts for that one
             add_book.remove_book(pair["drop"], dry_run=False, yes=True, merged_into=pair["keep"])
             job = _new_job("repeat", file=name[pair["drop"]])

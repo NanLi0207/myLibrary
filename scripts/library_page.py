@@ -1844,8 +1844,8 @@ if (API) {
     <button type="button" class="tool" id="refreshLibrary" title="Add PDFs you put into books/, papers/ or theses/ yourself (like running add_book.py)">⟳ Refresh</button>
     <button type="button" class="tool" id="findOnline" title="Search for books, papers and theses online: DOI, title, author…">🔎 Find online</button>
     <button type="button" class="tool" id="openReview" title="复习生词 (Review words): the words you saved while reading, as cards (spaced repetition)">📇 Review words<span class="count" id="reviewCount" hidden></span></button>
-    ${API.backup ? `<button type="button" class="tool" id="backup" title="Save your notes, progress and vocabulary to GitHub">☁ Back up</button>` : ""}
-    ${API.library?.mode !== "test" && (!API.backup || API.folder_backup) ? `<button type="button" class="tool" id="folderBackup" title="Save your notes, progress and vocabulary (and the PDFs) to your backup folder">💾 Back up</button>` : ""}
+    ${API.backup && API.backup_deferred ? `<button type="button" class="tool" id="backup" data-deferred="true" title="Automatic Git backup is temporarily unavailable pending a security redesign: it commits and pushes nothing. Your own git commits work as usual; use 💾 Back up for a local backup.">☁ Back up (paused)</button>` : API.backup ? `<button type="button" class="tool" id="backup" title="Save your notes, progress and vocabulary to GitHub">☁ Back up</button>` : ""}
+    ${API.library?.mode !== "test" && (!API.backup || API.backup_deferred || API.folder_backup) ? `<button type="button" class="tool" id="folderBackup" title="Save your notes, progress and vocabulary (and the PDFs) to your backup folder">💾 Back up</button>` : ""}
     <button type="button" class="tool" id="switchLibrary" title="${API.library?.mode === "test" ? "书库模式 (Library modes): personal libraries or Test &amp; Demo" : "切换书库 (Switch library): another of your personal libraries"}">📚 ${API.library?.mode === "test" ? "书库模式 Library modes" : "切换书库 Switch library"}</button>
     <button type="button" class="tool" id="openSettings">⚙ Settings</button>
     <button type="button" class="tool" id="quit" title="Stop myLibrary">Quit</button>`;
@@ -1987,7 +1987,8 @@ if (API) {
   document.getElementById("backup")?.addEventListener("click", async e => {
     const button = e.currentTarget;
     button.disabled = true;
-    toast("Backing up…");
+    // (paused: the server only says why; "Backing up…" would claim what doesn't happen)
+    if (!button.dataset.deferred) toast("Backing up…");
     try {
       toast((await api("/api/backup", {})).message);
     } catch (err) {

@@ -11,6 +11,7 @@ import pytest
 isolation_guard.start()
 
 import book_ocr  # noqa: E402
+import formula_ocr  # noqa: E402
 import library_jobs  # noqa: E402
 import library_page  # noqa: E402
 import library_server  # noqa: E402
@@ -78,6 +79,10 @@ def no_writes_to_real_project(tmp_path, monkeypatch):
     monkeypatch.setattr(library_page, "PAGE", tmp_path / "library.html")
     monkeypatch.setattr(library_server, "CACHE", tmp_path / ".cache" / "chapter_pages.json")
     monkeypatch.setattr(book_ocr, "CACHE_DIR", tmp_path / ".cache" / "ocr")
+    # M5e: no test installs into, or reads, the tool's own formula model unless it says so
+    # (tests/test_formula_ocr.py's real-model checks point back at it, read-only)
+    monkeypatch.setattr(formula_ocr, "MODEL_DIR", tmp_path / ".cache" / "formula-ocr" / "model")
+    formula_ocr._forget_engine()
     # No subject lookups online in tests (a test that needs one gives its own answer)
     monkeypatch.setattr(subjects, "lookup", lambda row: {})
 
