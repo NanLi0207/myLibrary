@@ -121,6 +121,8 @@ not yet pushed.
 | M5c 格式工具栏与显示偏好 M5c Formatting toolbar and display preferences | ✅ 2026-11-11 提交、推送，CI 通过：`9088646`，运行 43027506402（第一次运行 43022257625 中浏览器测试超过 15 分钟的限制，之后分到几个运行器上；那次的两个失败见 L25、B32）。Committed, pushed and CI-verified 2026-11-11: `9088646`, run 43027506402 (in the first run, 43022257625, the browser tests ran past their 15-minute limit; they were then split across runners; that run's two failures: L25, B32). | `ab9c666`, `9088646` |
 | B32 章节勾选的可靠保存 B32 reliable chapter-tick saving | ✅ 2026-11-11 提交、推送，CI 通过：运行 43051704210。原来那次 CI 失败的原因仍未确定（第 11 节）。Committed, pushed and CI-verified 2026-11-11: run 43051704210. The cause of the original CI failure is still unknown (section 11). | `3dc9d2b`, `eee608c` |
 | RS1 阅读状态与按进度排序 RS1 Reading status and progress sorting | ✅ 2026-11-11 批准（在 M5d 之前），已提交、推送，CI 通过：`e4c6d11`，运行 43061713059。Approved 2026-11-11 (before M5d); committed, pushed and CI-verified: `e4c6d11`, run 43061713059. | 提交 commit "Add reading status management and progress sorting" |
+| M5d 粘贴截图和图片 M5d Pasted screenshots and images | ✅ 2026-11-13 提交、推送，CI 通过（运行 43403052717：Python 测试和 Ruff、浏览器分片 1、分片 2、笔记面板关闭的浏览器测试全部通过；第一次运行即成功，没有重跑）。支持粘贴 PNG/JPEG/WebP 图片，安全地保存为笔记资源，本地备份包含图片。Committed, pushed and CI-verified 2026-11-13 (run 43403052717: Python tests and Ruff, browser shard 1, browser shard 2 and the notes-panel-closed browser tests passed; overall success on the first attempt, no reruns). Pasted PNG/JPEG/WebP images, stored safely as note assets; local backups include them. | `4e4abce` |
+| M5e 截图识别为公式 M5e Local formula OCR | ✅ 2026-11-13 提交、推送，CI 通过（同一提交和运行）。可选的 Pix2Text MFR 1.5 模型，下载前须用户同意，安装后在本机离线识别；可编辑 LaTeX，KaTeX 预览。Committed, pushed and CI-verified 2026-11-13 (the same commit and run). The optional Pix2Text MFR 1.5 model, downloaded only with the user's consent; recognition runs locally and offline once installed; editable LaTeX with KaTeX preview. | `4e4abce` |
 | 第 4b 节：多个书库、测试/示例书库、可迁移书库 Section 4b: several libraries, Test & Demo library, portable libraries | ✅ 含 L15 修复 with the L15 fix | `2b0ff96`, `4094dc4` |
 | 页面重新载入时连接被拒（监听队列 5 → 64）Connections refused on reload (listen backlog 5 → 64) | ✅ | `d6c1a5d` |
 | 文档重组；冻结的示例书库和测试书库受保护（第 10 节）Documentation restructured; frozen showcase and test libraries protected (section 10) | ✅ CI 运行 run 42650820367 | `48b55f1`, `1c16f25` |
@@ -140,24 +142,42 @@ count. **L20** (one unidentified test failure) stays unresolved, see section 11.
 
 ## 2. 当前里程碑 / The current milestone
 
-**2026-11-12 更新 / Update:** 用户已批准继续并完成 M5d + M5e 的现有工作区实现和本地验证；不开始 M6/M7，不提交或推送。
-The user has approved completion and local verification of the existing M5d + M5e working
-tree. This updates the earlier approval decision for these two milestones only. No
-M6/M7, commit or push. Implementation and verification details:
-[M5 verification record](docs/M5_VERIFICATION.md). M5a acceptance, L24–L27 and B33 remain open.
+**2026-11-13 状态 / Status:** M5d 和 M5e 已完成开发，已提交、推送并通过 CI（`4e4abce`，运行 43403052717：Python 测试和 Ruff、浏览器分片 1、分片 2、笔记面板关闭的浏览器测试全部通过；第一次运行即成功，没有重跑）。
+M5d and M5e are complete: committed, pushed and CI-verified (`4e4abce`, https://github.com/NanLi0207/myLibrary/actions/runs/43403052717;
+run 43403052717: Python tests and Ruff, browser shard 1, browser shard 2 and the notes-panel-closed browser tests passed; overall success on the first attempt, no reruns). Implementation and verification details: [M5 verification
+record](docs/M5_VERIFICATION.md). M5a acceptance, L24–L27 and B33 remain open; L29 (automatic
+Git backup, paused pending a security redesign) and L30 (licence questions) remain open.
+
+**安装包状态（与开发状态分开）/ Package status (separate from development):** Windows 便携版
+`myLibrary-0.2.5-win64.zip`（SHA-256 `e617e00667e6a0b5b98d549cc2ee9316a37f3f8789c96dc313b46125e781bc76`）
+已通过 25/25 项自动化安装包验收检查。**公开测试版尚未发布**，此安装包**未获准公开分发**。
+The Windows portable package `myLibrary-0.2.5-win64.zip` (SHA-256
+`e617e00667e6a0b5b98d549cc2ee9316a37f3f8789c96dc313b46125e781bc76`) passed 25 of 25 automated
+packaged acceptance checks (docs/M5_VERIFICATION.md). Distinct stages:
+- 开发完成 Development complete: ✅ (`4e4abce`)
+- CI 通过 CI-verified: ✅ (run 43403052717)
+- 安装包自动化验收 Packaged automated acceptance: ✅ 25/25
+- 公开测试版发布 Public Beta release: ❌ **not yet**; the package is **not approved for public
+  redistribution**.
+
+Remaining before a public Beta: 用真实截图和真实 PDF 中有代表性的公式做人工验收 manual
+acceptance with real screenshots and representative formulas from actual PDFs; 在干净的 Windows
+账户上启动和快捷方式 a clean Windows account's launch and shortcuts; 整机离线验证 whole-machine
+offline verification; GEOS 的 LGPL 再分发和应用许可兼容性的决定 the GEOS LGPL redistribution and
+application-licence compatibility decision (L30).
 
 **任务 4 / Task 4, M5（预览、公式、格式、粘贴图片 / preview, maths, formatting, pasted images）。**
-M5a 已提交；M5b 已提交、推送并通过 CI（`330362d`）；M5c 已提交、推送并通过 CI（`9088646`）；RS1（阅读状态，第 3 节）已提交、推送并通过 CI（`e4c6d11`，运行 43061713059）；M5d/M5e 已于 2026-11-12 获批继续实现和本地验证，并在独立审查后获批一轮修正。
+M5a 已提交；M5b 已提交、推送并通过 CI（`330362d`）；M5c 已提交、推送并通过 CI（`9088646`）；RS1（阅读状态，第 3 节）已提交、推送并通过 CI（`e4c6d11`，运行 43061713059）；M5d/M5e 已提交、推送并通过 CI（`4e4abce`，运行 43403052717）。
 M5a is committed; M5b is committed, pushed and CI-verified (`330362d`); M5c is committed, pushed and
 CI-verified (`9088646`); RS1 (reading status, section 3) is committed, pushed and CI-verified
-(`e4c6d11`, run 43061713059); M5d/M5e continuation and local verification were approved on
-2026-11-12, and one remediation pass after the independent review.
+(`e4c6d11`, run 43061713059); M5d/M5e are committed, pushed and CI-verified (`4e4abce`,
+run 43403052717).
 
-开发会话只做已批准的 M5d/M5e、已有工作的收尾（例如 M5a 的安装包验证）和经同意的第 11 节错误修复；不开始未批准的里程碑，
-也不开始 P2–P5 或新条目 E/R/G/X/U。
-The session covers approved M5d/M5e, finishing earlier approved work (e.g.
-M5a's package check) and fixes from section 11 with agreement; no new milestone, nothing from
-P2–P5, none of the new E/R/G/X/U items.
+开发会话只做已有工作的收尾（例如 M5a 的安装包验证、上面列出的发布前验收）和经同意的第 11 节错误修复；下一个里程碑须经用户批准，
+不开始 P2–P5 或新条目 E/R/G/X/U。
+Sessions cover finishing earlier approved work (e.g. M5a's package check and the pre-release
+acceptance above) and fixes from section 11 with agreement; the next milestone starts only with
+the user's approval; nothing from P2–P5, none of the new E/R/G/X/U items.
 
 **仍未完成 / Still open:** M5a 在只含已提交代码的安装包中的离线预览检查和用户的人工验收（第 1 节）。
 M5a's offline-preview check in a package built from committed code and the user's manual
@@ -346,7 +366,13 @@ before M5d by the user. (The id RS1: R1–R3 are already the review proposals of
   remembered, a failed save with Retry and the leave warning, rapid choices, two tabs with OK and
   with Apply mine, a line it doesn't understand, the static page). Limits: L27.
 
-### M5d — 粘贴截图和图片 / Pasted screenshots and images 🧪 本地实现并验证，未提交 implemented and locally verified, uncommitted
+### M5d — 粘贴截图和图片 / Pasted screenshots and images ✅ 已提交、推送，CI 通过 committed, pushed and CI-verified (`4e4abce`, run 43403052717)
+
+- **状态 Status (2026-11-13):** 已完成。Complete: committed and pushed in `4e4abce`; CI https://github.com/NanLi0207/myLibrary/actions/runs/43403052717
+  (run 43403052717: Python tests and Ruff, browser shard 1, browser shard 2 and the notes-panel-closed browser tests passed; overall success on the first attempt, no reruns). Pasted PNG/JPEG/WebP images are checked from their bytes and
+  stored safely as note assets (`notes/<name>/assets/`, atomic, never over another file,
+  shown through a contained route); the 💾 local backup includes them. Package status and the
+  remaining release acceptance: section 2. Limits: L28.
 
 - **目标 Objective:** Ctrl+V 粘贴截图，图片成为笔记旁的本地文件。Ctrl+V a screenshot; the image becomes a
   local file beside the note.
@@ -367,7 +393,13 @@ before M5d by the user. (The id RS1: R1–R3 are already the review proposals of
 - **验收 Acceptance:** 粘贴的截图立刻显示并已在磁盘上；任何链接或 `..` 都不能写到笔记文件夹之外。A pasted
   screenshot shows at once and is on disk; no link or `..` can write outside the notes folder.
 
-### M5e — 截图识别为公式 / Recognize screenshots as formulas 🧪 本地实现并验证，未提交 implemented and locally verified, uncommitted
+### M5e — 截图识别为公式 / Recognize screenshots as formulas ✅ 已提交、推送，CI 通过 committed, pushed and CI-verified (`4e4abce`, run 43403052717)
+
+- **状态 Status (2026-11-13):** 已完成。Complete: committed and pushed in `4e4abce`; CI https://github.com/NanLi0207/myLibrary/actions/runs/43403052717
+  (run 43403052717: Python tests and Ruff, browser shard 1, browser shard 2 and the notes-panel-closed browser tests passed; overall success on the first attempt, no reruns). The optional Pix2Text MFR 1.5 model is downloaded only with the
+  user's consent; recognition then runs locally and offline; the LaTeX is editable, with a
+  KaTeX preview, and goes into the note only when confirmed. Package status and the remaining
+  release acceptance: section 2. Limits: L28; licence questions: L30.
 
 - **范围 Scope (2026-11-12):** optional, free local Pix2Text MFR 1.5 ONNX recognition;
   editable LaTeX and live local KaTeX; explicit insertion through the normal note session.
@@ -387,8 +419,9 @@ before M5d by the user. (The id RS1: R1–R3 are already the review proposals of
   never measured confidence or accuracy. Results need the user's review.
 - **验证 Verification:** real model tests with sockets blocked, deterministic mocked API
   integration, and Edge UI tests are recorded separately in
-  [docs/M5_VERIFICATION.md](docs/M5_VERIFICATION.md). No release/package or CI acceptance is
-  implied. Licenses and redistribution conditions: [docs/FORMULA_OCR_LICENSES.md](docs/FORMULA_OCR_LICENSES.md).
+  [docs/M5_VERIFICATION.md](docs/M5_VERIFICATION.md). CI-verified with the commit (run
+  43403052717); the package's automated acceptance is recorded there too; public release and
+  manual acceptance are still open (section 2). Licenses and redistribution conditions: [docs/FORMULA_OCR_LICENSES.md](docs/FORMULA_OCR_LICENSES.md).
   本地结果只以验证记录中"冻结的最终工作区"那一轮为准；审查前的那一轮浏览器测试作废（运行期间文件仍在改动）。
   Local results: only the run on the frozen final tree in the verification record counts. The
   earlier browser runs (before the independent review) are superseded: files changed while they
@@ -749,7 +782,7 @@ in the history, section 3; this table is the current state.
 
 **未解决 / Open**
 
-**M5d/M5e 新限制（2026-11-12）/ New limits:** L28 and L29 apply to the uncommitted implementation below.
+**M5d/M5e 新限制（2026-11-12）/ New limits:** L28 and L29 apply to M5d/M5e (committed in `4e4abce`).
 
 | ID | 问题 Issue | 计划在 Planned in |
 |---|---|---|
@@ -845,14 +878,14 @@ They don't block M5d/M5e image paste and OCR, since Git backup is off.
 
 **已修复（历史记录中仍列为未解决）/ Fixed (still listed as open in the history)**
 
-**M5d/M5e 工作区修复（2026-11-12，未提交）/ Working-tree fixes (uncommitted):** the install
+**M5d/M5e 工作区修复（2026-11-12，已在 `4e4abce` 提交）/ Working-tree fixes (committed in `4e4abce`):** the install
 handler's `stop` local shadowed Quit's function (HTTP 500); modal formula insertion lost Undo;
 stale install/clipboard replies could affect a reopened dialog; model-load errors escaped
 structured handling; served images were only signature-checked; Git backup could stage
 personal assets (Git backup is now deferred altogether: L29). Fixed with the regressions and evidence in
 [M5_VERIFICATION.md](docs/M5_VERIFICATION.md). 修复记录与验证见该文件。
-**独立审查后的修正（2026-11-12，三轮，未提交）/ Corrections after the independent reviews
-(three rounds, uncommitted):** merges copy images first and reuse identical copies, notes and
+**独立审查后的修正（2026-11-12，三轮，已在 `4e4abce` 提交）/ Corrections after the independent reviews
+(three rounds, committed in `4e4abce`):** merges copy images first and reuse identical copies, notes and
 scripts too; Refresh reports a merge that stopped, archiving nothing. Served images are always
 validated in full; the ETag is a digest of the validated bytes. Formulas are written with
 delimiters that read back whole, the LaTeX unchanged; `\cfrac` is no longer rewritten to

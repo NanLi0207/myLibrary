@@ -1818,8 +1818,8 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | macOS / Linux | 未测试。Not tested. |
 | M5b 预览中的数学公式 Maths in the preview (KaTeX) | 已实现；Python 测试和 Edge 浏览器测试（CI）；安装包中的离线检查在本地做过。Implemented; Python and Edge browser tests (CI); an offline check in a built package done locally. |
 | M5c 格式工具栏和显示设置 Formatting toolbar and display settings | 已实现；Edge 浏览器测试（CI）。Implemented; Edge browser tests (CI). |
-| M5d 粘贴截图和图片 Pasted screenshots and images | 已实现；本地 Python/Edge 验证状态见 [记录](M5_VERIFICATION.md)，未发布、CI 未验证。Implemented; local Python/Edge status in the record; unreleased, CI pending. |
-| M5e 截图识别为可编辑公式 Screenshots into editable equations | 已实现；真实本机 OCR 与模拟集成、浏览器验证分别记录，未发布。Implemented; real local OCR, mocked integration and browser verification recorded separately; unreleased. |
+| M5d 粘贴截图和图片 Pasted screenshots and images | 已提交、推送，CI 通过（`4e4abce`）；安装包已通过自动化验收，公开测试版尚未发布（[记录](M5_VERIFICATION.md)）。Committed, pushed and CI-verified (`4e4abce`); the package passed its automated acceptance; the public Beta isn't released yet (see the record). |
+| M5e 截图识别为可编辑公式 Screenshots into editable equations | 已提交、推送，CI 通过（`4e4abce`）；模型可选，用户同意后下载，之后本机离线识别；公开测试版尚未发布。Committed, pushed and CI-verified (`4e4abce`); the model is optional, downloaded with the user's consent, then recognition runs locally offline; the public Beta isn't released yet. |
 | 以后：截图识别为表格 Later: screenshots into editable tables | **计划中，未实现。** Planned, not implemented. |
 
 更多计划（引用到笔记、从笔记回到 PDF 段落、修正书目信息和章节、桌面应用）见 [ROADMAP.md](../ROADMAP.md)；产品目标和原则见 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md)。

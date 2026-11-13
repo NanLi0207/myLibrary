@@ -1,10 +1,14 @@
 # M5d + M5e verification / 验证记录
 
-Status: **M5d image paste and M5e formula OCR implemented and locally verified on a frozen tree
-(round 3); uncommitted, not CI-verified, not manually accepted. ☁ Automatic Git backup is
-deferred (not fixed): ROADMAP L29.** 图片粘贴和公式识别已在冻结的工作区上本地验证（第三轮）；
-未提交，没有 CI，用户尚未验收。☁ 自动 Git 备份暂停（未修复），见路线图 L29。
-Baseline `69c684aac10dbeac283778ee256609de549595a1` (`main`, equal to `origin/main`).
+Status (2026-11-13): **M5d image paste and M5e formula OCR committed (`4e4abcef348566c4a10c89c6f9ada2798a9b14a0`),
+pushed and CI-verified** (https://github.com/NanLi0207/myLibrary/actions/runs/43403052717:
+Python tests and Ruff, browser shard 1, browser shard 2 and notes-panel-closed browser tests
+passed; success on the first attempt, no reruns). The Windows package passed 25 of 25 automated
+acceptance checks (below); **not manually accepted, and no public Beta released**: the package
+is not approved for public redistribution (ROADMAP section 2, L30). ☁ Automatic Git backup is
+deferred (not fixed): ROADMAP L29. 已提交、推送并通过 CI；安装包通过自动化验收；尚未人工验收，公开测试版尚未发布。
+The verification below was made on the working tree before the commit, on baseline
+`69c684aac10dbeac283778ee256609de549595a1` (`main`, equal to `origin/main` then).
 
 ## History / 经过
 
