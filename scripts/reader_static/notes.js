@@ -220,6 +220,15 @@
   formulaButton.title = "识别公式截图 Recognize a formula from a screenshot (Ctrl+Shift+V)";
   formulaButton.setAttribute("aria-label", formulaButton.title);
   tools.append(formulaButton);
+  // M6: a page link without quoted text (for pages whose text can't be selected, e.g. scans);
+  // a selection is quoted from the PDF's bubble or with Alt+Q
+  const pageRefButton = el("button", "ml-tool ml-tool-page-ref", "¶↗");
+  pageRefButton.id = "mlPageRefButton";
+  pageRefButton.type = "button";
+  pageRefButton.title = "引用此页 Reference this page (a link to the page shown, no quoted text)";
+  pageRefButton.setAttribute("aria-label", pageRefButton.title);
+  pageRefButton.addEventListener("click", () => reader.referencePage?.());
+  tools.append(pageRefButton);
   const displayButton = el("button", "ml-small ml-display-toggle", "Aa");
   displayButton.id = "mlDisplayToggle";
   displayButton.type = "button";
@@ -386,6 +395,9 @@
   let entries = [];
   let listed = false;
   let current = null;
+  // M6: where the user last put the caret in the note ({key, pos, value}); a quote goes there
+  // while the note's text is still what it was then, else at the end
+  let caretAt = null;
   let asked = 0;  // the latest request: an earlier answer arriving late is ignored
   let busy = false;  // a conflict choice or a draft choice is on its way
   let comparing = false;
@@ -654,9 +666,22 @@
     return sessions.get(key);
   }
 
+  // M6: a quote's pending line (its offer to insert, its Retry) stays when the note changes:
+  // going back to the note it was asked for is how it is inserted
+  const quoteLines = new Set();
+  function keepLine(line, ms) {
+    quoteLines.add(line);
+    status.append(line);
+    setTimeout(() => dropLine(line), ms);
+  }
+  function dropLine(line) {
+    quoteLines.delete(line);
+    line.remove();
+  }
+
   function setState(state, ...nodes) {
     body.dataset.mlNoteState = state;
-    status.replaceChildren(...nodes);
+    status.replaceChildren(...nodes, ...quoteLines);
   }
 
   function failed(error, retry) {
@@ -709,7 +734,31 @@
     return main.key;
   }
 
-  async function loadList() {
+  // M6: the latest list or note load (a promise), how many are under way, and how many notes
+  // the user chose: a quote asked for while the panel loads waits for it (quoteTarget), and
+  // never goes into a note the user chose meanwhile
+  let loading = Promise.resolve();
+  let underWay = 0;
+  let requested = null;  // the note last asked for (show()), before it is current
+  let userChoices = 0;
+  function tracked(promise) {
+    loading = promise;
+    underWay++;
+    promise.finally(() => { underWay--; }).catch(() => {});
+    return promise;
+  }
+
+  function loadList() {
+    return tracked(listNotes());
+  }
+
+  function show(key, { chosen = true } = {}) {
+    requested = key;
+    if (chosen) userChoices++;
+    return tracked(showNote(key, { chosen }));
+  }
+
+  async function listNotes() {
     listed = true;
     const mine = ++asked;
     setState("loading", biEl("span", "ml-muted", "载入中…", "Loading…"));
@@ -735,12 +784,12 @@
       setState("none", biEl("span", "ml-muted", "这份文档还没有笔记", "No notes for this document yet"));
       return;
     }
-    show(firstKey(), { chosen: false });
+    return show(firstKey(), { chosen: false });
   }
 
   // Show a note. Leaving one with unsaved text saves it first; if that save fails or meets a
   // conflict, the note stays on screen with its text (never discarded by switching)
-  async function show(key, { chosen = true } = {}) {
+  async function showNote(key, { chosen = true } = {}) {
     const mine = ++asked;
     const leaving = session();
     if (leaving && key !== current && leaving.unconfirmed) {
@@ -753,6 +802,7 @@
         return;
       }
     }
+    if (key !== current) caretAt = null;  // M6: a quote goes to the end until a caret is placed
     current = key;
     menu.value = key;
     comparing = false;
@@ -1239,6 +1289,220 @@
       offerLinks(links);
     }
   }
+
+  // --- quotes from the PDF (task 4 M6) --------------------------------------------------------
+  //
+  // lookup.js captures the selection (or the page, 引用此页) and calls quote() below. The
+  // anchor is stored first (/api/references/create: references.py, private); only then is the
+  // short quote with its link typed into the note, as one insertText (one Undo; the session
+  // saves it like any edit, with its conflicts, drafts and retries). Nothing goes into the note
+  // when the anchor wasn't stored, and nothing into another note than the one it was asked for
+  // (taken with the click or key, before the PDF side's work: takeTarget). A note left before
+  // the anchor is stored gets nothing (said so); one that changed or was left while it was
+  // stored gets an offer to insert it, in that same note only.
+
+  const anchors = window.myLibraryAnchors;
+  // Recorded at the user's own clicks, keys and edits: the box's selection itself can't be read
+  // later (moving the page's selection into the PDF resets it, with no event)
+  const noteCaret = () => {
+    caretAt = { key: text.dataset.key || null, pos: text.selectionEnd, value: text.value };
+  };
+  for (const type of ["click", "keyup", "input"]) text.addEventListener(type, noteCaret);
+  const caretFor = (at) => (caretAt && caretAt.key === at.key && caretAt.value === at.value
+    ? Math.min(caretAt.pos, at.value.length) : at.value.length);
+  let quoting = false;
+
+  async function createReference(capture, key) {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 30_000);
+    try {
+      const response = await fetch("/api/references/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Library-Token": reader.token },
+        body: JSON.stringify({ ...capture, id: docId, note_key: key }),
+        signal: abort.signal,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 403) {
+        throw new Error("request refused (403): this page may be outdated; reload it");
+      }
+      if (!response.ok) throw new Error(data.error || response.statusText);
+      if (typeof data.rid !== "string" || !/^r[0-9a-f]{16}$/.test(data.rid)) {
+        throw new Error("the server returned an invalid reference");
+      }
+      return data;
+    } catch (error) {
+      if (error.name === "AbortError") throw new Error("no answer from the server in time");
+      if (error instanceof TypeError) throw new Error("myLibrary isn't reachable");
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // The quote as a block of its own: a blank line before and after it
+  function asBlock(value, where, markdown) {
+    const before = value.slice(0, where);
+    const after = value.slice(where);
+    const lead = !before || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+    const tail = !after ? "\n" : after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
+    return lead + markdown + tail;
+  }
+
+  // A quote stored for a note that changed or was left while it was stored: offered for that
+  // same note only (its record names it; never another note), once the user is back in it
+  function offerQuote(markdown, key) {
+    body.dataset.mlQuote = "kept";
+    const name = noteName(key);
+    const insertHere = button("插入引用", "Insert the quote", () => {
+      const at = target();
+      if (at.key !== key || current !== key) {
+        say(biEl("span", "ml-error", `先回到“${name}”再插入`, `Go back to ${name} to insert it`));
+        return;
+      }
+      if (!sameTarget(at) || unsafe(at.note)) {
+        say(biEl("span", "ml-error", "现在不能编辑这条笔记", "This note can't be edited right now"));
+        return;
+      }
+      const where = caretFor(at);
+      replaceRange(where, where, asBlock(at.value, where, markdown));
+      body.dataset.mlQuote = "inserted";
+      dropLine(line);
+    });
+    insertHere.classList.add("mlInsertQuote");
+    const line = el("div", "ml-paste-kept ml-quote-kept");
+    line.append(biEl("span", "ml-muted", `引用已记录，但没有插入（“${name}”在此期间变了或被离开）`,
+      `The quote is recorded but wasn't inserted (${name} changed or was left meanwhile)`), insertHere);
+    keepLine(line, 120_000);
+  }
+
+  function noteName(key) {
+    const entry = entries.find((e) => e.key === key);
+    return entry ? labelOf(entry) : String(key).replace(/^file:/, "");
+  }
+  // A quote never goes into a note with a conflict or a recovery draft to settle first, nor
+  // while the page must be reloaded (the server restarted)
+  const unsafe = (note) => ["conflict", "draft", "restarted"].includes(note?.state);
+  const NOT_EDITABLE = ["先打开一条可以编辑的笔记，再引用（只读、正在载入、有冲突或草稿时不能引用）",
+    "Open a note you can edit, then quote again (not while it is read-only or loading, or has a conflict or a draft to settle)"];
+  const LEFT = ["引用期间换了笔记：什么也没有插入，请重新引用",
+    "Another note was chosen while quoting: nothing was inserted; quote again"];
+  const BUSY = ["上一个引用还没完成", "The previous quote isn't finished yet"];
+
+  function refuse([zh, en]) {
+    body.dataset.mlQuote = "refused";
+    say(biEl("span", "ml-error", zh, en), 8000);
+  }
+
+  // Where a quote goes, taken the moment it is asked for, before anything is awaited (Codex
+  // M6 review): the note in the box and its caret then; or, while the panel is still loading
+  // (never opened yet, or a note on its way), the note it is loading, waited for later; null
+  // when no note can take it
+  function takeTarget() {
+    const at = target();
+    if (sameTarget(at) && !unsafe(at.note)) return { ...at, where: caretFor(at) };
+    if (!listed || underWay) {
+      return { pending: true, key: underWay ? requested : null, choices: userChoices };
+    }
+    return null;
+  }
+
+  // After awaiting: the target still valid ({problem} if not). A pending one once its note is
+  // in the box, and only if the user chose no other note meanwhile. A taken one only if that
+  // same note (its own session) is in the box again; typed in meanwhile: at the caret now
+  async function settleTarget(taken) {
+    if (taken.pending) {
+      for (let seen = null; seen !== loading;) {  // (a load may start the next one: all of them)
+        seen = loading;
+        try {
+          await seen;
+        } catch {
+          // the panel says why
+        }
+      }
+      if (userChoices !== taken.choices || (taken.key && current !== taken.key)) {
+        return { problem: LEFT };
+      }
+      const at = target();
+      if (!sameTarget(at) || unsafe(at.note)) return { problem: NOT_EDITABLE };
+      return { ...at, where: caretFor(at) };
+    }
+    if (current !== taken.key || !sameTarget(taken)) return { problem: LEFT };
+    if (unsafe(taken.note)) return { problem: NOT_EDITABLE };
+    if (text.value === taken.value) return taken;
+    const at = target();
+    return { ...at, where: caretFor(at) };
+  }
+
+  // lookup.js calls this in the same task as the user's click or key (toNotes there), with a
+  // promise of the anchor (null: it couldn't be made, already said)
+  function quote(pending) {
+    const taken = takeTarget();
+    if (quoting) {
+      Promise.resolve(pending).catch(() => {});
+      say(biEl("span", "ml-muted", ...BUSY));
+      return;
+    }
+    quoting = true;  // (the panel shows nothing until the anchor is made)
+    quoteWhenReady(taken, pending).finally(() => { quoting = false; });
+  }
+
+  async function quoteWhenReady(taken, pending) {
+    const capture = await Promise.resolve(pending).catch(() => null);
+    if (!capture) return;  // (said by lookup.js; the notes are left alone)
+    if (!open) setOpen(true, true);  // (only now: a quote that can't be made opens nothing)
+    if (!taken) return refuse(NOT_EDITABLE);
+    const at = await settleTarget(taken);
+    if (at.problem) return refuse(at.problem);
+    await deliver(capture, at);
+  }
+
+  // The anchor stored first, then the quote typed into the note it was asked for, as one
+  // insertText (one Undo; saved like any edit). Nothing goes into the note when the anchor
+  // wasn't stored
+  async function deliver(capture, at) {
+    body.dataset.mlQuote = "saving";
+    let made;
+    try {
+      made = await createReference(capture, at.key);
+    } catch (error) {
+      body.dataset.mlQuote = "failed";
+      // Trying again sends the same request (its nonce): a reference stored before an answer
+      // was lost is found, not made twice; and only into the same note
+      const again = button("重试", "Retry", () => {
+        if (quoting) {
+          say(biEl("span", "ml-muted", ...BUSY));
+          return;
+        }
+        dropLine(line);
+        quoting = true;
+        (async () => {
+          const now = await settleTarget(at);
+          if (now.problem) return refuse(now.problem);
+          await deliver(capture, now);
+        })().finally(() => { quoting = false; });
+      });
+      again.classList.add("mlQuoteRetry");
+      const line = el("div", "ml-error ml-quote-failed");
+      line.append(biEl("span", null, "引用没有记录，笔记中没有插入任何内容",
+        `The quote wasn't recorded, nothing was inserted: ${error.message}`), " ", again);
+      keepLine(line, 60_000);
+      return;
+    }
+    const page = capture.page + 1;  // links count pages from 1
+    const visible = capture.kind === "text" ? anchors.excerpt(capture.exact) : "";
+    const url = anchors.sourceUrl(location.origin, docId, page, made.rid, visible.replace(/ …$/, ""));
+    const markdown = capture.kind === "text"
+      ? anchors.quoteMarkdown(capture.exact, page, url) : anchors.pageMarkdown(page, url);
+    if (current === at.key && sameTarget(at) && !unsafe(at.note) && text.value === at.value) {
+      replaceRange(at.where, at.where, asBlock(at.value, at.where, markdown));
+      body.dataset.mlQuote = "inserted";
+    } else {
+      offerQuote(markdown, at.key);
+    }
+  }
+
+  window.myLibraryNotes = Object.freeze({ quote });
 
   text.addEventListener("keydown", (event) => {
     if (event.code === "KeyV" && (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey) {

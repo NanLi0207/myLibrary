@@ -1156,6 +1156,7 @@ def viewer_html(token: str, scope: str = "", legacy_drafts: bool = False) -> byt
         '<script src="/reader/preview.js" defer></script>\n'
         '<script src="/reader/format.js" defer></script>\n'
         '<script src="/reader/formula.js" defer></script>\n'
+        '<script src="/reader/anchors.js" defer></script>\n'
         '<script src="/reader/notes.js" defer></script>\n'
     )
     return html.replace("</head>", extra + "</head>", 1).encode()

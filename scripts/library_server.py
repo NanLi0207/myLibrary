@@ -58,6 +58,7 @@ import paths
 import platform_services
 import reader as reading_view
 import reading_log
+import references
 import safe_io
 import vocab_review
 from add_book import short_title
@@ -1055,6 +1056,25 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(HTTPStatus.OK, saved)
         return self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
 
+    def _reference(self, doc_id: str, body: dict):
+        """/api/references/create (M6): a quote's anchor, stored privately (references.py)
+        before its link goes into the note. Only for the very PDF the tab shows: a merged
+        document's old id isn't followed here (its text and pages are another file's). The note
+        it goes into must be one of the document's notes, or a topic note. 500 with nothing
+        written when the references file is damaged."""
+        if body.get("id") != doc_id:
+            return self._json(HTTPStatus.CONFLICT, {"error": "this document was merged into "
+                                                    "another: reload the page"})  # fmt: skip
+        row = catalog.load(CATALOG)[doc_id]
+        key = body.get("note_key")
+        notes_store.path_of(LIBRARY, row, key, creating=True)  # NoteError (400): not a note
+        try:
+            made = references.create(LIBRARY, row, body, {"doc": doc_id, "key": key})
+        except (safe_io.DamagedFile, references.UnsafeStore) as e:  # (UnsafeStore: a link or
+            # junction in .myLibrary/references; refused, nothing followed or changed)
+            return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": shown_error(e)})
+        return self._json(HTTPStatus.OK, made)
+
     def _body(self, length: int) -> bytes:
         """The request's whole body. A body cut short (the tab closed while it was being sent)
         is refused: half a PDF must never be written over the library's copy."""
@@ -1102,6 +1122,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": refusal})
                 notes_store.path_of(LIBRARY, row, key, creating=True)  # NoteError: 400
                 return self._json(HTTPStatus.OK, notes_store.save_asset(LIBRARY, row, data))
+            if self.path == "/api/references/create" and length > references.MAX_BODY:
+                return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too big"})
             body = json.loads(self._body(length) or b"{}")
             if self.path == "/api/formula/status":  # M5e: is the model installed?
                 return self._json(HTTPStatus.OK, formula_ocr.status())
@@ -1218,6 +1240,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, {"message": message})
             if self.path.startswith("/api/notes/"):  # the reader's notes panel (notes_store)
                 return self._notes(doc_id, body)
+            if self.path == "/api/references/create":
+                return self._reference(doc_id, body)
             if self.path == "/api/open-notes":
                 notes = library_page.readme_path(doc_id)
                 if (notes.parent / "notes.md").exists():  # a paper: its one notes file

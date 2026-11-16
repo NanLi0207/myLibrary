@@ -1347,6 +1347,60 @@ status: [M5_VERIFICATION.md](M5_VERIFICATION.md); release/package acceptance is 
 | M5d / M5e | 已实现，本地验证记录见上方。Implemented; local verification linked above. |
 | 以后 Later | 把截图识别成可编辑的公式或表格。Turning a screenshot into an editable equation or table. |
 
+### 9.11 引用到笔记 / Quote to note (M6)
+
+**已实现，本地验证，等待独立审查，尚未提交。** Implemented and verified locally; awaiting
+independent review; not committed yet.
+
+1. 在 PDF 中选中一段文字（同一页内）。选中较长的一段时，气泡中有 **引用到笔记** (Quote to note)；
+   选中一两个词时，查词弹窗中也有这个按钮。也可以按 **Alt+Q**。Select a passage in the PDF (on one page).
+   A longer selection's bubble has **Quote to note**; for a word or two, the lookup popup has it
+   too. Or press **Alt+Q**.
+2. 笔记面板中当前笔记的光标处（如果你在这条笔记中放过光标，而且之后笔记没有变化），否则在末尾，插入一个短引用和来源链接：
+   A short quote and its source link go into the current note at the caret (if you placed one
+   in this note and the note hasn't changed since), otherwise at the end:
+
+   ```markdown
+   > Vignetting reduces the illumination towards the edge of the field …
+   > — [p. 41](http://127.0.0.1:8765/read/<document id>?page=41&ref=r…&q=Vignetting%20reduces…)
+   ```
+
+   - 可见的引用最多约 15 个词（没有空格的文字约 100 个字符），多出的部分用 “…” 表示。The visible quote is
+     at most about 15 words (about 100 characters for text without spaces), then "…".
+   - 完整的选区、前后文、位置和 PDF 指纹只保存在书库的 `.myLibrary/references/<文档 id>.json` 中：不进 git，
+     进 💾 备份，从不写进 `notes/`。The whole selection, its context, positions and the PDF's
+     fingerprint are kept only in the library's `.myLibrary/references/<document id>.json`:
+     not in git, in 💾 Back up, never in `notes/`.
+   - 这是普通的 Markdown：一次撤销 (Ctrl+Z) 去掉整个引用；在 VS Code 中也能读，myLibrary 运行时链接能打开那一页。
+     你可以随意修改可见的引用。It is ordinary Markdown: one Undo (Ctrl+Z) removes the whole quote;
+     it reads well in VS Code, and while myLibrary runs the link opens that page. You may edit
+     the visible quote freely.
+3. **引用此页 (Reference this page)**：笔记工具栏的 **¶↗** 按钮，或在没有文字层的页面（未 OCR 的扫描页）上不选中任何东西按
+   Alt+Q：只插入一个页面链接，不编造引用文字。The **¶↗** button in the notes toolbar, or Alt+Q with
+   nothing selected on a page without a text layer (a scan without OCR): a page link only, no
+   invented quotation.
+
+- 如果引用没有记录下来（服务器错误、书库的引用文件损坏），笔记中**什么都不插入**，面板显示原因和 **重试** (Retry)；重试不会重复记录。
+  If the quote couldn't be recorded (a server error, a damaged references file), **nothing**
+  is inserted; the panel says why and offers **Retry**, which never records it twice.
+- 引用总是进入你按下按钮或 Alt+Q 那一刻的笔记，从不进入别的笔记。A quote always goes into the note
+  that was open when you clicked or pressed Alt+Q, never into another one.
+  - 在 PDF 一侧还在处理时换了一章：什么也不记录、不插入，面板说明原因；请重新引用。If you switch
+    chapters while the PDF side is still working, nothing is recorded or inserted and the panel
+    says so: quote again.
+  - 记录期间换了一章或这条笔记变了：引用已记录但不插入；面板提供 **插入引用** (Insert the quote)，只对原来那条笔记有效，
+    回到那条笔记再点即可。If you switch chapters or the note changes while the quote is being
+    recorded, it is recorded but not inserted; the panel offers **Insert the quote**, which
+    works only in the original note: go back to it and click.
+  - 笔记面板关着、还没载入任何笔记时：面板打开，载入它自己会显示的那条笔记，引用插入那里；载入期间你选了别的笔记，
+    或者载入失败，就什么也不插入。With the notes panel closed and no note loaded yet, the panel
+    opens, loads the note it would show anyway and the quote goes there; if you choose another
+    note while it loads, or loading fails, nothing is inserted.
+  - 有冲突、未处理的草稿或 🔒 只读时不引用。No quote goes into a note with a conflict, an unsettled
+    draft, or while it is read-only (🔒).
+- 点击链接回到 PDF 中**那一段**（并标出它）是下一个里程碑 M7；现在链接打开那一页。Clicking the link back to
+  **the passage** (outlined) is the next milestone, M7; for now the link opens the page.
+
 ---
 
 ## 10. 学习与进度 / Learning and progress
@@ -1820,10 +1874,11 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | M5c 格式工具栏和显示设置 Formatting toolbar and display settings | 已实现；Edge 浏览器测试（CI）。Implemented; Edge browser tests (CI). |
 | M5d 粘贴截图和图片 Pasted screenshots and images | 已提交、推送，CI 通过（`4e4abce`）；安装包已通过自动化验收，公开测试版尚未发布（[记录](M5_VERIFICATION.md)）。Committed, pushed and CI-verified (`4e4abce`); the package passed its automated acceptance; the public Beta isn't released yet (see the record). |
 | M5e 截图识别为可编辑公式 Screenshots into editable equations | 已提交、推送，CI 通过（`4e4abce`）；模型可选，用户同意后下载，之后本机离线识别；公开测试版尚未发布。Committed, pushed and CI-verified (`4e4abce`); the model is optional, downloaded with the user's consent, then recognition runs locally offline; the public Beta isn't released yet. |
+| M6 引用到笔记、引用此页 Quote to note, Reference this page | 已实现，本地 Python 和 Edge 浏览器测试通过；**等待独立审查，尚未提交，CI 未验证**（[9.11](#911-引用到笔记--quote-to-note-m6)）。Implemented; local Python and Edge browser tests pass; **awaiting independent review, not committed, not CI-verified**. |
 | 以后：截图识别为表格 Later: screenshots into editable tables | **计划中，未实现。** Planned, not implemented. |
 
-更多计划（引用到笔记、从笔记回到 PDF 段落、修正书目信息和章节、桌面应用）见 [ROADMAP.md](../ROADMAP.md)；产品目标和原则见 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md)。
-More plans (quote to note, back from a note to the passage, correcting details and chapters, a
+更多计划（从笔记回到 PDF 段落、修正书目信息和章节、桌面应用）见 [ROADMAP.md](../ROADMAP.md)；产品目标和原则见 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md)。
+More plans (back from a note to the passage, correcting details and chapters, a
 desktop app) are in [ROADMAP.md](../ROADMAP.md); the product goals and principles are in
 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md).
 

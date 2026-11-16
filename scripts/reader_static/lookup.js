@@ -423,6 +423,10 @@
 
   async function lookup(text, range) {
     closeAll();
+    // A selection in the PDF's text can be quoted from the popup too (M6)
+    const inText = (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement
+      : range.startContainer)?.closest?.(".textLayer");
+    const quoteFrom = inText ? range.cloneRange() : null;
     const rect = range.getBoundingClientRect();
     const context = contextOf(range);
     const page = pageOf(range);
@@ -521,6 +525,7 @@
       actions.append(save);
     }
     if (/\s/.test(text)) actions.append(translateLink(text));
+    if (docId && quoteFrom) actions.append(quoteButton(quoteFrom));
     box.append(actions);
     place(box, rect); // now that the size is known (the size watch does it for later changes)
   }
@@ -579,10 +584,259 @@
       const translate = translateLink(text, "翻译", "Translate");
       translate.className = "ml-button";
       bubble.append(translate);
+      if (docId) bubble.append(quoteButton(range));
       const rects = range.getClientRects();
       place(bubble, rects[rects.length - 1] || range.getBoundingClientRect());
     }, 0);
   });
+
+  // --- quoting into the note (task 4 M6) ----------------------------------------------------
+  //
+  // 引用到笔记 (Quote to note, Alt+Q): the selection's anchor (anchors.js rules; references.py
+  // keeps it privately) and a short quote with its source link at the note's cursor
+  // (notes.js). Only on the user's click or key: nothing is ever quoted or copied by itself.
+  // 引用此页 (Reference this page): a page link without quoted text, for pages without a
+  // usable text layer (scans).
+
+  // The page's text as its text layer shows it (a <br> is a line end), and where each text
+  // node starts in it
+  function layerText(layer) {
+    const nodes = [];
+    let text = "";
+    const walk = document.createTreeWalker(layer, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        nodes.push([n, text.length]);
+        text += n.data;
+      } else if (n.tagName === "BR") {
+        text += "\n";
+      }
+    }
+    return { text, nodes };
+  }
+
+  // A range boundary's offset in that text
+  function offsetIn({ text, nodes }, container, offset) {
+    if (container.nodeType === Node.TEXT_NODE) {
+      const found = nodes.find(([n]) => n === container);
+      if (found) return found[1] + offset;
+    }
+    const at = document.createRange();
+    at.setStart(container, offset);
+    for (const [n, start] of nodes) if (at.comparePoint(n, 0) >= 0) return start;
+    return text.length;
+  }
+
+  const hex = (buffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const sha256Text = async (s) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
+  let loadedVersion = null;  // promise: SHA-256 of the bytes this tab loaded (keepMarks sets it)
+  const round = (v) => Math.round(Math.min(1, Math.max(0, v)) * 1e5) / 1e5;
+
+  // What every reference records about the PDF and the page (references.py checks it), all
+  // read at once, in the same task as the click or key, with the PDF itself (Codex M6 review:
+  // never read again after an await, when another PDF may be open in this tab). {pdf, pdfPage,
+  // finish}: finish() awaits only the loaded bytes' digest (the one asked for then), and if
+  // the PDF was replaced meanwhile the reference is refused: its page is the earlier one's
+  function aboutPage(index) {
+    const app = window.PDFViewerApplication;
+    const pdf = app.pdfDocument;
+    const pageView = app.pdfViewer.getPageView(index);
+    const view = pageView.pdfPage.view;  // [x0, y0, x1, y1], PDF units, unrotated
+    const about = {
+      page: index, pages: app.pagesCount, rotation: ((pageView.pdfPage.rotate % 360) + 360) % 360,
+      page_size: [view[2] - view[0], view[3] - view[1]],
+      normalize: window.myLibraryAnchors.NORMALIZE, loaded: "",
+      pdfjs: pdf.fingerprints?.[0] || "", pdfjs_version: window.pdfjsLib?.version || "",
+      nonce: crypto.randomUUID().replace(/-/g, ""),
+    };
+    const loading = loadedVersion;
+    const finish = async () => {
+      try {
+        about.loaded = (await loading) || "";
+      } catch {
+        about.loaded = "";
+      }
+      samePdf(pdf);
+      return about;
+    };
+    return { pdf, pdfPage: pageView.pdfPage, finish };
+  }
+
+  function samePdf(pdf) {
+    if (window.PDFViewerApplication.pdfDocument !== pdf) {
+      throw new Error("the PDF was opened again while quoting; quote again");
+    }
+  }
+
+  // The selection's rectangles on its page: 0-1 of the page in its own (unrotated) PDF space,
+  // top-left origin, whatever the zoom or the view's rotation
+  function pageRects(range, pageView) {
+    const canvas = pageView.div.querySelector(".canvasWrapper") || pageView.div;
+    const box = canvas.getBoundingClientRect();
+    const viewport = pageView.viewport;
+    const [x0, y0, x1, y1] = pageView.pdfPage.view;
+    const toPage = (x, y) => {
+      const [px, py] = viewport.convertToPdfPoint(
+        (x - box.left) * (viewport.width / box.width), (y - box.top) * (viewport.height / box.height));
+      return [(px - x0) / (x1 - x0), (y1 - py) / (y1 - y0)];
+    };
+    const rects = [];
+    const seen = new Set();
+    for (const r of range.getClientRects()) {
+      if (r.width < 0.5 || r.height < 0.5) continue;
+      const [ax, ay] = toPage(r.left, r.top);
+      const [bx, by] = toPage(r.right, r.bottom);
+      const rect = [round(Math.min(ax, bx)), round(Math.min(ay, by)), round(Math.max(ax, bx)), round(Math.max(ay, by))];
+      const id = rect.join(",");
+      if (!seen.has(id) && rects.length < 500) {
+        seen.add(id);
+        rects.push(rect);
+      }
+    }
+    return rects;
+  }
+
+  // The selection's anchor in two steps. Everything read from the page is read at once, before
+  // anything is awaited (a page drawn again meanwhile can't change it), and what can't be
+  // quoted is said at once: {problem: [zh, en]}. Otherwise {finish}: a promise of the anchor
+  // (only digests are awaited)
+  function prepareQuote(range) {
+    const anchors = window.myLibraryAnchors;
+    const layerOf = (node) => (node.nodeType === Node.TEXT_NODE ? node.parentElement : node)?.closest?.(".textLayer");
+    const layer = layerOf(range.startContainer);
+    if (!layer || layer !== layerOf(range.endContainer)) {
+      return { problem: ["引用只能在同一页内：请只选中一页上的文字", "A quote must be on one page: select text on one page only"] };
+    }
+    const index = Number(layer.closest(".page")?.dataset.pageNumber) - 1;
+    const pageView = window.PDFViewerApplication.pdfViewer.getPageView(index);
+    if (!pageView?.pdfPage) return { problem: ["这一页还没有载入", "This page hasn't loaded yet"] };
+    const pdf = window.PDFViewerApplication.pdfDocument;
+    const source = layerText(layer);
+    const from = offsetIn(source, range.startContainer, range.startOffset);
+    const to = offsetIn(source, range.endContainer, range.endOffset);
+    const norm = anchors.normalize(source.text);
+    let start = anchors.toNormalized(norm.map, from);
+    let end = anchors.toNormalized(norm.map, to);
+    while (start < end && norm.text[start] === " ") start++;
+    while (end > start && norm.text[end - 1] === " ") end--;
+    if (start >= end) return { problem: ["没有选中文字", "No text is selected"] };
+    const quoted = {
+      kind: "text",
+      exact: norm.text.slice(start, end),
+      text: source.text.slice(from, to).replace(/\s+/g, " ").trim(),
+      prefix: norm.text.slice(Math.max(0, start - 32), start), suffix: norm.text.slice(end, end + 32),
+      start, end, page_len: norm.text.length,
+      rects: pageRects(range, pageView),
+    };
+    const page = aboutPage(index);
+    const finish = (async () => {
+      const about = await page.finish();
+      const pageHash = await sha256Text(norm.text);
+      samePdf(pdf);
+      return { ...quoted, ...about, page_hash: pageHash };
+    })();
+    return { finish };
+  }
+
+  // Whether a page (a PDF.js page, taken before this is called) has text to select: its
+  // text content, not what is drawn yet
+  async function pageHasText(pdfPage) {
+    const content = await pdfPage.getTextContent();
+    return content.items.some((item) => item.str?.trim());
+  }
+
+  // Hand a quote to the notes panel AT ONCE, in the same task as the user's click or key:
+  // notes.js takes the note it goes into right then (Codex M6 review: a chapter chosen while
+  // the PDF side is still working must never receive it). `pending` resolves to the anchor,
+  // or to null when it turned out it can't be made (said here; nothing goes into a note)
+  function toNotes(pending, [zh, en]) {
+    const notes = window.myLibraryNotes;
+    if (!notes) {
+      pending.catch(() => {});
+      notice("这里没有笔记面板，无法引用", "There is no notes panel here: nothing can be quoted");
+      return;
+    }
+    notes.quote(pending.then((capture) => {
+      if (!capture.problem) return capture;
+      notice(...capture.problem);
+      return null;
+    }, (error) => {
+      notice(zh, `${en}: ${error.message}`);
+      return null;
+    }));
+  }
+
+  function quoteRange(range) {
+    closeAll();
+    let prepared;
+    try {
+      prepared = prepareQuote(range);
+    } catch (error) {
+      notice("无法引用这段文字", `This text can't be quoted: ${error.message}`);
+      return;
+    }
+    if (prepared.problem) notice(...prepared.problem);
+    else toNotes(prepared.finish, ["无法引用这段文字", "This text can't be quoted"]);
+  }
+
+  // A page reference's anchor: the page read now (aboutPage), only its digest awaited
+  const pageAnchor = async (page) => ({ kind: "page", ...(await page.finish()) });
+  const capturePage = (index) => {
+    try {
+      return pageAnchor(aboutPage(index));
+    } catch (error) {  // (the page isn't there: said like any other failure)
+      return Promise.reject(error);
+    }
+  };
+  const SELECT_FIRST = ["先在 PDF 中选中要引用的文字", "Select the text to quote in the PDF first"];
+  const PAGE_FAILED = ["无法引用这一页", "This page can't be referenced"];
+
+  // 引用此页: a page link; `index` from 0 (the page shown when not given)
+  function referencePage(index = window.PDFViewerApplication.page - 1) {
+    closeAll();
+    toNotes(capturePage(index), PAGE_FAILED);
+  }
+
+  function quoteButton(range) {
+    const kept = range.cloneRange();  // the bubble's click takes the selection away
+    const b = biEl("button", "ml-button ml-quote", "引用到笔记", "Quote to note");
+    b.title = "引用到笔记 Quote to note (Alt+Q)";
+    b.addEventListener("mousedown", (event) => event.preventDefault());  // keep the selection
+    b.onclick = () => quoteRange(kept);
+    return b;
+  }
+
+  // Alt+Q: the PDF selection into the note; with nothing selected, on a page without text,
+  // a reference to the page
+  document.addEventListener("keydown", (event) => {
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.code !== "KeyQ" || !docId) return;
+    if (event.isComposing) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const sel = getSelection();
+    const range = sel.rangeCount ? sel.getRangeAt(0) : null;
+    const inLayer = range && !range.collapsed && sel.toString().trim()
+      && (range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement
+        : range.startContainer)?.closest?.(".textLayer") && !inNotes(range.startContainer);
+    if (inLayer) {
+      quoteRange(range.cloneRange());
+      return;
+    }
+    // The note, the PDF and its page are all taken now, with the key press, not after the
+    // page's text was looked at (Codex M6 review: another PDF may be open in this tab by then;
+    // its page is never mixed with this one's, the reference is refused)
+    const index = window.PDFViewerApplication.page - 1;
+    closeAll();
+    if (!window.PDFViewerApplication.pdfViewer.getPageView(index)?.pdfPage) {
+      toNotes(Promise.resolve({ problem: SELECT_FIRST }), PAGE_FAILED);  // not known: never "no text"
+      return;
+    }
+    const page = aboutPage(index);
+    toNotes(pageHasText(page.pdfPage).then((hasText) => {
+      samePdf(page.pdf);
+      return hasText ? { problem: SELECT_FIRST } : pageAnchor(page);
+    }), PAGE_FAILED);
+  }, true);
 
   // Remember where you are: the page is written to the notes README ("Last read: page N")
   // so the library's Continue button can bring you back. Only once you've moved away from the
@@ -866,6 +1120,7 @@
       // The exact bytes PDF.js loaded (the server sends the whole file, never cached)
       version = app.pdfDocument.getData().then(sha256);
       version.catch(() => {});  // (a save says so, if it comes to that)
+      loadedVersion = version;  // M6: a quote records which bytes its text came from
     });
     const current = () => app.pdfDocument?.annotationStorage.serializable.hash ?? savedHash;
     const unsaved = () => current() !== savedHash;
@@ -1027,5 +1282,6 @@
   // For notes.js (the notes panel): the same token, requests and bilingual labels, not copies
   window.myLibraryReader = Object.freeze({
     token, docId, post, el, bi, biEl, isPreview: () => preview,
+    referencePage: () => referencePage(),  // M6: 引用此页, from the notes panel's button
   });
 })();

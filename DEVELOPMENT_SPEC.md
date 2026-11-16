@@ -368,18 +368,63 @@ folder.
 - **标注 / Marks:** PDF.js 写入 PDF 的标准标注，带 `/NM` 名称。Standard annotations PDF.js writes into the
   PDF, with `/NM` names.
 
-### 9.2 建议的锚点模型 / Proposed anchor model (M6, M7, task 5)
+### 9.2 锚点模型 / Anchor model (M6, M7, task 5) [M6 已实现，等待审查 Implemented in M6, awaiting review]
+
+存储：`<library>/.myLibrary/references/<来源文档 UUID>.json` = `{"format": 1, "references": {rid: record}}`，
+只通过 `safe_io.update_json` 写入（`scripts/references.py`）。Storage: one file per **source** document,
+named by its UUID, written only through `safe_io.update_json` (`scripts/references.py`): the
+file's lock, atomic replacement, a `.bak` of the last good version; a damaged file is never
+replaced (its copy is kept; the `.bak` is used if it reads, else nothing is written); a newer
+`format` is refused untouched. 存储不离开书库：`.myLibrary`、`references`、文件和它的 `.bak` 不能是符号链接或
+目录联接（junction），文件的真实路径必须正好在书库里；在文件锁内、建文件夹前、读写前后都检查，否则 `UnsafeStore`
+（服务器 500，什么也不跟随、不改变）。Containment (Codex M6 review): the store never leaves the
+library's real folder: `.myLibrary`, `references`, the file and its `.bak` may not be symlinks or
+junctions (the library folder itself may be, as for notes), and the file's real path must be
+exactly the expected one; checked under the file's lock, before each folder is made, before and
+after every read and write, else `UnsafeStore` (the server answers 500; nothing is followed,
+moved or replaced). A frozen library (`paths.FROZEN`, also through a link) is refused before
+any folder is made (`FrozenLocation`; its tree stays exactly as it was). A junction swapped in
+between the check and the write by a process with write access to the library remains
+possible: the check after the write detects it only if it is still there then; it can't undo
+a write that already escaped, nor detect a swap that was put back before the check.
+
+引用的目标笔记 / The note a quote goes into: 在用户点击或按 Alt+Q 的那一刻确定（`notes.js` `takeTarget`），早于 PDF
+一侧的任何等待；之后只有同一条笔记（同一个会话）还在编辑框里时才插入。Taken the moment the user clicks or
+presses Alt+Q (`notes.js` `takeTarget`), before anything on the PDF side is awaited; inserted only
+if that same note (its session) is in the box afterwards. Left before the anchor is stored: refused,
+nothing stored. Left or changed while it is stored: recorded, offered for that note only. Panel
+never loaded: the note its own first load shows, refused if the user chose another meanwhile or
+the load failed. Never into a note with a conflict, a draft to settle, read-only, or after a
+server restart.
 
 | 字段 Field | 用途 Purpose |
 |---|---|
-| `doc` | 文档 UUID Document UUID |
-| `rid` | 引用 id（在文档内唯一）Reference id (unique within the document) |
-| `page` | 页索引（从 0 开始）Page index (zero-based) |
-| `text` | 选中的文字（只在 `.myLibrary/references/` 中）Selected text (only in `.myLibrary/references/`) |
-| `prefix`, `suffix` | 前后文，用于消除歧义 Context for disambiguation |
-| `rects` | 规范化矩形（0–1，相对页面）Normalised rectangles (0–1, relative to the page) |
-| `fingerprint` | 引用时 PDF 的 SHA-256 The PDF's SHA-256 when quoted |
-| `nm` | （可选）对应的 PDF 标注的 `/NM` (Optional) the `/NM` of the matching PDF mark |
+| `rid` | 引用 id，`r` + 16 个十六进制数字，服务器生成，在文档内唯一 Reference id, `r` + 16 hex digits, made by the server, unique within the document |
+| `doc` | 来源 PDF 的文档 UUID（选中文字所在的文件，不是分组或书）The source PDF's document UUID (the file the text was selected in; never a grouping or book) |
+| `kind` | `text`（引用）或 `page`（引用此页，没有文字字段）`text` (a quote) or `page` (Reference this page: no text fields) |
+| `page`, `pages` | 页索引（从 0 开始；链接中的 `page=` 从 1 开始）和页数 Page index (from 0; a link's `page=` counts from 1) and page count |
+| `exact`, `text` | 规范化后的选中文字（用于匹配）和显示的文字（只在 `.myLibrary/references/` 中）The selection in the normalised page text (for matching) and as shown (only in `.myLibrary/references/`) |
+| `prefix`, `suffix` | 前后各约 32 个规范化字符，用于消除歧义 About 32 normalised characters each side, for disambiguation |
+| `start`, `end`, `page_len`, `page_hash`, `normalize` | 在规范化页面文字中的位置（JavaScript 字符串单位）、页面文字长度和 SHA-256、规范化规则版本（`anchors.js`：NFKC、去软连字符、行末连字符相连、空白合一）。`page_hash` 相同表示位置仍然准确，与文件是否因保存标注而改变无关 Offsets in the normalised page text (JavaScript string units), its length and SHA-256, and the version of the normalisation rules (`anchors.js`). An equal `page_hash` means the offsets still hold, whatever happened to the file (e.g. marks saved) |
+| `rects`, `page_size`, `rotation` | 页面的未旋转 PDF 空间中的规范化矩形（0–1，左上角为原点），页面尺寸（PDF 单位）和页面自身的旋转：与缩放和视图旋转无关，可以换算回 PDF 坐标（以后的 QuadPoints）Normalised rectangles (0–1, top-left origin) in the page's unrotated PDF space, the page size in PDF units and the page's own rotation: independent of zoom and view rotation, convertible back to PDF coordinates (QuadPoints later) |
+| `fingerprint` | 引用时书库中 PDF 的 SHA-256（服务器在 PDF 的锁下计算）The library PDF's SHA-256 when quoted (computed by the server under the PDF's lock) |
+| `loaded`, `pdfjs`, `pdfjs_version` | 标签页载入的字节的 SHA-256、PDF.js 的文件指纹和 PDF.js 版本（文字层决定位置）The SHA-256 of the bytes the tab loaded, PDF.js's file fingerprint and its version (the text layer defines the offsets) |
+| `nm` | （以后）对应的 PDF 标注的 `/NM`；现在为 `null` (Later) the `/NM` of the matching PDF mark; `null` now |
+| `note`, `created`, `nonce` | 引用插入的笔记（`{doc, key}`，只是提示，不是身份）、创建时间（UTC）、请求的 nonce（重试找到同一条记录，不重复）The note it was quoted into (`{doc, key}`: a hint, never an identity), creation time (UTC), the request's nonce (a retry finds the same record, never a second one) |
+
+**与 2026-11-07 设计的差异 / Changes from the 2026-11-07 design** (history, section 5): that design
+had `rects` in PDF units and the PDF.js fingerprint as `fingerprint`. This specification's
+normalised rectangles and the file's SHA-256 are kept, and what the earlier design wanted is
+kept alongside: `page_size` and `rotation` make PDF units derivable; the PDF.js fingerprint is
+`pdfjs`. Because saving marks rewrites the PDF (a new SHA-256), the file hash alone can't tell
+M7 whether offsets still hold: `page_hash` does (Fable design review, 2026-11-13).
+
+**G1 兼容性 / G1 compatibility:** an anchor names only the source PDF's UUID and a page index in
+that file: no chapter number, book or grouping. A whole book in one PDF, one chapter or several
+chapters in one PDF, several PDFs of one book, missing chapters and differing printed page
+numbers all keep working, and a later optional grouping record (9.4) needs no anchor migration.
+A merged document's references stay under its old UUID (M7 should look up the link's own id
+first, not only the one `resolve()` leads to); a removed document's references file stays.
 
 **定位顺序 / Resolution order:** 精确位置 → 唯一的文字/位置匹配 → 页面 → 来源缺失提示和恢复选项；**有歧义时从不悄悄选择**。
 Exact location → a unique text/position match → the page → a missing-source warning with a

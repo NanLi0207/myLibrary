@@ -138,9 +138,12 @@ TOOLBAR = {  # each button on "word" selected on a line of its own
 def test_each_button_and_heading_edits_the_source(library, server_factory, reader_page):
     doc = open_note(library, server_factory, reader_page, "# Toolbar\n\nword\n")
     expect(reader_page.locator(BAR)).to_be_visible()
-    assert reader_page.locator(f"{BAR} button").count() == len(TOOLBAR) + 1
+    # two buttons without a data-action: M5e's formula from a screenshot (#mlFormulaButton) and
+    # M6's "Reference this page" (#mlPageRefButton)
+    assert reader_page.locator(f"{BAR} button").count() == len(TOOLBAR) + 2
     assert reader_page.locator(f"{BAR} button[data-action]").count() == len(TOOLBAR)
     expect(reader_page.locator("#mlFormulaButton")).to_be_enabled()
+    expect(reader_page.locator(f"{BAR} #mlPageRefButton")).to_have_count(1)
     start = len("# Toolbar\n\n")
     for action, expected in TOOLBAR.items():
         select(reader_page, start, start + 4)
