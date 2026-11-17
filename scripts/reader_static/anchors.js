@@ -123,8 +123,109 @@
     return `[p. ${page}](${url})`;
   }
 
+  // --- M7: back from a note to its passage --------------------------------------------------
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  const RID_RE = /^r[0-9a-f]{16}$/;
+  const PAGE_RE = /^[1-9][0-9]{0,5}$/;
+  const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+  // What a link in a note is (pure; also used by preview.js without navigate.js):
+  // - {kind: "reference", id, rid, page, q}: /read/<id>?page=N&ref=<rid>[&q=…], relative or on
+  //   this computer (127.0.0.1, localhost, [::1], any port, no user name). Only its id, ref,
+  //   page and q are ever used: its host and port are never contacted.
+  // - {kind: "malformed", id, page}: the same form with a `ref`, but something is wrong (a bad
+  //   ref, page or q, or a parameter given twice); `page` is null unless it was valid.
+  // - {kind: "ordinary"}: anything else, every /read/ link without `ref` included (find, page,
+  //   preview: as before M7).
+  function parseReference(href) {
+    const ordinary = { kind: "ordinary" };
+    const raw = String(href ?? "").trim();
+    const relative = raw.startsWith("/read/");
+    let url;
+    try {
+      if (relative) url = new URL(raw, "http://127.0.0.1");
+      else if (/^https?:\/\//i.test(raw)) url = new URL(raw);
+      else return ordinary;
+    } catch {
+      return ordinary;
+    }
+    if (!relative && (url.username || url.password || !LOCAL_HOSTS.has(url.hostname))) {
+      return ordinary;
+    }
+    const path = url.pathname.match(/^\/read\/([^/]+)$/);
+    if (!path || !UUID_RE.test(path[1])) return ordinary;
+    const params = url.searchParams;
+    if (!params.has("ref")) return ordinary;
+    const id = path[1];
+    const pages = params.getAll("page");
+    const page = pages.length === 1 && PAGE_RE.test(pages[0]) ? Number(pages[0]) : null;
+    const keys = [...params.keys()];
+    const refs = params.getAll("ref");
+    const qs = params.getAll("q");
+    const q = qs.length ? qs[0] : "";
+    const valid = keys.length === new Set(keys).size && refs.length === 1 && RID_RE.test(refs[0])
+      && page !== null && Array.from(q).length <= 60;
+    return valid ? { kind: "reference", id, rid: refs[0], page, q } : { kind: "malformed", id, page };
+  }
+
+  // The link a parsed reference opens when nothing else handles the click: always this
+  // server's own /read/ (relative), as a preview (owner decision 4)
+  function safeHref(parsed) {
+    const base = `/read/${encode(parsed.id)}`;
+    if (parsed.kind === "reference") {
+      const q = parsed.q ? `&q=${encode(parsed.q)}` : "";
+      return `${base}?page=${parsed.page}&ref=${parsed.rid}${q}&preview=1`;
+    }
+    return parsed.page ? `${base}?page=${parsed.page}&preview=1` : `${base}?preview=1`;
+  }
+
+  // A page's text as PDF.js's text layer holds it (each item's string, a line break after an
+  // item that ends a line; marked content adds none), built from getTextContent: the same
+  // text layerText() reads from the drawn layer, for pages that aren't drawn
+  function textFromContent(content) {
+    let text = "";
+    for (const item of content.items) {
+      if (item.str === undefined) continue;
+      text += item.str;
+      if (item.hasEOL) text += "\n";
+    }
+    return text;
+  }
+
+  const CONTEXT = 32;  // characters of context each side, as M6 stores them
+
+  // Every place `exact` occurs in a normalised page text; `full` when the text before and
+  // after it is exactly the stored prefix and suffix (each as long as M6 stored it: shorter
+  // only where the page started or ended)
+  function candidates(text, exact, prefix, suffix) {
+    const found = [];
+    if (!exact) return found;
+    for (let at = text.indexOf(exact); at >= 0; at = text.indexOf(exact, at + 1)) {
+      const end = at + exact.length;
+      const full = text.slice(Math.max(0, at - CONTEXT), at) === prefix
+        && text.slice(end, end + CONTEXT) === suffix;
+      found.push({ start: at, end, full });
+    }
+    return found;
+  }
+
+  // The link's q (the start of the quote, M6) in a normalised page text: only where a passage
+  // can start (the page's start, or after a character that isn't a letter or digit)
+  function queryMatches(text, q) {
+    const needle = normalize(String(q || "")).text.trim();
+    const found = [];
+    if (!needle) return found;
+    for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
+      if (at === 0 || !LETTER.test(text[at - 1])) {
+        found.push({ start: at, end: at + needle.length, full: false });
+      }
+    }
+    return found;
+  }
+
   window.myLibraryAnchors = Object.freeze({
     NORMALIZE, normalize, toNormalized, excerpt, escapeMarkdown, sourceUrl, quoteMarkdown,
-    pageMarkdown,
+    pageMarkdown, parseReference, safeHref, textFromContent, candidates, queryMatches,
   });
 })();

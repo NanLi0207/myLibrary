@@ -314,6 +314,13 @@ identity (that's its `id`, see above). Inside the library it's the base of:
   `test_notes_failures.py`, `test_notes_conflicts.py`; `--notes-closed` runs any of them with
   the panel closed. A browser test is stopped after 180 s (pyproject `faulthandler_timeout`);
   test servers start through `tests/browser/owned_processes.py` (a job object: never orphaned).
+  ↩ Back to the passage (task 4 M7): `reader_static/navigate.js` follows a reference link
+  (`anchors.parseReference`) in place for this document (never touching notes.js or the
+  session), else in a new preview tab; finding is read-only (`/api/references/get`,
+  `/api/document/ids`, `references.peek`, `safe_io.peek_json`). "Last read" is decided only by
+  a verified reading move of your own or Continue/Start reading (`lookup.js` `tracking`),
+  ordered by the server (`library_server.ordered_position`); browser tests:
+  `test_reference_nav.py`. Rules: DEVELOPMENT_SPEC 9.2.
   `library.html` is the static read-only copy (built by `scripts/library_page.py`, rebuilt by
   add_book.py). Chapter start pages are cached in the library's `.cache/chapter_pages.json`
   (`--refresh-chapters` clears a book's entry automatically).

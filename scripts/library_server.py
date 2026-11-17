@@ -420,6 +420,7 @@ def pdf_url(
     doc_id: str = "",
     find: str = "",
     preview: bool = False,
+    reference: dict | None = None,
 ) -> str:
     """The reading view (PDF.js + word lookup) once it's set up, else the bare PDF; `file` is
     the catalog's path in the library, books/, papers/ or theses/<name>.pdf; `doc_id` tells
@@ -431,8 +432,25 @@ def pdf_url(
     else:
         url = f"{base_url}/pdfjs/web/viewer.html?file=/{file}" + (f"&id={doc_id}" if doc_id else "")
         url += f"&find={quote(find, safe='')}" if find else ""
+        url += "".join(f"&{k}={quote(v, safe='')}" for k, v in (reference or {}).items() if v)
         url += "&preview=1" if preview else ""
     return url + (f"#page={page}" if page else "")
+
+
+_RID_RE = re.compile(r"r[0-9a-f]{16}")
+
+
+def reference_params(given: dict, link_id: str) -> dict | None:
+    """A /read/ link's reference (M7) for the reading view: {ref, refdoc, q}, where refdoc is
+    the link's own id (the one its record is stored under); None when it is malformed (a bad
+    or repeated ref, page or q, or any parameter given twice: anchors.js parseReference says
+    the same)."""
+    if any(len(values) > 1 for values in given.values()):
+        return None
+    ref, page, q = given["ref"][0], given.get("page", [""])[0], given.get("q", [""])[0]
+    if not _RID_RE.fullmatch(ref) or not re.fullmatch(r"[1-9][0-9]{0,5}", page) or len(q) > 60:
+        return None
+    return {"ref": ref, "refdoc": link_id, "q": q}
 
 
 def _read_cache() -> dict:
@@ -501,6 +519,88 @@ def save_position(doc_id: str, page: int) -> dict:
     # One writer at a time: a chapter tick at the same moment isn't lost
     safe_io.update_text(readme, with_position)
     return library_page.last_read(doc_id, readme) or {}
+
+
+# Position revisions (M7, plan §5.2): the server's own order of accepted "Last read" writes,
+# per document, so a stale request (an older decision of a tab, or one made without knowing
+# another tab's newer write) never overwrites a newer position. No client clock is compared.
+# In memory only, like B32's tick versions: a server restart changes the token, so no page or
+# keepalive from the previous process can write at all (that, not the starting number, is the
+# restart guarantee). Changed only under the README's lock.
+POSITION_START = int(time.time() * 1000)
+POSITION_TABS = 256  # per document: the tab that wrote least recently is forgotten first
+_positions: dict[str, dict] = {}
+_TAB_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def position_rev(doc_id: str) -> int:
+    """The document's position revision: POSITION_START until this server writes a position."""
+    return _positions.get(doc_id, {}).get("rev", POSITION_START)
+
+
+def _whole(value, low: int, high: int | None = None) -> bool:
+    return (isinstance(value, int) and not isinstance(value, bool) and value >= low
+            and (high is None or value <= high))  # fmt: skip
+
+
+def ordered_position(doc_id: str, page: int, order: dict | None) -> dict:
+    """save_position in the server's order (plan §5.2). `order` is the request's {tab, seq,
+    base} (base may be None: a tab that doesn't know the revision), or None for a caller
+    without ordering (written as before M7, counted as an anonymous writer). Validated and
+    written in one step under the README's lock. Returns {"rev", "last_read"}, plus
+    {"stale": reason} when nothing was written: "older-seq" (this tab already decided later),
+    "other-tab" (another writer wrote after this tab's base) or "no-base". ValueError: a
+    malformed tab, seq or base (nothing written)."""
+    if order is not None:
+        tab, seq, base = order.get("tab"), order.get("seq"), order.get("base")
+        if not isinstance(tab, str) or not _TAB_RE.fullmatch(tab):
+            raise ValueError("tab must be a lowercase UUID")
+        if not _whole(seq, 1):
+            raise ValueError("seq must be a whole number from 1")
+    row = catalog.load(CATALOG)[doc_id]
+    readme = library_page.readme_of(row)
+    with safe_io.lock_for(readme):
+        state = _positions.get(doc_id) or {
+            "rev": POSITION_START, "last_tab": None, "last_rev": POSITION_START,
+            "other_rev": POSITION_START, "tabs": {},
+        }  # fmt: skip
+
+        def answer(stale: str = "") -> dict:
+            last = (library_page.last_read(doc_id, readme) or {}) if readme.exists() else {}
+            return {"rev": state["rev"], "last_read": last} | ({"stale": stale} if stale else {})
+
+        writer = ""  # (an anonymous writer: a caller without ordering)
+        if order is not None:
+            if base is not None and not _whole(base, 0, state["rev"]):
+                raise ValueError("base isn't a position revision this server has given")
+            writer = tab
+            known = state["tabs"].get(tab)
+            if known and seq < known[0]:
+                return answer("older-seq")
+            if known and seq == known[0]:  # a retry of an accepted decision: nothing again
+                if known[1] != page:
+                    raise ValueError("a retry must repeat its decision's page")
+                return answer()
+            if base is None:
+                return answer("no-base")
+            others = state["last_rev"] if state["last_tab"] != tab else state["other_rev"]
+            if others > base:
+                return answer("other-tab")
+        if not readme.exists():
+            return answer()
+        save_position(doc_id, page)  # (update_text takes the same lock again)
+        # Moved on only once the write succeeded: a failed write can be retried as it was
+        new = state["rev"] + 1
+        if state["last_tab"] != writer:
+            state["other_rev"] = state["last_rev"]
+        state.update(rev=new, last_tab=writer, last_rev=new)
+        if order is not None:
+            state["tabs"].pop(tab, None)
+            state["tabs"][tab] = (seq, page)
+            while len(state["tabs"]) > POSITION_TABS:
+                state["tabs"].pop(next(iter(state["tabs"])))
+        _positions[doc_id] = state
+        return answer()
 
 
 def open_chapter(doc_id: str, number: int | None, base_url: str, resume: bool = False) -> str:
@@ -893,17 +993,40 @@ class Handler(BaseHTTPRequestHandler):
             # A document's lasting link (/read/<id>?page=N): the reading view at that page,
             # whatever its file is called now; a merged one opens the document that kept it
             # ?page=N, and &find=<text> for a search result (highlighted when it opens)
-            query = {k: v[0] for k, v in parse_qs(self.path.partition("?")[2]).items()}
+            given = parse_qs(self.path.partition("?")[2], keep_blank_values=True)
+            query = {k: v[0] for k, v in given.items()}
             page = int(query["page"]) if query.get("page", "").isdigit() else None
             find = " ".join(query.get("find", "").split())[:200]
-            if doc_id := live_id(m[1]):
+            # M7: following a reference writes nothing, so its id is resolved read-only
+            # (catalog.peek_resolve: no .damaged-* copy of a damaged tombstone file); a link
+            # without ref resolves as before
+            found = catalog.peek_resolve(CATALOG, m[1]) if "ref" in given else None
+            if found is not None:
+                doc_id = found["row"]["id"] if found["status"] == "live" else ""
+            else:
+                doc_id = live_id(m[1])
+            if doc_id:
                 row = catalog.load(CATALOG)[doc_id]
                 self.send_response(HTTPStatus.FOUND)
                 preview = query.get("preview") == "1"  # a search result: not reading
-                where = pdf_url(self.base_url, row["file"], page, doc_id, find, preview)
+                reference = None
+                if "ref" in given:  # M7: a reference link always opens as a preview
+                    preview, reference = True, reference_params(given, m[1])
+                    if reference is None:  # malformed: the page only, its reference dropped
+                        single = len(given.get("page", [])) == 1
+                        page = page if page and single else None
+                where = pdf_url(self.base_url, row["file"], page, doc_id, find, preview, reference)
                 self.send_header("Location", where)
                 self.send_header("Content-Length", "0")
                 return self.end_headers()
+            if found is not None:  # (said from what was peeked: nothing read with load_json)
+                if found["status"] == "removed":
+                    title = found["tombstone"].get("title") or "this document"
+                    message = f"{title} was removed from the library"
+                    return self._send(HTTPStatus.GONE, message.encode(),
+                                      "text/plain; charset=utf-8")  # fmt: skip
+                return self._send(HTTPStatus.NOT_FOUND, b"no such document in this library",
+                                  "text/plain; charset=utf-8")  # fmt: skip
             status = HTTPStatus.GONE if catalog.resolve(CATALOG, m[1])["status"] == "removed" \
                 else HTTPStatus.NOT_FOUND  # fmt: skip
             return self._send(status, unknown_document(m[1]).encode(), "text/plain; charset=utf-8")
@@ -1075,6 +1198,38 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": shown_error(e)})
         return self._json(HTTPStatus.OK, made)
 
+    def _reading_only(self, body: dict):
+        """M7, following a reference link: answers that change nothing in the library (no
+        tombstone or references copy, no folder; catalog.peek_resolve, references.peek).
+        /api/document/ids {id}: {id, merged: [the retired ids merged into it], position_rev}.
+        /api/references/get {id, rid}: {record, status, doc}: `id` is the link's own id (the
+        one the record is stored under: a merged document's old id too), `doc` the document
+        that has it now; 404 for a removed or unknown id, 400 for a malformed id or rid."""
+        given = body.get("id")
+        if not isinstance(given, str) or not catalog.is_id(given):
+            return self._json(HTTPStatus.BAD_REQUEST, {"error": "no document id given"})
+        found = catalog.peek_resolve(CATALOG, given)
+        if found["status"] == "removed":  # (said from the peeked tombstone: unknown_document
+            title = found["tombstone"].get("title") or "this document"  # reads with load_json)
+            return self._json(HTTPStatus.GONE, {"error": f"{title} was removed from the library"})
+        if found["status"] != "live":
+            return self._json(HTTPStatus.NOT_FOUND, {"error": "no such document in this library"})
+        doc = found["row"]["id"]
+        if self.path == "/api/document/ids":
+            if doc != given:
+                return self._json(HTTPStatus.CONFLICT, {"error": "this document was merged into "
+                                                        "another: reload the page"})  # fmt: skip
+            merged = catalog.merged_into(CATALOG, doc)
+            return self._json(HTTPStatus.OK, {"id": doc, "merged": merged,
+                                              "position_rev": position_rev(doc)})  # fmt: skip
+        try:
+            record, status = references.peek(LIBRARY, given, body.get("rid"))
+        except references.BadReference as e:
+            return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+        except references.UnsafeStore as e:  # (a link or junction there: nothing followed)
+            return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": shown_error(e)})
+        return self._json(HTTPStatus.OK, {"record": record, "status": status, "doc": doc})
+
     def _body(self, length: int) -> bytes:
         """The request's whole body. A body cut short (the tab closed while it was being sent)
         is refused: half a PDF must never be written over the library's copy."""
@@ -1226,6 +1381,8 @@ class Handler(BaseHTTPRequestHandler):
                     term, zh, definition, glossary_name=name or None
                 )
                 return self._json(HTTPStatus.OK, added)
+            if self.path in ("/api/references/get", "/api/document/ids"):
+                return self._reading_only(body)  # (M7: before live_id, which may write)
             # Every other action is about one document, named by its id. A merged document's id
             # still works (it's followed to the document that kept its work); a removed one says so
             doc_id = live_id(body.get("id"))
@@ -1266,9 +1423,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, {"shelves": shelves})
             if self.path == "/api/position":
                 page = body.get("page")
-                if not isinstance(page, int) or page < 1:
+                if not isinstance(page, int) or isinstance(page, bool) or page < 1:
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": "bad page"})
-                return self._json(HTTPStatus.OK, {"last_read": save_position(doc_id, page)})
+                # M7: with any of tab/seq/base, the request takes part in the server's order
+                ordered = any(k in body for k in ("tab", "seq", "base"))
+                order = {k: body.get(k) for k in ("tab", "seq", "base")} if ordered else None
+                try:
+                    return self._json(HTTPStatus.OK, ordered_position(doc_id, page, order))
+                except ValueError as e:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
             if self.path == "/api/reading":  # the reading view: a minute of reading
                 seconds, pages = body.get("seconds"), body.get("pages")
                 if not isinstance(seconds, int) or not isinstance(pages, list):

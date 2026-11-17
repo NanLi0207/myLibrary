@@ -166,6 +166,39 @@ def _references(data) -> dict:
     return data["references"]
 
 
+RID_RE = re.compile(r"r[0-9a-f]{16}")
+
+
+def peek(library: Path, doc_id: str, rid: str) -> tuple[dict | None, str]:
+    """One reference, read without changing anything (M7: following a link writes nothing):
+    (record, status). status: "ok"; "previous-version" (the file is damaged and its `.bak`
+    reads: the record is from there); "damaged" (neither reads); "missing" (no references file);
+    "no-record" (no such rid); "newer-format" (written by a newer myLibrary). Unlike load(),
+    a damaged file is neither copied (.damaged-*) nor replaced, and no folder is made: the next
+    write (create) keeps the copy as before. BadReference for a malformed rid; UnsafeStore as
+    for load() (checked before and after reading, under the file's lock)."""
+    if not isinstance(rid, str) or not RID_RE.fullmatch(rid):
+        raise BadReference("not a reference id")
+    path = path_for(library, doc_id)
+    with safe_io.lock_for(path):
+        _checked(library, doc_id)
+        data, status = safe_io.peek_json(path)
+        if status == "damaged":
+            data, previous = safe_io.peek_json(path.with_name(path.name + ".bak"))
+            status = "previous-version" if previous == "ok" else "damaged"
+        _checked(library, doc_id)  # (changed while reading: what was read isn't used)
+    if status in ("missing", "damaged"):
+        return None, status
+    if not isinstance(data, dict) or not isinstance(data.get("references"), dict):
+        return None, "damaged"
+    if data.get("format") != FORMAT:
+        return None, "newer-format"
+    record = data["references"].get(rid)
+    if not isinstance(record, dict) or record.get("doc") != doc_id:
+        return None, "no-record"
+    return record, status
+
+
 # --- the PDF's fingerprint -----------------------------------------------------------------
 
 _digests: dict[str, tuple[tuple, str]] = {}

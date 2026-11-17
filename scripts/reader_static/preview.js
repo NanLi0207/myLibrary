@@ -77,7 +77,20 @@
       || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
     md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
       const href = tokens[idx].attrGet("href") || "";
-      if (isWeb(href)) {  // opened in a new tab, telling it nothing about this page
+      // M7: a reference link (anchors.js) points at this server's own /read/ as a preview,
+      // whatever host and port it was written with: a click nothing else handles (notes.js,
+      // navigate.js missing) opens that, never another local service. A malformed one opens
+      // its page as a preview, and says it is invalid. Ordinary links are as before.
+      const reference = window.myLibraryAnchors?.parseReference(href);
+      if (reference && reference.kind !== "ordinary") {
+        tokens[idx].attrSet("href", window.myLibraryAnchors.safeHref(reference));
+        tokens[idx].attrSet("target", "_blank");
+        tokens[idx].attrSet("rel", "noopener noreferrer");
+        if (reference.kind === "malformed") {
+          tokens[idx].attrSet("class", "ml-link-invalid");
+          tokens[idx].attrSet("title", "引用链接无效 (Invalid reference link): " + href);
+        }
+      } else if (isWeb(href)) {  // opened in a new tab, telling it nothing about this page
         tokens[idx].attrSet("target", "_blank");
         tokens[idx].attrSet("rel", "noopener noreferrer");
       }

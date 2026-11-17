@@ -838,64 +838,208 @@
     }), PAGE_FAILED);
   }, true);
 
-  // Remember where you are: the page is written to the notes README ("Last read: page N")
-  // so the library's Continue button can bring you back. Only once you've moved away from the
-  // page the book opened at: just opening a chapter to look doesn't overwrite your place.
-  // `fromHere` (Start reading in a preview): this page counts at once.
-  async function trackPosition(fromHere = false) {
+  // --- Reading progress (M7 plan §5) ------------------------------------------------------------
+  //
+  // "Last read: page N" in the notes README (the library's Continue brings you back there) and
+  // the 📈 reading log (time and pages) are two different things:
+  // - A POSITION is decided only by a verified reading move of your own: your input in the PDF,
+  //   then the view or PDF.js's page really moving from where it was at that input, with no
+  //   programmatic move (navigate.js) still running or issued since, and the page chosen as
+  //   PDF.js chooses it. Or by an explicit Continue reading here / Start reading. Never by a
+  //   timer, by leaving or hiding the tab, nor by a PDF.js event's page number. Each decision
+  //   is a fixed request {page, tab, seq, base}, sent unchanged (the debounce, a flush on
+  //   leaving, a retry); the server orders them (library_server.ordered_position).
+  // - STATISTICS count reading time and the pages you view: as before, until a programmatic
+  //   move has happened in this tab; after one, only once your own input follows it.
+  // Opening a document at a page decides nothing (openedAt's rule, B19); following a reference
+  // (navigate.js: visiting) decides nothing until Back or Continue reading here. A preview
+  // (&preview=1) records nothing until Start reading.
+  const tracking = (() => {
     const app = window.PDFViewerApplication;
-    if (!docId || !token || !app) return;
-    await app.initializedPromise;
-    const openedAt = Number((location.hash.match(/page=(\d+)/) || [])[1]) || null;
-    let moved = fromHere;
-    let saved = null;
+    const enabled = Boolean(docId && token && app);
+    const DEBOUNCE = 2000, RETRIES = 3, IDLE = 120000, TICK = 15000;
+    const tab = crypto.randomUUID();
+    let seq = 0;
+    let base = null;  // the highest position revision learned (navigate.js asks at load)
+    let unsent = null;  // the newest decision, waiting for the debounce
+    let inflight = null;  // the decision sent last, not answered yet
     let timer = null;
-    const save = (keepalive = false) => {
+    let lastDecided = null;  // the page of the last decision: never decided again in a row
+    let moved = false;  // a page other than the one opened at was reached (openedAt's rule)
+    let baseline = Number((location.hash.match(/page=(\d+)/) || [])[1]) || null;
+    let visiting = false;
+    let movedBeforeVisit = false;
+    let prog = 0;  // programmatic moves issued (navigate.js): their number
+    const outstanding = new Set();  // ... those not settled or cancelled yet
+    let sample = null;  // the live state at your latest input
+    let point = null;  // the state at the latest decision: a movement is used once
+    let engagedAfter = -1;  // `prog` at your latest input in the PDF
+
+    // PDF.js 4.10.38's own choice of the current page (BaseViewer.update), replayed on the live
+    // layout: the previous page while it is among the leading fully visible pages (simple
+    // layouts), else the most visible page. _getVisiblePages is a PDF.js internal: recheck it
+    // when PDF.js is upgraded (test_reference_nav.py fails if it is missing or disagrees)
+    // (Missing or of another form after an upgrade: null, so nothing is decided rather than
+    // a page guessed; reading itself is unaffected)
+    function pdfPage(previous) {
+      const v = app.pdfViewer;
+      const list = typeof v?._getVisiblePages === "function" ? v._getVisiblePages() : null;
+      const visible = Array.isArray(list?.views) ? list.views : [];
+      if (!visible.length || !visible.every((p) => Number.isInteger(p.id) && typeof p.percent === "number")) {
+        return null;
+      }
+      const simple = v.spreadMode === 0 && (v.scrollMode === 0 || v.scrollMode === 3);
+      for (const page of visible) {
+        if (page.percent < 100) break;
+        if (page.id === previous && simple) return previous;
+      }
+      return visible[0].id;
+    }
+
+    function live() {
+      const v = app.pdfViewer;
+      const c = v.container;
+      const page = v.currentPageNumber;
+      return {
+        top: c.scrollTop, left: c.scrollLeft, scale: v.currentScale, rotation: v.pagesRotation,
+        width: c.clientWidth, height: c.clientHeight, page, consistent: pdfPage(page) === page,
+        at: performance.now(),
+      };
+    }
+
+    // Your own input in the PDF (its view, toolbar, sidebar, find bar), never in the notes
+    // panel, the lookup popup or navigate.js's controls, never a script's event
+    const PDF_AREAS = "#viewerContainer, #toolbarContainer, #sidebarContainer, #findbar, #secondaryToolbar";
+    const NOT_READING = ".ml-notes, .ml-popup, .ml-bubble, .ml-nav";
+    const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "AltGraph"]);
+    const ZOOM_CONTROLS = "#zoomInButton, #zoomOutButton, #zoomIn, #zoomOut, #scaleSelect";
+    function yourInput(event) {
+      if (!event.isTrusted) return false;
+      const node = event.target;
+      const target = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+      if (target?.closest?.(NOT_READING)) return false;
+      if (event.type === "keydown") {
+        if (MODIFIERS.has(event.key)) return false;
+        const field = target?.closest?.("input, textarea, select, [contenteditable]");
+        return !field || Boolean(field.closest(PDF_AREAS));
+      }
+      return Boolean(target?.closest?.(PDF_AREAS));
+    }
+    function zoomInput(event) {
+      if (event.type === "wheel") return event.ctrlKey || event.metaKey;
+      if (event.type === "keydown") {
+        return (event.ctrlKey || event.metaKey) && ["+", "=", "-", "0"].includes(event.key);
+      }
+      return Boolean(event.target?.closest?.(ZOOM_CONTROLS));
+    }
+    function onInput(event) {
+      if (!yourInput(event)) return;
+      account();  // (the time until now, as eligible as it was)
+      engagedAfter = prog;
+      sample = { ...live(), prog, zoom: zoomInput(event) };
+    }
+
+    // --- decisions: made once, sent unchanged -----------------------------------------------
+    function decide(page, state) {
+      lastDecided = page;
+      point = state;
+      unsent = { page, tab, seq: ++seq, base };  // (an older unsent one is dropped, never sent)
+      document.body.dataset.mlDecision = `${seq}:${page}`;  // (this tab only; for tests)
       clearTimeout(timer);
-      const page = app.page;
-      if (!moved || !page || page === saved) return;
-      saved = page;
+      timer = setTimeout(() => sendUnsent(false), DEBOUNCE);
+    }
+    function sendUnsent(keepalive) {
+      clearTimeout(timer);
+      if (!unsent) return;
+      const decision = unsent;
+      unsent = null;
+      inflight = decision;  // (an older one in flight stops being retried)
+      transmit(decision, keepalive, 0);
+    }
+    function transmit(decision, keepalive, attempt) {
+      const again = () => {
+        if (inflight !== decision || attempt >= RETRIES) return;
+        setTimeout(() => transmit(decision, false, attempt + 1), 400 * 2 ** attempt);
+      };
       fetch("/api/position", {
         method: "POST",
         keepalive,
         headers: { "Content-Type": "application/json", "X-Library-Token": token },
-        body: JSON.stringify({ id: docId, page }),
-      }).catch(() => { saved = null; });
-    };
-    app.eventBus.on("pagechanging", (event) => {
-      if (!moved && event.pageNumber === openedAt) return;
-      moved = true;
-      clearTimeout(timer);
-      timer = setTimeout(save, 2000);
-    });
-    addEventListener("pagehide", () => save(true));
-    document.addEventListener("visibilitychange", () => { if (document.hidden) save(true); });
-    if (fromHere) save();
-  }
-  if (!preview) trackPosition();
-
-  // 📈 Reading log: the time you actively read (tab visible, and you moved, scrolled or turned
-  // a page in the last two minutes) and the pages you looked at, sent every minute and when
-  // you leave (reading_log.py adds them up per day).
-  async function trackReading() {
-    const app = window.PDFViewerApplication;
-    if (!docId || !token || !app) return;
-    await app.initializedPromise;
-    const IDLE = 120000, TICK = 15000;
-    let lastActive = Date.now();
-    let seconds = 0;
-    const pages = new Set();
-    // Using the notes panel isn't reading (task 4 decision 3); turning a page always is
-    const active = (event) => { if (!inNotes(event?.target)) lastActive = Date.now(); };
-    for (const type of ["mousemove", "keydown", "wheel", "pointerdown", "touchstart"]) {
-      addEventListener(type, active, { passive: true, capture: true });
+        body: JSON.stringify({ id: docId, ...decision }),  // (the same body every time)
+      }).then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (Number.isInteger(data.rev)) base = Math.max(base ?? data.rev, data.rev);
+        if (response.status >= 500) return again();
+        if (inflight === decision) inflight = null;  // accepted, stale or refused: finished
+      }, again);
     }
-    addEventListener("scroll", active, { passive: true, capture: true });
-    app.eventBus.on("pagechanging", (event) => { active(); pages.add(event.pageNumber); });
-    const send = (keepalive = false) => {
-      if (!seconds && !pages.size) return;
-      const body = JSON.stringify({ id: docId, seconds: Math.round(seconds), pages: [...pages] });
-      seconds = 0;
+    // Leaving or hiding the tab: the decision waiting or unanswered, as it is; nothing new.
+    // (An evaluation a real move already queued, a page turned just before closing, is made
+    // first: the move decides, never the leaving)
+    function flush() {
+      if (queued) {
+        queued = false;
+        evaluate();
+      }
+      if (unsent) sendUnsent(true);
+      else if (inflight) transmit(inflight, true, RETRIES);
+    }
+
+    // --- verified reading moves (plan §5.3) ------------------------------------------------
+    let queued = false;
+    function evaluateSoon() {
+      if (queued || !enabled) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        evaluate();
+      });
+    }
+    function evaluate() {
+      if (preview || !app.pdfViewer?.pagesCount) return;
+      const now = live();
+      if (!now.consistent) return;  // PDF.js hasn't caught up with the layout yet
+      if (statsAllowed()) pages.add(now.page);
+      if (visiting || !sample?.consistent || sample.prog !== prog || outstanding.size) return;
+      const from = point && point.at > sample.at ? point : sample;
+      if (now.top === from.top && now.left === from.left && now.page === from.page) return;
+      const layout = now.width !== sample.width || now.height !== sample.height
+        || ((now.scale !== sample.scale || now.rotation !== sample.rotation) && !sample.zoom);
+      if (layout) return;  // a change you didn't make: uncertain, nothing guessed
+      if (!moved && now.page === baseline) return;
+      moved = true;
+      if (now.page !== lastDecided) decide(now.page, now);
+    }
+
+    // --- statistics ----------------------------------------------------------------------
+    // Reading time is the elapsed time while eligible, on the monotonic clock. account()
+    // settles it up to now, judged by the state the interval was in, and is called BEFORE
+    // anything that state depends on changes: your input, any activity (lastActive), a
+    // programmatic move, Continue reading here / Start reading, a visibility change (judged
+    // by the visibility before it), every tick and every report. So suppressed time is never
+    // counted, earlier legitimate time always is, nothing twice. Inactivity: an interval
+    // counts only up to IDLE after your last activity, never more when you come back.
+    let lastActive = performance.now();  // (monotonic, as the time it limits)
+    let seconds = 0;
+    let counted = performance.now();  // reading time is settled up to here
+    let visible = document.visibilityState === "visible";  // during the interval being settled
+    const pages = new Set();
+    const statsAllowed = () => !preview && (prog === 0 || engagedAfter === prog);
+    const idle = () => performance.now() - lastActive > IDLE;
+    function account() {
+      const now = performance.now();
+      const from = counted;
+      counted = now;
+      if (!statsAllowed() || !visible) return;
+      const until = Math.min(now, lastActive + IDLE);
+      if (until > from) seconds += (until - from) / 1000;
+    }
+    function sendStats(keepalive) {
+      account();
+      const whole = Math.floor(seconds);  // (the fraction is kept for the next report)
+      if (!whole && !pages.size) return;
+      const body = JSON.stringify({ id: docId, seconds: whole, pages: [...pages] });
+      seconds -= whole;
       pages.clear();
       fetch("/api/reading", {
         method: "POST",
@@ -903,33 +1047,115 @@
         headers: { "Content-Type": "application/json", "X-Library-Token": token },
         body,
       }).catch(() => {});
-    };
-    setInterval(() => {
-      if (document.visibilityState !== "visible" || Date.now() - lastActive > IDLE) return;
-      seconds += TICK / 1000;
-      if (app.page) pages.add(app.page);
-    }, TICK);
-    setInterval(send, 60000);
-    addEventListener("pagehide", () => send(true));
-    document.addEventListener("visibilitychange", () => { if (document.hidden) send(true); });
-  }
-  if (!preview) trackReading();
+    }
 
-  // Preview (a search result): a small bar says so; "Start reading" turns this tab into a
-  // normal reading tab from the current page on (position saved, reading time counted)
+    if (enabled) {
+      for (const type of ["pointerdown", "wheel", "keydown", "touchstart"]) {
+        addEventListener(type, onInput, { capture: true, passive: true });
+      }
+      // Using the notes panel isn't reading (task 4 decision 3)
+      const active = (event) => {
+        if (inNotes(event?.target)) return;
+        account();  // (up to now, with the activity as it was)
+        lastActive = performance.now();
+      };
+      for (const type of ["mousemove", "keydown", "wheel", "pointerdown", "touchstart"]) {
+        addEventListener(type, active, { passive: true, capture: true });
+      }
+      addEventListener("scroll", (event) => {
+        active(event);
+        evaluateSoon();
+      }, { passive: true, capture: true });
+      app.initializedPromise.then(() => {
+        app.eventBus.on("updateviewarea", evaluateSoon);
+        app.eventBus.on("pagechanging", evaluateSoon);  // (its pageNumber is never read)
+      });
+      setInterval(() => {
+        account();
+        if (!statsAllowed() || !visible || idle()) return;
+        if (app.pdfViewer?.pagesCount) {
+          const now = live();
+          if (now.consistent) pages.add(now.page);
+        }
+      }, TICK);
+      setInterval(() => sendStats(false), 60000);
+      addEventListener("pagehide", () => {
+        flush();
+        sendStats(true);
+      });
+      document.addEventListener("visibilitychange", () => {
+        account();  // judged by the visibility before this change
+        visible = document.visibilityState === "visible";
+        if (visible) return;  // (the hidden interval just settled is never counted)
+        flush();
+        sendStats(true);
+      });
+    }
+
+    return Object.freeze({
+      // navigate.js: every programmatic move gets a number before it moves anything
+      programmatic() {
+        account();  // (the reading before this move counted as it was)
+        prog += 1;
+        outstanding.add(prog);
+        return prog;
+      },
+      settled(id) { outstanding.delete(id); },
+      // Following a reference: the decision waiting is sent now, unchanged; then nothing
+      visit() {
+        if (!visiting) movedBeforeVisit = moved;
+        sendUnsent(false);
+        visiting = true;
+      },
+      // Back emptied the stack: the restored page decides nothing; `moved` as before the visit
+      restored(page) {
+        visiting = false;
+        moved = movedBeforeVisit;
+        baseline = page;
+        sample = null;
+      },
+      // Continue reading here / Start reading: this page, decided and sent at once
+      continueHere() {
+        visiting = false;
+        moved = true;
+        sample = null;
+        // An explicit choice to read here: statistics count from now (a fresh activity
+        // baseline; the visit's or the preview's time is settled first, uncounted)
+        account();
+        engagedAfter = prog;
+        lastActive = performance.now();
+        if (!enabled || !app.pdfViewer?.pagesCount) return;
+        const now = live();
+        if (now.consistent) pages.add(now.page);
+        decide(now.page, now);
+        sendUnsent(false);
+      },
+      setBase(rev) { if (Number.isInteger(rev)) base = Math.max(base ?? rev, rev); },
+      // Start reading: the preview's time settled (uncounted) before the preview ends
+      account: () => account(),
+      pdfPage: (previous) => pdfPage(previous),
+      get visiting() { return visiting; },
+    });
+  })();
+  window.myLibraryTracking = tracking;
+
+  // Preview (a search result, or a reference opened from outside): a small bar says so;
+  // "Start reading" turns this tab into a normal reading tab from the current page on
+  // (position decided and saved, reading time counted)
   function previewBar() {
     if (!preview) return;
     const bar = el("div", "ml-preview");
     const start = biEl("button", "ml-small", "开始阅读", "Start reading");
     bar.append(biEl("span", null, "预览：不计入阅读进度", "Preview: not counted as reading"), start);
     start.onclick = () => {
+      tracking.account();  // (the time previewed, never counted)
       preview = false;
       bar.remove();
       const params = new URLSearchParams(location.search);
-      params.delete("preview");  // a reload now reads normally too
+      for (const name of ["preview", "ref", "refdoc", "q"]) params.delete(name);  // a reload reads
       history.replaceState(null, "", `${location.pathname}?${params}${location.hash}`);
-      trackPosition(true);
-      trackReading();
+      window.myLibraryNavigate?.endVisit();
+      tracking.continueHere();
     };
     document.body.append(bar);
   }
@@ -1283,5 +1509,8 @@
   window.myLibraryReader = Object.freeze({
     token, docId, post, el, bi, biEl, isPreview: () => preview,
     referencePage: () => referencePage(),  // M6: 引用此页, from the notes panel's button
+    // M7 (navigate.js): the text layer's text as M6 anchored it, the loaded bytes' digest
+    // (a promise, or null before keepMarks set it), the same notice line
+    layerText, loadedDigest: () => loadedVersion, notice,
   });
 })();

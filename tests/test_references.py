@@ -2,6 +2,7 @@
 (/api/references/create). Temporary libraries only."""
 
 import hashlib
+import http.client
 import json
 import os
 import subprocess
@@ -496,3 +497,382 @@ def test_a_frozen_library_gets_no_folder_and_no_reference(
     assert (library / ".myLibrary").exists() == (store == "existing")
     assert len(references.load(root, doc)) == (store == "existing")  # reading is still allowed
     assert tree(library) == before
+
+
+# --- M7: reading a reference back, changing nothing (references.peek) ---------------------------
+
+
+def test_peek_reads_one_reference_and_changes_nothing(library, book):
+    doc, row = book
+    rid = references.create(library, row, request(), NOTE)["rid"]
+    before = tree(library)
+    record, status = references.peek(library, doc, rid)
+    assert status == "ok" and record["rid"] == rid and record["exact"] == "the exit pupil"
+    assert references.peek(library, doc, "r" + "0" * 16) == (None, "no-record")
+    with pytest.raises(references.BadReference):
+        references.peek(library, doc, "../x")
+    assert tree(library) == before
+
+
+def test_peek_of_a_damaged_file_reads_its_previous_version_and_copies_nothing(library, book):
+    doc, row = book
+    rid = references.create(library, row, request(), NOTE)["rid"]
+    references.create(library, row, request(), NOTE)  # (now there is a .bak holding rid)
+    path = references.path_for(library, doc)
+    path.write_bytes(b"{ not json")
+    before = tree(library)
+    record, status = references.peek(library, doc, rid)
+    assert status == "previous-version" and record["rid"] == rid
+    path.with_name(path.name + ".bak").write_bytes(b"also not json")
+    before = tree(library)
+    assert references.peek(library, doc, rid) == (None, "damaged")
+    assert tree(library) == before  # no .damaged-* copy, nothing replaced
+    assert not list(path.parent.glob("*.damaged-*"))
+
+
+def test_peek_without_a_store_makes_no_folder(library, book):
+    doc, _ = book
+    before = tree(library)
+    assert references.peek(library, doc, "r" + "1" * 16) == (None, "missing")
+    assert tree(library) == before and not (library / ".myLibrary").exists()
+
+
+def test_peek_of_a_newer_format_or_another_documents_record(library, book):
+    doc, row = book
+    rid = references.create(library, row, request(), NOTE)["rid"]
+    path = references.path_for(library, doc)
+    data = json.loads(path.read_text("utf-8"))
+    data["references"][rid]["doc"] = str(uuid.uuid4())  # (a hand edit)
+    path.write_text(json.dumps(data), "utf-8")
+    assert references.peek(library, doc, rid) == (None, "no-record")
+    path.write_text(json.dumps({"format": 99, "references": {}}), "utf-8")
+    assert references.peek(library, doc, rid) == (None, "newer-format")
+
+
+def test_peek_in_a_frozen_library_reads_and_writes_nothing(library, book, monkeypatch):
+    doc, row = book
+    rid = references.create(library, row, request(), NOTE)["rid"]
+    monkeypatch.setattr(safe_io, "_frozen", list(safe_io._frozen))
+    safe_io.freeze(library)
+    before = tree(library)
+    assert references.peek(library, doc, rid)[1] == "ok"
+    assert tree(library) == before
+
+
+def test_peek_refuses_a_junctioned_store(library, book, tmp_path_factory):
+    doc, _ = book
+    outside = tmp_path_factory.mktemp("outside")
+    (library / ".myLibrary").mkdir()
+    junction(outside, library / ".myLibrary" / "references")
+    with pytest.raises(references.UnsafeStore):
+        references.peek(library, doc, "r" + "2" * 16)
+    assert outside_files(outside) == []
+
+
+# --- M7: the read-only endpoints -------------------------------------------------------------
+
+
+def call(base, path, body, token=None):
+    req = urllib.request.Request(
+        base + path, data=json.dumps(body).encode(), method="POST",
+        headers={"Content-Type": "application/json",
+                 "X-Library-Token": library_server.TOKEN if token is None else token},
+    )  # fmt: skip
+    try:
+        with urllib.request.urlopen(req, timeout=10) as answer:
+            return answer.status, json.load(answer)
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
+
+
+def merged_pair(library, book):
+    """The book, plus another document merged into it whose own references stay under its old
+    id: (kept id, old id, the old document's reference id)."""
+    doc, _ = book
+    old = registered(library, "doe-2015-practical-lens-design-2", "Practical Lens Design")
+    old_row = library_server.catalog.load(library / "catalog.csv")[old]
+    rid = references.create(library, old_row, request(), NOTE)["rid"]
+    library_server.catalog.retire(library / "catalog.csv", old, "merged", old_row, into=doc)
+    library_server.catalog.remove(library / "catalog.csv", old)
+    return doc, old, rid
+
+
+def test_get_answers_a_record_and_changes_nothing(library, book, server):
+    doc, row = book
+    rid = references.create(library, row, request(), NOTE)["rid"]
+    before = tree(library)
+    status, answer = call(server, "/api/references/get", {"id": doc, "rid": rid})
+    assert status == 200 and answer["status"] == "ok" and answer["doc"] == doc
+    assert answer["record"]["rid"] == rid
+    assert call(server, "/api/references/get", {"id": doc, "rid": "bad"})[0] == 400
+    assert call(server, "/api/references/get", {"id": "x", "rid": rid})[0] == 400
+    assert call(server, "/api/references/get", {"id": str(uuid.uuid4()), "rid": rid})[0] == 404
+    assert call(server, "/api/references/get", {"id": doc, "rid": rid}, token="wrong")[0] == 403
+    assert tree(library) == before
+
+
+def test_get_follows_a_merged_id_to_its_own_records(library, book, server):
+    doc, old, rid = merged_pair(library, book)
+    status, answer = call(server, "/api/references/get", {"id": old, "rid": rid})
+    assert status == 200 and answer["doc"] == doc and answer["record"]["doc"] == old
+    status, ids = call(server, "/api/document/ids", {"id": doc})
+    assert status == 200 and ids["merged"] == [old] and isinstance(ids["position_rev"], int)
+    assert call(server, "/api/document/ids", {"id": old})[0] == 409  # (a page of the old id)
+
+
+def test_a_damaged_tombstone_file_is_read_without_a_copy(library, book, server):
+    doc, old, rid = merged_pair(library, book)
+    stones = library / "retired-documents.json"
+    stones.write_bytes(b"{ damaged")
+    before = tree(library)
+    status, ids = call(server, "/api/document/ids", {"id": doc})
+    assert status == 200 and ids["merged"] == []
+    assert call(server, "/api/references/get", {"id": old, "rid": rid})[0] == 404
+    assert tree(library) == before and not list(library.glob("retired-documents.json.damaged-*"))
+
+
+def test_a_removed_documents_link_says_so(library, book, server):
+    doc, row = book
+    rid = references.create(library, row, request(), NOTE)["rid"]
+    library_server.catalog.retire(library / "catalog.csv", doc, "removed", row)
+    library_server.catalog.remove(library / "catalog.csv", doc)
+    status, answer = call(server, "/api/references/get", {"id": doc, "rid": rid})
+    assert status == 410 and "removed" in answer["error"]
+
+
+# --- M7: /read/ with a reference opens a preview that carries it ---------------------------------
+
+
+def location(base, query, doc):
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(base)
+    connection = http.client.HTTPConnection(parts.hostname, parts.port, timeout=10)
+    connection.request("GET", f"/read/{doc}?{query}")
+    answer = connection.getresponse()
+    where = answer.getheader("Location")
+    connection.close()
+    return answer.status, where
+
+
+def test_read_passes_a_valid_reference_on_as_a_preview(library, book, server, monkeypatch):
+    doc, _ = book
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: True)
+    rid = "r" + "a" * 16
+    status, where = location(server, f"page=2&ref={rid}&q=the%20exit", doc)
+    assert status == 302
+    assert f"&ref={rid}&refdoc={doc}&q=the%20exit&preview=1#page=2" in where
+    # malformed: the page only, as a preview, the reference dropped
+    _, where = location(server, "page=2&ref=bad", doc)
+    assert "ref=" not in where and where.endswith("&preview=1#page=2")
+    _, where = location(server, f"page=2&page=3&ref={rid}", doc)
+    assert "ref=" not in where and "#page" not in where and "&preview=1" in where
+    # without ref: exactly as before M7 (find kept, no preview added)
+    _, where = location(server, "page=2&find=exit%20pupil", doc)
+    assert where.endswith("&find=exit%20pupil#page=2") and "preview" not in where
+
+
+# --- M7: "Last read" written in the server's order (plan §5.2) -----------------------------------
+
+TAB_A, TAB_B = str(uuid.uuid4()), str(uuid.uuid4())
+
+
+@pytest.fixture
+def positions(library, book, monkeypatch):
+    monkeypatch.setattr(library_server, "_positions", {})
+    doc, row = book
+    readme = library_server.library_page.readme_of(row)
+    return doc, readme
+
+
+def write(doc, page, tab=None, seq=None, base=None, legacy=False):
+    order = None if legacy else {"tab": tab, "seq": seq, "base": base}
+    return library_server.ordered_position(doc, page, order)
+
+
+def last_read(readme) -> int:
+    import re
+
+    return int(re.search(r"Last read: page (\d+)", readme.read_text("utf-8"))[1])
+
+
+def test_a_late_older_decision_of_a_tab_never_overwrites(positions):
+    doc, readme = positions
+    start = library_server.position_rev(doc)
+    a2 = write(doc, 12, TAB_A, 2, start)  # (A1, decided first, is still on its way)
+    assert "stale" not in a2
+    b1 = write(doc, 30, TAB_B, 1, a2["rev"])  # B knew A2's revision
+    assert "stale" not in b1 and last_read(readme) == 30
+    a1 = write(doc, 11, TAB_A, 1, start)  # A1 arrives at last
+    assert a1["stale"] == "older-seq" and last_read(readme) == 30
+    # B deciding without knowing A's newer write is refused
+    assert write(doc, 31, TAB_B, 2, start)["stale"] == "other-tab"
+    assert last_read(readme) == 30
+
+
+def test_interleaved_tabs_follow_the_servers_order(positions):
+    doc, readme = positions
+    start = library_server.position_rev(doc)
+    a1 = write(doc, 5, TAB_A, 1, start)
+    b1 = write(doc, 40, TAB_B, 1, start)  # B never saw A1
+    assert b1["stale"] == "other-tab" and last_read(readme) == 5
+    b2 = write(doc, 41, TAB_B, 2, b1["rev"])  # B's next decision, knowing A1
+    assert "stale" not in b2 and last_read(readme) == 41
+    a2 = write(doc, 6, TAB_A, 2, a1["rev"])  # A decided without knowing B2
+    assert a2["stale"] == "other-tab" and last_read(readme) == 41
+    a3 = write(doc, 7, TAB_A, 3, a2["rev"])
+    assert "stale" not in a3 and last_read(readme) == 7
+
+
+def test_retries_are_written_once_and_a_refusal_stays_refused(positions):
+    doc, readme = positions
+    start = library_server.position_rev(doc)
+    first = write(doc, 9, TAB_A, 1, start)
+    mtime = readme.stat().st_mtime_ns
+    again = write(doc, 9, TAB_A, 1, start)  # its answer was lost: the same body again
+    assert "stale" not in again and again["rev"] == first["rev"]
+    assert readme.stat().st_mtime_ns == mtime  # not written twice
+    with pytest.raises(ValueError):
+        write(doc, 10, TAB_A, 1, start)  # a retry must be the same decision
+    refused = write(doc, 50, TAB_B, 1, start)
+    assert refused["stale"] == "other-tab"
+    assert write(doc, 50, TAB_B, 1, start)["stale"] == "other-tab"  # retried: still refused
+    assert last_read(readme) == 9
+
+
+def test_a_failed_write_changes_no_order_and_its_retry_is_accepted(positions, monkeypatch):
+    doc, readme = positions
+    start = library_server.position_rev(doc)
+    real = library_server.save_position
+    calls = []
+
+    def failing(*args):
+        calls.append(args)
+        if len(calls) == 1:
+            raise OSError("disk full")
+        return real(*args)
+
+    monkeypatch.setattr(library_server, "save_position", failing)
+    with pytest.raises(OSError):
+        write(doc, 14, TAB_A, 1, start)
+    assert library_server.position_rev(doc) == start
+    assert "stale" not in write(doc, 14, TAB_A, 1, start) and last_read(readme) == 14
+
+
+def test_bad_order_fields_and_a_missing_base(positions):
+    doc, readme = positions
+    start = library_server.position_rev(doc)
+    assert write(doc, 3, TAB_A, 1, None)["stale"] == "no-base"
+    for tab, seq, base in [("x", 1, start), (TAB_A.upper(), 1, start), (TAB_A, 0, start),
+                           (TAB_A, True, start), (TAB_A, 1, start + 1), (TAB_A, 1, -1),
+                           (TAB_A, 1.5, start)]:  # fmt: skip
+        with pytest.raises(ValueError):
+            write(doc, 3, tab, seq, base)
+    assert "Last read" not in readme.read_text("utf-8")
+
+
+def test_a_caller_without_order_still_writes_and_holds_back_tabs(positions):
+    doc, readme = positions
+    start = library_server.position_rev(doc)
+    legacy = write(doc, 20, legacy=True)
+    assert "stale" not in legacy and last_read(readme) == 20
+    assert write(doc, 21, TAB_A, 1, start)["stale"] == "other-tab"  # A hadn't seen it
+    assert "stale" not in write(doc, 22, TAB_A, 2, legacy["rev"]) and last_read(readme) == 22
+
+
+def test_the_order_never_depends_on_clocks(positions, monkeypatch):
+    doc, readme = positions
+    for step, shift in enumerate((0, 3600 * 5, -3600 * 5, 0)):  # hours forward, back, equal
+        monkeypatch.setattr(library_server.time, "time", lambda s=shift: 1_800_000_000 + s)
+        start = library_server.position_rev(doc)
+        a = write(doc, 2, TAB_A, 10 * (step + 1), start)  # (A's own order only grows)
+        assert "stale" not in a
+        assert write(doc, 3, TAB_A, 1, start)["stale"] == "older-seq"
+        assert write(doc, 4, TAB_B, 10 * (step + 1), start)["stale"] == "other-tab"
+        assert last_read(readme) == 2
+
+
+def test_writers_racing_on_the_lock_are_counted_once_each(positions):
+    doc, readme = positions
+    start = library_server.position_rev(doc)
+    accepted, lock = [], threading.Lock()
+
+    def reader(tab):
+        base, seq = start, 0
+        for page in range(1, 21):
+            seq += 1
+            answer = write(doc, page, tab, seq, base)
+            base = answer["rev"]
+            if "stale" not in answer:
+                with lock:
+                    accepted.append((answer["rev"], page))
+
+    threads = [threading.Thread(target=reader, args=(str(uuid.uuid4()),)) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    revs = sorted(rev for rev, _ in accepted)
+    assert revs == list(range(start + 1, start + 1 + len(accepted)))  # each once, no gaps
+    assert last_read(readme) == max(accepted)[1]  # the README holds the last accepted page
+
+
+def test_the_tabs_remembered_are_bounded(positions, monkeypatch):
+    doc, _ = positions
+    monkeypatch.setattr(library_server, "POSITION_TABS", 5)
+    base = library_server.position_rev(doc)
+    for n in range(8):
+        base = write(doc, n + 1, str(uuid.uuid4()), 1, base)["rev"]
+    assert len(library_server._positions[doc]["tabs"]) == 5
+
+
+def test_position_over_http_with_order_and_an_old_token(library, positions, server, monkeypatch):
+    doc, readme = positions
+    start = library_server.position_rev(doc)
+    body = {"id": doc, "page": 8, "tab": TAB_A, "seq": 1, "base": start}
+    status, answer = call(server, "/api/position", body)
+    assert status == 200 and "stale" not in answer and last_read(readme) == 8
+    status, answer = call(server, "/api/position", body | {"page": 9, "seq": 0})
+    assert status == 400
+    status, answer = call(server, "/api/position", {"id": doc, "page": 10, "tab": TAB_B,
+                                                     "seq": 1, "base": start})  # fmt: skip
+    assert status == 200 and answer["stale"] == "other-tab"
+    old = library_server.TOKEN
+    monkeypatch.setattr(library_server, "TOKEN", "a-new-process")  # (a restart: a new token)
+    assert call(server, "/api/position", body | {"seq": 2}, token=old)[0] == 403
+    status, answer = call(server, "/api/position", {"id": doc, "page": 11})  # (no order)
+    assert status == 200 and last_read(readme) == 11
+
+
+def test_a_reference_redirect_changes_nothing_even_with_damaged_tombstones(library, book, server,
+                                                                          monkeypatch):  # fmt: skip
+    """GET /read/<id>?…&ref=…: resolved read-only (Codex M7 review), the whole library tree
+    byte for byte the same, for a live id, a merged one and a removed one, with the tombstone
+    file damaged and its readable .bak holding the merge."""
+    doc, row = book
+    monkeypatch.setattr(library_server.reading_view, "viewer_ready", lambda: True)
+    old = registered(library, "doe-2015-practical-lens-design-2", "Practical Lens Design")
+    stones = library / "retired-documents.json"
+    old_row = library_server.catalog.load(library / "catalog.csv")[old]
+    library_server.catalog.retire(library / "catalog.csv", old, "merged", old_row, into=doc)
+    library_server.catalog.remove(library / "catalog.csv", old)
+    gone = registered(library, "doe-2016-gone-book", "Gone book")
+    gone_row = library_server.catalog.load(library / "catalog.csv")[gone]
+    library_server.catalog.retire(library / "catalog.csv", gone, "removed", gone_row)
+    library_server.catalog.remove(library / "catalog.csv", gone)
+    assert (library / "retired-documents.json.bak").exists()  # (holding the merge only)
+    stones.write_bytes(b"{ damaged")
+    rid = "r" + "c" * 16
+    before = tree(library)
+    status, where = location(server, f"page=2&ref={rid}", doc)
+    assert status == 302 and f"refdoc={doc}" in where
+    status, where = location(server, f"page=2&ref={rid}", old)  # merged: from the .bak
+    assert status == 302 and f"id={doc}" in where and f"refdoc={old}" in where
+    status, _ = location(server, f"page=2&ref={rid}", gone)  # (only in the damaged file)
+    assert status == 404
+    status, _ = location(server, f"page=2&ref={rid}", str(uuid.uuid4()))
+    assert status == 404
+    assert tree(library) == before  # no .damaged-* copy, nothing replaced
+    assert not list(library.glob("retired-documents.json.damaged-*"))
+    # an ordinary /read/ (no ref) is as before M7, damaged-file copy included
+    location(server, "page=2", old)

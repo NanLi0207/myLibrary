@@ -553,6 +553,24 @@
     const link = event.target.closest?.("a[href]");
     if (!link || !preview.contains(link)) return;
     const href = link.getAttribute("href");
+    // M7: a reference link (its href already this server's safe preview, preview.js) is
+    // followed by navigate.js: in place for this document, else a new preview tab. Without
+    // navigate.js nothing is prevented: the link itself opens that preview in a new tab.
+    const anchors = window.myLibraryAnchors;
+    const reference = anchors?.parseReference(href);
+    if (reference?.kind === "reference" && window.myLibraryNavigate) {
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {  // a new tab asked for
+        window.open(anchors.safeHref(reference), "_blank", "noopener");
+        return;
+      }
+      try {
+        window.myLibraryNavigate.follow(href);
+      } catch {
+        window.open(anchors.safeHref(reference), "_blank", "noopener");
+      }
+      return;
+    }
     if (markdown?.isWeb(href)) return;
     event.preventDefault();
     if (href.startsWith("#")) {
@@ -573,6 +591,36 @@
       show(entry.key);
     } else {
       say(biEl("span", "ml-muted", `不是这份文档的笔记：${name}`, `Not a note of this document: ${name}`));
+    }
+  });
+
+  // M7: Ctrl+click on a reference link in the Markdown source follows it (navigate.js), as a
+  // click does in the preview. On click (the caret is already where you clicked), with
+  // nothing selected; the text is only read, never written. Anything else: as before.
+  const LINK_AT = /\]\(([^)\s]+)\)|https?:\/\/[^\s)<>]+|\/read\/[^\s)<>]+/g;
+  text.addEventListener("click", (event) => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    if (text.selectionStart !== text.selectionEnd) return;
+    const at = text.selectionStart;
+    const lineStart = text.value.lastIndexOf("\n", at - 1) + 1;
+    const lineEnd = text.value.indexOf("\n", at);
+    const line = text.value.slice(lineStart, lineEnd < 0 ? undefined : lineEnd);
+    for (const m of line.matchAll(LINK_AT)) {
+      const from = lineStart + m.index;
+      if (at < from || at > from + m[0].length) continue;
+      const href = m[1] || m[0];
+      const reference = window.myLibraryAnchors?.parseReference(href);
+      if (reference?.kind !== "reference") return;
+      if (!window.myLibraryNavigate) {
+        say(biEl("span", "ml-muted", "现在无法跟随引用", "The reference can't be followed right now"));
+        return;
+      }
+      try {
+        window.myLibraryNavigate.follow(href);
+      } catch (error) {
+        say(biEl("span", "ml-muted", "无法跟随引用", `The reference couldn't be followed: ${error.message}`));
+      }
+      return;
     }
   });
 

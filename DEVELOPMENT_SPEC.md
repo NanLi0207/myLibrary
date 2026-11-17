@@ -368,7 +368,7 @@ folder.
 - **标注 / Marks:** PDF.js 写入 PDF 的标准标注，带 `/NM` 名称。Standard annotations PDF.js writes into the
   PDF, with `/NM` names.
 
-### 9.2 锚点模型 / Anchor model (M6, M7, task 5) [M6 已实现，等待审查 Implemented in M6, awaiting review]
+### 9.2 锚点模型 / Anchor model (M6, M7, task 5) [M6 已实现并提交 Implemented and committed in M6 (`37a2604`); M7 已实现，等待审查 M7 implemented, awaiting review]
 
 存储：`<library>/.myLibrary/references/<来源文档 UUID>.json` = `{"format": 1, "references": {rid: record}}`，
 只通过 `safe_io.update_json` 写入（`scripts/references.py`）。Storage: one file per **source** document,
@@ -429,6 +429,37 @@ first, not only the one `resolve()` leads to); a removed document's references f
 **定位顺序 / Resolution order:** 精确位置 → 唯一的文字/位置匹配 → 页面 → 来源缺失提示和恢复选项；**有歧义时从不悄悄选择**。
 Exact location → a unique text/position match → the page → a missing-source warning with a
 recovery option; **an ambiguous match is never chosen silently.**
+
+**M7：回到原文 / Back to the passage** (the approved plan, revision 5; `reader_static/navigate.js`):
+- *Links.* `anchors.parseReference` tells a reference link (`/read/<uuid>?page=N&ref=<rid>[&q=…]`,
+  relative or on 127.0.0.1/localhost/[::1], any port, no user name) from a malformed one (a `ref`
+  but a bad or repeated field) and an ordinary link (every `/read/` link without `ref`, `find`
+  included: unchanged). Only the id, `ref`, `page` and `q` are used; the link's host and port are
+  never contacted. The preview rewrites reference and malformed hrefs to this server's relative
+  `/read/…&preview=1` (`anchors.safeHref`), so a click nothing handles opens a safe preview.
+- *Where.* This document, or one merged into it (`/api/document/ids` at load), moves in place;
+  any other document opens a new preview tab (`noopener`, never a named target). `/read/` with a
+  valid `ref` passes `ref`, `q` and `refdoc` (the link's own id) on and always opens a preview.
+- *Read-only.* `/api/references/get` (`references.peek`) and `/api/document/ids`
+  (`catalog.peek_retired`, `peek_resolve`, `merged_into`) run before `live_id` and read with
+  `safe_io.peek_json`: no folder, no `.damaged-*` copy, no tombstone change, containment kept.
+- *Finding.* The source is unchanged only when the record's `loaded` equals the digest of the
+  bytes in the tab (the server's `fingerprint` never proves it; an empty `loaded` is unknown).
+  Unchanged: exact when `normalize`, `page_hash` and the stored offsets agree. Otherwise a page
+  shown unchanged (same `page_hash`, offsets, page count, size and rotation) is accepted; else the
+  whole document is searched (text rebuilt from `getTextContent` exactly as the text layer holds
+  it): one full-context match after a complete search is shown; several, or a search cut short,
+  are offered as an explicit choice; nothing found shows the page with the reason. Without a
+  record, the link's `q` is matched at a passage's start on the link's page only.
+- *Back.* A per-tab stack (50, the bottom entry kept) of snapshots taken at the click; restored
+  exactly when nothing changed, else the same PDF point at the original zoom.
+- *Reading progress.* A position is decided only by a verified reading move of your own (input
+  in the PDF, the view or PDF.js's page then moving, no programmatic move since; the page chosen
+  as PDF.js 4.10 chooses it) or by Continue reading here / Start reading; never while following
+  references, by Back, a timer, leaving the tab or a PDF.js event. Each decision is a fixed
+  request `{page, tab, seq, base}`; `/api/position` orders them by the server's per-document
+  revision and per-tab sequence under the README's lock (`library_server.ordered_position`;
+  requests without these fields are written as before).
 
 **已批准的决定（2026-11-07，历史记录第 5 节）/ Approved decisions:** 笔记中可见的引用很短（约 15 个词 + 链接）；完整
 锚点只在 `.myLibrary/references/`（不进 git，进 💾 备份，从不进公开的 `notes/`）；链接写成

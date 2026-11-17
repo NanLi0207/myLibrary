@@ -206,7 +206,9 @@ def test_viewing_notes_writes_nothing(library, server_factory, reader_page):
     )
     assert not leave(reader_page, "close")
     assert library.note_files(doc) == before
-    allowed = {"notes/list", "notes/get", "notes/version"}  # reading and checking only
+    # reading and checking only (M7's document/ids, asked once at load, is read-only too:
+    # test_references.py shows it changes nothing, a damaged tombstone file included)
+    allowed = {"notes/list", "notes/get", "notes/version", "document/ids"}
     assert {url.rsplit("/api/", 1)[1] for url in sent} <= allowed
     assert library.reading_log() == {}
     assert "Last read" not in library.readme(doc)
@@ -354,9 +356,11 @@ def test_using_the_notes_records_no_reading(library, server_factory, reader_page
 
 
 def test_time_in_the_notes_is_not_reading_time(library, server_factory, reader_page):
-    """Reading time counts while the PDF is in use (task 4 decision 3), in 15 s steps sent each
-    minute. With Playwright's fake clock: after the reader has been idle, a minute of mouse and
-    wheel in the notes reports no reading time; the same in the PDF reports 60 s."""
+    """Reading time counts while the PDF is in use (task 4 decision 3): the elapsed time from
+    your activity on (M7: monotonic, cut at the inactivity limit, never counted afterwards),
+    reported each minute and when leaving. With Playwright's fake clock: after the reader has
+    been idle, a minute of mouse and wheel in the notes reports no reading time; the same in
+    the PDF reports all 61 s from the first input to the end (the idle time before: none)."""
     doc = book_with_notes(library)
     server = server_factory()
     reports = []
@@ -378,7 +382,9 @@ def test_time_in_the_notes_is_not_reading_time(library, server_factory, reader_p
             reader_page.mouse.move(box["x"] + 60, box["y"] + 90)
             reader_page.clock.run_for(7_500)
         reader_page.clock.run_for(1_000)  # past the minute's report
+        reader_page.evaluate("() => window.dispatchEvent(new Event('pagehide'))")  # the rest
+        reader_page.wait_for_timeout(500)
         return [r["seconds"] for r in reports]
 
     assert sum(a_minute_of_input_in("#mlNoteText")) == 0
-    assert sum(a_minute_of_input_in("#viewerContainer")) == 60  # the PDF: counted as before
+    assert sum(a_minute_of_input_in("#viewerContainer")) == 61  # the PDF: every second

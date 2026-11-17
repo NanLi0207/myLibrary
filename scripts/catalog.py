@@ -306,10 +306,48 @@ def resolve(path: Path, doc_id: str) -> dict:
     "unknown"}."""
     rows = load(path)
     stones = retired(path) if retired_path(path).exists() else {}
+    return _resolve(rows, stones, doc_id)
+
+
+def peek_retired(path: Path) -> tuple[dict, str]:
+    """({id: tombstone}, status) read without changing anything (M7: following a reference
+    link writes nothing): a damaged file is neither copied nor replaced; its previous version
+    (.bak) is read instead if it reads ("previous-version"), else ({}, "damaged"). status is
+    "ok", "missing", "previous-version" or "damaged"."""
+
+    def peek(file: Path) -> tuple[dict, str]:
+        stones, status = safe_io.peek_json(file)
+        if status == "ok" and not isinstance(stones, dict):
+            return {}, "damaged"
+        return (stones if status == "ok" else {}), status
+
+    stones, status = peek(retired_path(path))
+    if status == "damaged":
+        stones, previous = peek(retired_path(path).with_name("retired-documents.json.bak"))
+        status = "previous-version" if previous == "ok" else "damaged"
+    return stones, status
+
+
+def peek_resolve(path: Path, doc_id: str) -> dict:
+    """resolve() through peek_retired: the same answer, nothing written."""
+    return _resolve(load(path), peek_retired(path)[0], doc_id)
+
+
+def merged_into(path: Path, doc_id: str) -> list[str]:
+    """The retired ids whose merges lead to `doc_id` (read-only, as peek_resolve)."""
+    rows, stones = load(path), peek_retired(path)[0]
+    return sorted(
+        old for old in stones
+        if old not in rows and (found := _resolve(rows, stones, old))["status"] == "live"
+        and found["row"].get("id") == doc_id
+    )  # fmt: skip
+
+
+def _resolve(rows: dict, stones: dict, doc_id: str) -> dict:
     via, current = [], doc_id
     while current not in rows:
         stone = stones.get(current)
-        if not stone:
+        if not stone or not isinstance(stone, dict):  # (a hand-edited file: nothing to follow)
             return {"status": "unknown", "via": via}
         if stone["event"] == "removed":
             return {"status": "removed", "tombstone": stone, "via": via}

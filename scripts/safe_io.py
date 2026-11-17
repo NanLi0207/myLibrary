@@ -387,6 +387,20 @@ def _keep_damaged(path: Path) -> Path | None:
     return copy
 
 
+def peek_json(path: Path) -> tuple[object, str]:
+    """(data, "ok"), (None, "missing") or (None, "damaged"): a strictly read-only look at a JSON
+    file, for answers that must change nothing (M7: following a reference link). Unlike
+    load_json it never keeps a copy of a damaged file and never falls back to `.bak`: the
+    caller decides what to read next. An OSError (the file can't be read at all) is raised."""
+    path = Path(path)
+    if not exists(path):
+        return None, "missing"
+    try:
+        return _parse(path), "ok"
+    except ValueError, UnicodeDecodeError:
+        return None, "damaged"
+
+
 def load_json(path: Path, default, *, cache: bool = False):
     """The JSON in `path`, or `default` if there is no file.
 

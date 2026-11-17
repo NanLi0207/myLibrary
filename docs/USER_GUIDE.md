@@ -1403,6 +1403,48 @@ independent review; not committed yet.
 
 ---
 
+### 9.12 回到原文 / Back to the passage (M7)
+
+笔记中的来源链接（M6 写入的 [p. N](…/read/…?ref=…)）可以带你回到 PDF 中的那一段。
+The source links M6 writes into a note ([p. N](…/read/…?ref=…)) take you back to that passage
+in the PDF.
+
+- **怎样跟随 / How to follow one:** 在笔记的 **预览** (Preview) 中点击链接，或在 Markdown 源文中按住 Ctrl 点击链接。
+  Click the link in the note's **Preview**, or Ctrl+click it in the Markdown source.
+- **同一文档 / The same document:** 阅读器就在当前标签页中移到那一段，不重新载入，不打开新标签页；那一段被黄色框标出几秒钟（只显示在屏幕上，从不写入 PDF）。
+  你的笔记、光标、还没保存的文字和撤销/重做 (Undo/Redo) 都保持不变。The reader moves within this tab, without
+  reloading or opening another tab; the passage is outlined in yellow for a few seconds (only on
+  screen, never written into the PDF). Your note, its caret, unsaved text and Undo/Redo stay
+  exactly as they were.
+- **↩ 返回 (Back):** 左上角的按钮回到跟随引用之前的位置（页、滚动位置和缩放）；连续跟随几个引用时，一次回退一步。
+  The button at the top left returns to where you were before following the reference (page,
+  scroll position and zoom); after several references, one step at a time.
+- **阅读进度 / Reading progress:** 跟随引用和返回都不会改变 "Last read"（上次读到）。想从那里继续读时，点
+  **在这里继续阅读** (Continue reading here)。你在那里自己阅读的时间仍计入阅读记录。Following a reference
+  and going back never change "Last read". To go on reading from there, click **Continue reading
+  here**. Your own reading time there still counts in the reading log.
+- **另一份文档 / Another document:** 在新标签页中以预览打开（不计入阅读进度），当前标签页和笔记不受影响。从书库页面或
+  VS Code 打开的引用链接也以预览打开；点 **开始阅读** (Start reading) 从那一页开始正常阅读。Opens in a new
+  tab as a preview (not counted as reading); this tab and its note are untouched. A reference
+  link opened from the library page or VS Code opens as a preview too; **Start reading** reads
+  normally from that page.
+- **PDF 改变了 / When the PDF changed:** 只保存了标注时，仍能准确找到。PDF 被替换后，会在整份文档中查找；只有完整查找后唯一匹配（连同前后文）
+  才直接显示，并说明 PDF 已改变。有几处时列出让你选择，从不替你选择；查找没有完成时（可以点 **停止查找** (Cancel search)）
+  也只列出已找到的地方或只转到那一页，并说明原因。Saved marks don't stop it finding the passage
+  exactly. After a PDF was replaced, the whole document is searched; only a complete search with
+  exactly one match (its context included) is shown directly, saying the PDF changed. Several
+  places are listed for you to choose; one is never chosen for you. A search that didn't finish
+  (**Cancel search**) also only lists what it found, or shows the page, and says why.
+- **只能到页面 / Only the page:** 引用记录不在了、文件损坏、扫描页没有文字层时，转到那一页并说明原因；有链接中的开头文字时，先按它在那一页上查找。
+  When the reference record is gone, the file is damaged or a scanned page has no text layer,
+  the page is shown with the reason; the link's opening words are tried on that page first.
+- **无效的链接 / An invalid link:** 预览中标为 "引用链接无效 (Invalid reference link)"，点击时以预览打开那一页。
+  Marked "引用链接无效 (Invalid reference link)" in the preview; a click opens its page as a preview.
+
+跟随链接不会写入任何东西（不改 PDF、笔记、引用记录或阅读进度）；书库之外的地址从不被访问。Following a link writes
+nothing (no change to the PDF, notes, reference records or reading progress); no address outside
+this myLibrary is contacted.
+
 ## 10. 学习与进度 / Learning and progress
 
 ### 10.1 阅读记录 / Reading log
@@ -1874,10 +1916,11 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | M5c 格式工具栏和显示设置 Formatting toolbar and display settings | 已实现；Edge 浏览器测试（CI）。Implemented; Edge browser tests (CI). |
 | M5d 粘贴截图和图片 Pasted screenshots and images | 已提交、推送，CI 通过（`4e4abce`）；安装包已通过自动化验收，公开测试版尚未发布（[记录](M5_VERIFICATION.md)）。Committed, pushed and CI-verified (`4e4abce`); the package passed its automated acceptance; the public Beta isn't released yet (see the record). |
 | M5e 截图识别为可编辑公式 Screenshots into editable equations | 已提交、推送，CI 通过（`4e4abce`）；模型可选，用户同意后下载，之后本机离线识别；公开测试版尚未发布。Committed, pushed and CI-verified (`4e4abce`); the model is optional, downloaded with the user's consent, then recognition runs locally offline; the public Beta isn't released yet. |
-| M6 引用到笔记、引用此页 Quote to note, Reference this page | 已实现，本地 Python 和 Edge 浏览器测试通过；**等待独立审查，尚未提交，CI 未验证**（[9.11](#911-引用到笔记--quote-to-note-m6)）。Implemented; local Python and Edge browser tests pass; **awaiting independent review, not committed, not CI-verified**. |
+| M6 引用到笔记、引用此页 Quote to note, Reference this page | 已提交、推送，CI 通过（`37a2604`，运行 43884196100）（[9.11](#911-引用到笔记--quote-to-note-m6)）。Committed, pushed and CI-verified (`37a2604`, run 43884196100). |
+| M7 回到原文 Back to the passage | 已实现，本地 Python 和 Edge 浏览器测试通过；**等待独立审查，尚未提交，CI 未验证**（[9.12](#912-回到原文--back-to-the-passage-m7)）。Implemented; local Python and Edge browser tests pass; **awaiting independent review, not committed, not CI-verified**. |
 | 以后：截图识别为表格 Later: screenshots into editable tables | **计划中，未实现。** Planned, not implemented. |
 
-更多计划（从笔记回到 PDF 段落、修正书目信息和章节、桌面应用）见 [ROADMAP.md](../ROADMAP.md)；产品目标和原则见 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md)。
+更多计划（修正书目信息和章节、桌面应用）见 [ROADMAP.md](../ROADMAP.md)；产品目标和原则见 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md)。
 More plans (back from a note to the passage, correcting details and chapters, a
 desktop app) are in [ROADMAP.md](../ROADMAP.md); the product goals and principles are in
 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md).

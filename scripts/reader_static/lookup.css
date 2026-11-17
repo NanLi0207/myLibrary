@@ -295,3 +295,75 @@
   word-break: break-all;
   color: var(--ml-fg);
 }
+
+/* M7: back from a note to its passage (navigate.js). ↩ Back, Continue reading here, the
+   search's progress and explicit choices, top left of the PDF; the passage outlined for a
+   moment in a layer above the page (never written into the PDF). */
+.ml-nav {
+  position: fixed;
+  top: 44px;
+  left: 16px;
+  z-index: 100000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: min(520px, calc(100vw - var(--ml-notes-space, 0px) - 32px));
+  padding: 6px 8px;
+  background: var(--ml-bg);
+  color: var(--ml-fg);
+  border: 1px solid var(--ml-border);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  font: 13px/1.4 system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+.ml-nav[hidden],
+.ml-nav [hidden] {
+  display: none !important;
+}
+.ml-nav-status:empty {
+  display: none;
+}
+.ml-nav-status,
+.ml-nav-choices {
+  flex-basis: 100%;
+}
+.ml-nav-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.ml-nav-choices:empty {
+  display: none;
+}
+.ml-nav-choice {
+  text-align: left;
+  white-space: normal;
+}
+.ml-ref-layer {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+.ml-ref-layer > div {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 2px;
+}
+.ml-ref-mark {
+  background: rgb(255 214 0 / 0.35);
+  outline: 2px solid rgb(230 160 0 / 0.9);
+}
+.ml-ref-page {
+  outline: 3px solid rgb(230 160 0 / 0.8);
+  outline-offset: -3px;
+}
+@media (forced-colors: active) {
+  .ml-ref-mark,
+  .ml-ref-page {
+    outline-color: Highlight;
+    background: transparent;
+  }
+}

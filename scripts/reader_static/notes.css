@@ -685,3 +685,14 @@ body.ml-dragging #outerContainer {
     width: 100%;
   }
 }
+
+/* M7: a reference link that isn't valid (preview.js): it opens its page as a preview, and
+   says why it can't go to the passage */
+.ml-note-preview a.ml-link-invalid {
+  text-decoration-style: wavy;
+}
+.ml-note-preview a.ml-link-invalid::after {
+  content: " ⚠ 引用链接无效 (Invalid reference link)";
+  font-size: 0.85em;
+  color: GrayText;
+}
