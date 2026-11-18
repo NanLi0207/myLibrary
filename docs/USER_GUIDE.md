@@ -1428,6 +1428,10 @@ in the PDF.
   tab as a preview (not counted as reading); this tab and its note are untouched. A reference
   link opened from the library page or VS Code opens as a preview too; **Start reading** reads
   normally from that page.
+- **预览中可以编辑 / Editing in a preview:** 预览只是不记录阅读位置（"Last read"）和阅读时间；在预览中照常可以编辑这份文档的笔记、
+  在 PDF 中做标注，它们照常保存。A preview only leaves your reading position ("Last read") and
+  reading time alone; you can still edit that document's notes and mark its PDF there, and they
+  are saved as usual.
 - **PDF 改变了 / When the PDF changed:** 只保存了标注时，仍能准确找到。PDF 被替换后，会在整份文档中查找；只有完整查找后唯一匹配（连同前后文）
   才直接显示，并说明 PDF 已改变。有几处时列出让你选择，从不替你选择；查找没有完成时（可以点 **停止查找** (Cancel search)）
   也只列出已找到的地方或只转到那一页，并说明原因。Saved marks don't stop it finding the passage
@@ -1917,7 +1921,7 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | M5d 粘贴截图和图片 Pasted screenshots and images | 已提交、推送，CI 通过（`4e4abce`）；安装包已通过自动化验收，公开测试版尚未发布（[记录](M5_VERIFICATION.md)）。Committed, pushed and CI-verified (`4e4abce`); the package passed its automated acceptance; the public Beta isn't released yet (see the record). |
 | M5e 截图识别为可编辑公式 Screenshots into editable equations | 已提交、推送，CI 通过（`4e4abce`）；模型可选，用户同意后下载，之后本机离线识别；公开测试版尚未发布。Committed, pushed and CI-verified (`4e4abce`); the model is optional, downloaded with the user's consent, then recognition runs locally offline; the public Beta isn't released yet. |
 | M6 引用到笔记、引用此页 Quote to note, Reference this page | 已提交、推送，CI 通过（`37a2604`，运行 43884196100）（[9.11](#911-引用到笔记--quote-to-note-m6)）。Committed, pushed and CI-verified (`37a2604`, run 43884196100). |
-| M7 回到原文 Back to the passage | 已实现，本地 Python 和 Edge 浏览器测试通过；**等待独立审查，尚未提交，CI 未验证**（[9.12](#912-回到原文--back-to-the-passage-m7)）。Implemented; local Python and Edge browser tests pass; **awaiting independent review, not committed, not CI-verified**. |
+| M7 回到原文 Back to the passage | 已提交、推送，CI 通过：功能提交 `4a69511`，在 `f18faa0` 通过 CI（运行 44282194019）（[9.12](#912-回到原文--back-to-the-passage-m7)）。Committed, pushed and CI-verified: feature commit `4a69511`, CI-verified at `f18faa0` (run 44282194019). |
 | 以后：截图识别为表格 Later: screenshots into editable tables | **计划中，未实现。** Planned, not implemented. |
 
 更多计划（修正书目信息和章节、桌面应用）见 [ROADMAP.md](../ROADMAP.md)；产品目标和原则见 [DEVELOPMENT_SPEC.md](../DEVELOPMENT_SPEC.md)。

@@ -368,7 +368,7 @@ folder.
 - **标注 / Marks:** PDF.js 写入 PDF 的标准标注，带 `/NM` 名称。Standard annotations PDF.js writes into the
   PDF, with `/NM` names.
 
-### 9.2 锚点模型 / Anchor model (M6, M7, task 5) [M6 已实现并提交 Implemented and committed in M6 (`37a2604`); M7 已实现，等待审查 M7 implemented, awaiting review]
+### 9.2 锚点模型 / Anchor model (M6, M7, task 5) [M6 已实现并提交 Implemented and committed in M6 (`37a2604`); M7 已实现并提交，CI 通过 M7 implemented in `4a69511`; CI-verified at `f18faa0`, run 44282194019]
 
 存储：`<library>/.myLibrary/references/<来源文档 UUID>.json` = `{"format": 1, "references": {rid: record}}`，
 只通过 `safe_io.update_json` 写入（`scripts/references.py`）。Storage: one file per **source** document,
@@ -440,6 +440,9 @@ recovery option; **an ambiguous match is never chosen silently.**
 - *Where.* This document, or one merged into it (`/api/document/ids` at load), moves in place;
   any other document opens a new preview tab (`noopener`, never a named target). `/read/` with a
   valid `ref` passes `ref`, `q` and `refdoc` (the link's own id) on and always opens a preview.
+  A preview (another document's, or one opened from outside) records no reading position and no
+  reading statistics until Start reading; editing its notes and its PDF annotations stays
+  available and is saved as usual (the owner's decision at M7 acceptance).
 - *Read-only.* `/api/references/get` (`references.peek`) and `/api/document/ids`
   (`catalog.peek_retired`, `peek_resolve`, `merged_into`) run before `live_id` and read with
   `safe_io.peek_json`: no folder, no `.damaged-*` copy, no tombstone change, containment kept.
