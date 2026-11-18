@@ -1259,8 +1259,14 @@ def test_browser_clocks_never_order_positions(library, server_factory, reader_pa
         field.press("Enter")
         tab.wait_for_function("n => PDFViewerApplication.page === n", arg=n)
         tab.wait_for_timeout(400)
-        tab.evaluate("() => window.dispatchEvent(new Event('pagehide'))")  # sent now
-        tab.wait_for_timeout(700)
+        # Sent now (leaving's flush), and waited for until the server has answered it (written
+        # or refused as stale), up to 10 s: never a fixed delay (CI run 44110143759 read the
+        # README 0.7 s after a request that hadn't been answered yet)
+        position = lambda r: r.url.endswith("/api/position")  # noqa: E731
+        with tab.expect_response(position, timeout=10_000) as answered:
+            tab.evaluate("() => window.dispatchEvent(new Event('pagehide'))")
+        assert answered.value.ok, answered.value.status
+        assert json.loads(answered.value.request.post_data)["page"] == n  # (this step's)
 
     def last():
         return int(re.search(r"Last read: page (\d+)", library.readme(doc))[1])
