@@ -184,6 +184,8 @@ def test_a_save_that_doesnt_read_back_the_same_is_never_a_success(library, monke
 
 
 def test_clear_archive_keeps_every_conflict_copy(library, monkeypatch):
+    # (the library's own archive/, as in the app: Clear archive refuses any other, FA-01)
+    monkeypatch.setattr(library_jobs.add_book, "LIBRARY", library)
     monkeypatch.setattr(library_jobs.add_book, "ARCHIVE", library / "archive")
     loaded = version((library / FILE).read_bytes())
     reader.save_marks(FILE, pdf_bytes(3, "first"), base=loaded)

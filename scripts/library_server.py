@@ -1358,9 +1358,12 @@ class Handler(BaseHTTPRequestHandler):
                     library_jobs.clear_history()
                 return self._json(HTTPStatus.OK, {"jobs": library_jobs.list_jobs()})
             if self.path == "/api/archive":  # Settings: the archive's size; "Clear archive"
-                if body.get("clear") is True:
-                    return self._json(HTTPStatus.OK, library_jobs.clear_archive())
-                return self._json(HTTPStatus.OK, library_jobs.archive_summary())
+                try:
+                    if body.get("clear") is True:
+                        return self._json(HTTPStatus.OK, library_jobs.clear_archive())
+                    return self._json(HTTPStatus.OK, library_jobs.archive_summary())
+                except library_jobs.UnsafeArchive as e:  # (FA-01: nothing read there or deleted)
+                    return self._json(HTTPStatus.CONFLICT, {"error": str(e)})
             if self.path == "/api/refresh":  # "⟳ Refresh": PDFs put into the folders by hand
                 return self._json(HTTPStatus.OK, library_jobs.refresh())
             if self.path == "/api/find-online":  # "🔎 Find online": DOI, title, author, ...

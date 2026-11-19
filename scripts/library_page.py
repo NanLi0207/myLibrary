@@ -1848,7 +1848,11 @@ async function openSettings() {
     `Last backup: ${b.when} (${count(b.count, "backup")} in the folder). It runs once a day by itself, `
     + "or now with 💾 Back up. Your notes, progress, vocabulary and catalog go into a dated zip.";
   document.getElementById("settingsDialog").showModal();
-  showArchive(await api("/api/archive", {}));
+  try {
+    showArchive(await api("/api/archive", {}));
+  } catch (err) {  // (archive/ refused, FA-01: the rest of Settings stays usable)
+    refuseArchive(err);
+  }
 }
 
 const megabytes = n => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(0.1, n / 1e6).toFixed(1)} MB`;
@@ -1858,8 +1862,17 @@ function showArchive(a) {
     : a.kept.length ? `Empty, apart from ${a.kept.length} kept (your notes or scripts)` : "Empty";
   document.getElementById("clearArchive").disabled = !a.files;
 }
+function refuseArchive(err) {
+  document.getElementById("archiveInfo").textContent = err.message;
+  document.getElementById("clearArchive").disabled = true;
+}
 async function clearArchive() {
-  const a = await api("/api/archive", {});
+  let a;
+  try {
+    a = await api("/api/archive", {});
+  } catch (err) {
+    return refuseArchive(err);
+  }
   if (!a.files) return showArchive(a);
   const kept = a.kept.length
     ? `\n\nKept, because they hold your own notes or scripts:\n${a.kept.join("\n")}` : "";
@@ -1871,6 +1884,11 @@ async function clearArchive() {
     showArchive(await api("/api/archive", {}));
   } catch (err) {
     toast(`Couldn't clear the archive: ${err.message}`);
+    try {
+      showArchive(await api("/api/archive", {}));
+    } catch (again) {
+      refuseArchive(again);
+    }
   }
 }
 

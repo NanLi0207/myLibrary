@@ -406,9 +406,89 @@ OWN_FOLDERS = {"notes", "notes-conflicts", "marks-conflicts", "examples"}  # you
 TEMPLATE_NAME = re.compile(r"ch\d{2,}-[a-z0-9-]*\.md|notes\.md")
 
 
+# M7.1 S1b (FA-01): archive/ itself is checked before anything in it is read or deleted.
+# It must be the plain folder named archive in the library's real folder (the library folder
+# itself may be reached through a link or junction: that is the user's own arrangement), not
+# a link, junction or other redirecting reparse point, and not something that resolves
+# elsewhere: otherwise "Clear archive" would delete files outside the library. Anything that
+# can't be established is refused (fail closed), and nothing is deleted. These checks are for
+# what is already on disk and for cooperating operations; they don't make deletion race-free
+# against another program swapping folders between a check and a delete (L31(8)).
+NAME_SURROGATE = 0x20000000  # a reparse tag that names another location (IsReparseTagNameSurrogate)
+
+
+class UnsafeArchive(ValueError):
+    """archive/ (or something planned in it) isn't where it must be: nothing deleted."""
+
+
+UNSAFE_ARCHIVE = (
+    "archive/ 不是书库里的普通文件夹（是链接、联接，或指向书库以外）：什么也没有删除。"
+    "请把它改回书库里的普通文件夹。"
+    " archive/ isn't a plain folder in the library (it is a link or junction, or leads outside "
+    "the library): nothing was deleted. Make it a plain folder in the library again."
+)
+
+
+def _redirected(path: Path) -> bool:
+    """A link, junction or other reparse point that names another location (never followed
+    here). Not knowable: treated as one."""
+    os_path = safe_io._os_path(path)
+    try:
+        if os.path.islink(os_path) or os.path.isjunction(os_path):
+            return True
+        return bool(getattr(os.lstat(os_path), "st_reparse_tag", 0) & NAME_SURROGATE)
+    except OSError:
+        return True
+
+
+def _checked_archive(deleting: bool = False) -> tuple[Path, str] | None:
+    """(archive/, its real location as a normcased string), once it is known to be the plain
+    folder archive in the library's real folder; None if there is no archive/ (nothing is
+    made). UnsafeArchive otherwise; with `deleting`, also for a frozen library."""
+    archive = add_book.ARCHIVE
+    os_archive = safe_io._os_path(archive)
+    if not os.path.lexists(os_archive):  # (a dangling link exists here: refused below)
+        return None
+    if _redirected(archive) or not os.path.isdir(os_archive):
+        raise UnsafeArchive(UNSAFE_ARCHIVE)
+    try:
+        library = os.path.normcase(str(safe_io.real_path(add_book.LIBRARY)))
+        real = os.path.normcase(str(safe_io.real_path(archive)))
+    except OSError, RuntimeError, ValueError:  # a link loop, or one that can't be followed
+        raise UnsafeArchive(UNSAFE_ARCHIVE) from None
+    if real != os.path.normcase(os.path.join(library, "archive")):
+        raise UnsafeArchive(UNSAFE_ARCHIVE)
+    if deleting:
+        try:
+            safe_io._refuse_frozen(archive)
+        except safe_io.FrozenLocation:
+            raise UnsafeArchive(
+                "这是受保护的书库（展示或测试书库）：什么也没有删除。"
+                " This is a frozen library (the showcase or the test library): nothing was deleted."
+            ) from None
+    return archive, real
+
+
+def _inside(path: Path, archive: Path, real: str) -> bool:
+    """`path` (planned under `archive`) is still reached through plain folders only, and is
+    really where the plan put it: under archive/'s checked real location."""
+    here = archive
+    parts = path.relative_to(archive).parts
+    for name in parts:
+        here = here / name
+        if _redirected(here):
+            return False
+    try:
+        found = os.path.normcase(str(safe_io.real_path(path)))
+    except OSError, RuntimeError, ValueError:
+        return False
+    return found == os.path.normcase(os.path.join(real, *parts))
+
+
 def _archive_walk(archive: Path) -> tuple[list[Path], list[Path], list[Path]]:
-    """(plain files, folders, everything else: links, junctions, unreadable folders) under
-    `archive`, never through a link or junction."""
+    """(plain files, folders, everything else: links, junctions, other redirecting reparse
+    points, unreadable folders) under `archive` (checked first: _checked_archive), never
+    through a link or junction."""
     files, folders, other = [], [], []
     stack = [archive]
     while stack:
@@ -420,7 +500,7 @@ def _archive_walk(archive: Path) -> tuple[list[Path], list[Path], list[Path]]:
             continue
         for entry in entries:
             path = Path(entry.path)
-            if entry.is_symlink() or entry.is_junction():
+            if entry.is_symlink() or entry.is_junction() or _redirected(path):
                 other.append(path)
             elif entry.is_dir(follow_symlinks=False):
                 folders.append(path)
@@ -447,12 +527,14 @@ def _deletable(path: Path, parts: tuple[str, ...]) -> bool:
     return False
 
 
-def _archive_plan() -> tuple[list[Path], list[str]]:
-    """(files to delete, what's kept: "folder/item" names) for "Clear archive"."""
-    archive = add_book.ARCHIVE
+def _archive_plan(deleting: bool = False) -> tuple[list[Path], list[str]]:
+    """(files to delete, what's kept: "folder/item" names) for "Clear archive". UnsafeArchive
+    if archive/ isn't the library's own plain folder (_checked_archive)."""
     delete, kept = [], []
-    if not archive.is_dir():
+    checked = _checked_archive(deleting)
+    if checked is None:
         return delete, kept
+    archive = checked[0]
     files, _, other = _archive_walk(archive)
     for f, plain in [(f, True) for f in files] + [(f, False) for f in sorted(other)]:
         parts = f.relative_to(archive).parts
@@ -473,17 +555,32 @@ def archive_summary() -> dict:
 
 def clear_archive() -> dict:
     """Delete the archived documents (removed books and papers, repeats, original scans) and
-    untouched note templates; keep everything else (see DOCUMENTS above)."""
-    delete, kept = _archive_plan()
+    untouched note templates; keep everything else (see DOCUMENTS above). UnsafeArchive, with
+    nothing deleted, if archive/ or anything planned in it isn't where it must be (FA-01)."""
+    delete, kept = _archive_plan(deleting=True)
+    checked = _checked_archive(deleting=True)  # (again, right before deleting)
+    if checked is None:
+        return {"files": 0, "bytes": 0, "kept": kept}
+    archive, real = checked
+
+    def still_planned(f: Path) -> bool:
+        return _inside(f, archive, real) and os.path.isfile(safe_io._os_path(f))
+
+    # Every planned file first, before any is deleted (or even measured): one that is no
+    # longer a plain file where it was planned refuses the whole clearing
+    if not all(still_planned(f) for f in delete):
+        raise UnsafeArchive(UNSAFE_ARCHIVE)
     summary = {"files": len(delete), "bytes": sum(f.stat().st_size for f in delete), "kept": kept}
-    for f in delete:
-        f.unlink()
-    archive = add_book.ARCHIVE
-    if archive.is_dir():  # folders left empty, deepest first; never through a link
-        _, folders, _ = _archive_walk(archive)
-        for folder in sorted(folders, key=lambda d: len(d.parts), reverse=True):
-            if not any(folder.iterdir()):
-                folder.rmdir()
+    for done, f in enumerate(delete):
+        if not still_planned(f):  # (changed meanwhile: stop here)
+            raise UnsafeArchive(f"{UNSAFE_ARCHIVE} ({done} of {len(delete)} files were "
+                                "deleted before this was found)")  # fmt: skip
+        os.unlink(safe_io._os_path(f))
+    # Folders left empty, deepest first; never through a link, only inside the checked archive
+    _, folders, _ = _archive_walk(archive)
+    for folder in sorted(folders, key=lambda d: len(d.parts), reverse=True):
+        if _inside(folder, archive, real) and not any(folder.iterdir()):
+            folder.rmdir()
     return summary
 
 
