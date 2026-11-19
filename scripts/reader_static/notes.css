@@ -202,6 +202,20 @@ body.ml-dragging #outerContainer {
 .ml-note-bar .ml-error {
   color: #c2410c;
 }
+/* M7.1 S1a: drafts of documents that left the library, one row each */
+.ml-elsewhere-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  flex-basis: 100%;
+}
+.ml-elsewhere-item > div {
+  flex-basis: 100%;
+}
+.ml-elsewhere-target {
+  max-width: 14em;
+}
 .ml-compare {
   display: flex;
   flex-direction: column;

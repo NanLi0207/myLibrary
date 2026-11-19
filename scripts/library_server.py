@@ -401,6 +401,15 @@ def live_id(doc_id) -> str:
     return found["row"]["id"] if found["status"] == "live" else ""
 
 
+def merged_away(doc_id) -> bool:
+    """`doc_id` was merged into another document: live_id follows it there, but a write
+    naming it (a note save, a pasted image) is never redirected to the document that kept its
+    work, whose notes it never saw: it is refused, 410 (M7.1 S1a)."""
+    if not isinstance(doc_id, str) or not catalog.is_id(doc_id):
+        return False
+    return doc_id not in catalog.load(CATALOG) and bool(live_id(doc_id))
+
+
 def unknown_document(doc_id) -> str:
     """Why an id doesn't name a document in the library, in words for the page."""
     if not isinstance(doc_id, str) or not catalog.is_id(doc_id):
@@ -1140,7 +1149,10 @@ class Handler(BaseHTTPRequestHandler):
         archive/notes-conflicts/ only), /api/notes/save {id, key, text, base[, overwrite]}. A
         save based on an old version answers 409 with the note as it is now, and writes
         nothing (notes_store.save)."""
-        row = catalog.load(CATALOG)[doc_id]
+        row = catalog.load(CATALOG).get(doc_id)
+        if row is None and self.path == "/api/notes/save":
+            return self._gone(doc_id)  # (it left the library a moment ago: never redirected)
+        row = row or catalog.load(CATALOG)[doc_id]
         if self.path == "/api/notes/list":
             return self._json(HTTPStatus.OK, {"notes": notes_with_pages(doc_id, row)})
         if self.path == "/api/notes/get":
@@ -1176,6 +1188,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(
                     HTTPStatus.CONFLICT, {"error": str(conflict), "current": conflict.current}
                 )
+            except notes_store.Retiring as e:  # (being merged away or removed meanwhile)
+                return self._json(HTTPStatus.GONE, {"error": str(e)})
             return self._json(HTTPStatus.OK, saved)
         return self._json(HTTPStatus.NOT_FOUND, {"error": "unknown action"})
 
@@ -1197,6 +1211,43 @@ class Handler(BaseHTTPRequestHandler):
             # junction in .myLibrary/references; refused, nothing followed or changed)
             return self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": shown_error(e)})
         return self._json(HTTPStatus.OK, made)
+
+    def _gone(self, given) -> None:
+        """410 for a write naming a document that has left the library (merged or removed): it
+        is never redirected to the document that kept its work, whose note it never saw. The
+        page keeps the text and its draft (note_session.js); `into` is the document that kept
+        its work, if it was merged (the draft is offered there, never applied by itself)."""
+        found = catalog.peek_resolve(CATALOG, given) if catalog.is_id(given or "") else {}
+        into = found["row"]["id"] if found.get("status") == "live" else ""
+        return self._json(HTTPStatus.GONE, {"into": into, "error": (
+            "this document was merged into another or removed: nothing was saved; your text "
+            "stays in the editor and in a recovery draft")})  # fmt: skip
+
+    def _document_status(self, body: dict):
+        """/api/document/status {ids}: what became of documents a page has recovery drafts for
+        (M7.1 S1a), read-only: {documents: {id: {status: "live" | "merged" (into, title) |
+        "removed" (title) | "unknown"}}}. The panel offers a merged one's drafts in the document
+        that kept its work, and a removed one's as a file to save; nothing is written."""
+        ids = body.get("ids")
+        if (not isinstance(ids, list) or len(ids) > 200
+                or not all(isinstance(i, str) and catalog.is_id(i) for i in ids)):  # fmt: skip
+            return self._json(HTTPStatus.BAD_REQUEST, {"error": "no document ids given"})
+        rows, stones = catalog.load(CATALOG), catalog.peek_retired(CATALOG)[0]
+        documents = {}
+        for given in ids:
+            if given in rows:
+                documents[given] = {"status": "live"}
+                continue
+            stone = stones.get(given)
+            title = stone.get("title", "") if isinstance(stone, dict) else ""
+            found = catalog.peek_resolve(CATALOG, given)
+            if found["status"] == "live":
+                documents[given] = {"status": "merged", "into": found["row"]["id"], "title": title}
+            elif found["status"] == "removed":
+                documents[given] = {"status": "removed", "title": title}
+            else:
+                documents[given] = {"status": "unknown"}
+        return self._json(HTTPStatus.OK, {"documents": documents})
 
     def _reading_only(self, body: dict):
         """M7, following a reference link: answers that change nothing in the library (no
@@ -1265,18 +1316,26 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path == "/api/formula/recognize":  # M5e: nothing is stored
                     return self._formula(data)
                 # M5d: a pasted image, for one of the document's own notes (a file: note: its
-                # folder's assets/), checked before anything is written
-                doc_id = live_id(self.headers.get("X-Document-Id", ""))
-                if not doc_id:
+                # folder's assets/), checked before anything is written. Only into the very
+                # document named: a merged or removed one's id is never redirected (410)
+                doc_id = self.headers.get("X-Document-Id", "")
+                if merged_away(doc_id):
+                    return self._gone(doc_id)
+                if not live_id(doc_id):
                     return self._json(HTTPStatus.NOT_FOUND, {"error": unknown_document(
                         self.headers.get("X-Document-Id"))})  # fmt: skip
-                row = catalog.load(CATALOG)[doc_id]
+                row = catalog.load(CATALOG).get(doc_id)
+                if row is None:  # (it left the library a moment ago: never redirected)
+                    return self._gone(doc_id)
                 key = unquote(self.headers.get("X-Note-Key", ""))
                 if not key.startswith("file:"):
                     refusal = "images can be pasted only into a document's own notes"
                     return self._json(HTTPStatus.BAD_REQUEST, {"error": refusal})
                 notes_store.path_of(LIBRARY, row, key, creating=True)  # NoteError: 400
-                return self._json(HTTPStatus.OK, notes_store.save_asset(LIBRARY, row, data))
+                try:
+                    return self._json(HTTPStatus.OK, notes_store.save_asset(LIBRARY, row, data))
+                except notes_store.Retiring as e:
+                    return self._json(HTTPStatus.GONE, {"error": str(e)})
             if self.path == "/api/references/create" and length > references.MAX_BODY:
                 return self._json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"error": "too big"})
             body = json.loads(self._body(length) or b"{}")
@@ -1383,9 +1442,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(HTTPStatus.OK, added)
             if self.path in ("/api/references/get", "/api/document/ids"):
                 return self._reading_only(body)  # (M7: before live_id, which may write)
+            if self.path == "/api/document/status":
+                return self._document_status(body)  # (read-only, before live_id: S1a)
+            if self.path == "/api/notes/save" and merged_away(body.get("id")):
+                return self._gone(body.get("id"))  # (M7.1 S1a: never redirected to another)
             # Every other action is about one document, named by its id. A merged document's id
-            # still works (it's followed to the document that kept its work); a removed one says so
+            # still works (it's followed to the document that kept its work); a removed one says
+            # so. A save is the exception: only into the very document named (still_here)
             doc_id = live_id(body.get("id"))
+            if doc_id and self.path == "/api/notes/save":
+                doc_id = body["id"]  # (if it left meanwhile, _notes answers 410)
             if not doc_id:
                 return self._json(HTTPStatus.NOT_FOUND, {"error": unknown_document(body.get("id"))})
             chapter = body.get("chapter")

@@ -29,6 +29,8 @@ import os
 import re
 import secrets
 import stat
+import threading
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -108,6 +110,80 @@ def inside(path: Path, folder: Path) -> bool:
     """_inside, for the other code that reads or writes a notes folder (add_book's merge
     and chapter refresh): the same rule as the panel's."""
     return _inside(path, folder)
+
+
+def note_lock(path: Path):
+    """The lock for one note file: safe_io.lock_for, keyed on its real location, so the same
+    note reached through a linked library or notes folder has one lock. Every writer of a
+    note's text takes it: the panel's save and keep-copy, and add_book's merge (M7.1 S1a,
+    FA-03); README writers (ticks, positions, status) get the same lock through lock_for."""
+    return safe_io.lock_for(path)
+
+
+# --- documents being merged away or removed: write admission (M7.1 S1a, FA-03) -------------
+# Every write into a document's own notes (a save of one of its notes, a pasted image) is
+# admitted for its whole transaction, from its first check to its publication (`admitted`).
+# Retiring a document (a merge reading its notes, its removal moving them to archive/) first
+# closes admission, then waits until every admitted write has finished (`begin_retiring`): a
+# write admitted before is published before the merge reads the notes or anything moves, and
+# none is admitted after (`Retiring`). The registry's lock is only ever held briefly, never
+# while a note's lock is awaited. Admission reopens only after a failure undone completely
+# (`end_retiring`); a document left half-moved stays closed. In this process only, like the
+# locks (the server is the one writer of notes).
+_admission = threading.Condition()
+_writers: dict[str, int] = {}  # doc id -> writes admitted and not finished
+_retired: set[str] = set()  # doc ids whose admission is closed
+DRAIN_SECONDS = 60  # (a write waits for nothing a retirement holds; this only bounds a bug)
+
+
+class Retiring(Exception):
+    """A write into a document that is being merged into another or removed (or has been):
+    nothing written. The server answers 410: the page keeps the text and its draft."""
+
+    def __init__(self):
+        super().__init__("this document is being merged into another or removed: nothing was "
+                         "saved; your text stays in the editor; reload to go on")  # fmt: skip
+
+
+@contextmanager
+def admitted(doc_id: str):
+    """One write into document `doc_id`'s notes, for its whole transaction (Retiring if its
+    admission is closed)."""
+    with _admission:
+        if doc_id in _retired:
+            raise Retiring()
+        _writers[doc_id] = _writers.get(doc_id, 0) + 1
+    try:
+        yield
+    finally:
+        with _admission:
+            _writers[doc_id] -= 1
+            if not _writers[doc_id]:
+                del _writers[doc_id]
+            _admission.notify_all()
+
+
+def begin_retiring(doc_id: str) -> None:
+    """Close `doc_id`'s admission and wait until its admitted writes have finished. Call it
+    before reading its notes to merge or moving them, holding no note lock. A write that is
+    still running after DRAIN_SECONDS is a bug: admission is reopened and TimeoutError raised,
+    so nothing is merged or moved."""
+    with _admission:
+        _retired.add(doc_id)
+        if not _admission.wait_for(lambda: not _writers.get(doc_id), DRAIN_SECONDS):
+            _retired.discard(doc_id)
+            raise TimeoutError("a write into this document's notes didn't finish: nothing moved")
+
+
+def end_retiring(doc_id: str) -> None:
+    """Reopen `doc_id`'s admission: only after a retirement that failed and was fully undone."""
+    with _admission:
+        _retired.discard(doc_id)
+
+
+def is_retiring(doc_id: str) -> bool:
+    with _admission:
+        return doc_id in _retired
 
 
 def version_of(data: bytes | None) -> str | None:
@@ -242,7 +318,7 @@ def _result(key: str, path: Path, data: bytes | None) -> dict:
 def read(library: Path, row: dict, key: str) -> dict:
     """{key, text, version, exists} for one note (a chapter note not written yet: empty)."""
     path = path_of(library, row, key, creating=True)
-    with safe_io.lock_for(path):
+    with note_lock(path):
         return _result(key, path, _current(path))
 
 
@@ -250,7 +326,7 @@ def version_info(library: Path, row: dict, key: str) -> dict:
     """{key, version, exists, bytes}: the note on disk now, without its text (the notes panel
     checks this every few seconds for changes made elsewhere)."""
     path = path_of(library, row, key, creating=True)
-    with safe_io.lock_for(path):
+    with note_lock(path):
         data = _current(path)
     return {
         "key": key,
@@ -287,7 +363,7 @@ def keep_copy(library: Path, row: dict, key: str, text: str) -> str:
     if not isinstance(text, str):
         raise NoteError("no text to keep")
     path = path_of(library, row, key, creating=True)
-    with safe_io.lock_for(path):
+    with note_lock(path):
         data = _current(path)
     eol, bom = (os.linesep, False) if data is None else _decode(data, path)[1:]
     kept = _encode(text, eol, bom)
@@ -346,6 +422,11 @@ def save_asset(library: Path, row: dict, data: bytes, *, now: datetime | None = 
     links to. Never over an existing file: a new name is made until one is free. ImageError
     for an image it doesn't take, NoteError for a folder it can't write into."""
     info = image_check.inspect(data)  # (outside critical(): decoding may take a moment)
+    with admitted(row.get("id", "")):  # (from its checks to its publication: FA-03)
+        return _save_asset(library, row, data, info, now)
+
+
+def _save_asset(library: Path, row: dict, data: bytes, info, now) -> dict:
     folder, assets = _assets_dir(library, row)
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
     with safe_io.critical():
@@ -514,8 +595,16 @@ def save(
     note is copied to archive/notes-conflicts/ first (`kept`), and the text is written."""
     if not isinstance(text, str):
         raise NoteError("no text to save")
+    # A document's own note: admitted from its first check to its publication (FA-03); a topic
+    # note belongs to no document
+    owner = row.get("id", "") if isinstance(key, str) and key.startswith("file:") else ""
+    with admitted(owner) if owner else nullcontext():
+        return _save(library, row, key, text, base, overwrite)
+
+
+def _save(library: Path, row: dict, key: str, text: str, base, overwrite) -> dict:
     path = path_of(library, row, key, creating=True)
-    with safe_io.lock_for(path), safe_io.critical():
+    with note_lock(path), safe_io.critical():
         data = _current(path)
         version = version_of(data)
         kept = None

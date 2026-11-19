@@ -141,8 +141,14 @@ _locks_lock = threading.Lock()
 
 
 def lock_for(path: Path) -> threading.RLock:
-    """The lock for one file (the same object for every spelling of its path)."""
-    key = os.path.normcase(os.path.abspath(path))
+    """The lock for one file: the same object for every spelling of its path, keyed on its real
+    location (links and junctions followed, real_path), so the same README or note reached
+    through a linked library or notes folder is never guarded by two locks (M7.1 S1a: ticks,
+    positions, status, the notes panel and merges all write READMEs and notes)."""
+    try:
+        key = os.path.normcase(str(real_path(path)))
+    except OSError, ValueError:  # (a link that can't be followed: the path as written)
+        key = os.path.normcase(os.path.abspath(path))
     with _locks_lock:
         return _locks.setdefault(key, threading.RLock())
 

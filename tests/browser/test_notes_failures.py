@@ -185,6 +185,35 @@ def test_the_server_stopped_then_started_again(library, server_factory, reader_p
     assert drafts_in_browser(reader_page) == {}
 
 
+def test_a_document_merged_away_meanwhile_is_never_retried(library, server_factory, reader_page):
+    """M7.1 S1a: the document was merged into another (or removed) while its note was open; the
+    server refuses the save (410) rather than redirect it. The page keeps the text and its
+    draft, says to reload, and never sends it again."""
+    doc, _ = open_book(library, server_factory, reader_page, clock=True)
+    refused = []
+
+    def gone(route):
+        refused.append(route.request.post_data)
+        route.fulfill(status=410, content_type="application/json", body=json.dumps(
+            {"error": "this document was merged into another or removed: nothing was saved; "
+                      "your text stays in the editor; reload to go on"}))  # fmt: skip
+
+    reader_page.route("**/api/notes/save", gone)
+    before = chapter_one(library, doc).read_bytes()
+    type_at_end(reader_page, "typed before the merge")
+    reader_page.keyboard.press("Control+s")
+    wait_save_state(reader_page, "restarted")
+    expect(reader_page.locator("#mlNoteBar")).to_contain_text("merged into another")
+    assert editor_text(reader_page).endswith("typed before the merge")
+    assert any(
+        t.endswith("typed before the merge") for t in drafts_in_browser(reader_page).values()
+    )
+    reader_page.clock.run_for(120_000)  # (well past every retry delay)
+    assert len(refused) == 1, "a refused save was sent again"
+    wait_save_state(reader_page, "restarted")
+    assert chapter_one(library, doc).read_bytes() == before
+
+
 def test_reloading_while_the_server_is_down(library, server_factory, reader_page):
     """Typed while the server is down, then the tab reloaded (warned), which fails: the text is
     in the draft. Once the server is back, opening the book offers it."""

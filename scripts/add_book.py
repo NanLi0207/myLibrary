@@ -36,6 +36,7 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import sys
 import threading
@@ -283,6 +284,71 @@ def free_path(path: Path) -> Path:
         target = path.with_name(f"{path.stem}-{n}{path.suffix}")
         n += 1
     return target
+
+
+COPY_TRIES = 100
+
+
+def _chapter_note(folder: Path, number: str, own: str | None, fallback: Path) -> Path:
+    """The kept copy's note for chapter `number` (two digits): the one its README links (a
+    valid note name, checked by the caller); without a link, the one chNN-*.md file that isn't
+    a -from- copy of another (an earlier merge's, which also matches and sorts first). If
+    that is ambiguous (several), `fallback`, the merged note's own name: never a guess."""
+    if own:
+        return folder / own
+    found = sorted(
+        p for p in folder.glob(f"ch{number}-*.md") if notes_store.NAME_RE.fullmatch(p.name)
+    )
+    stems = [p.stem for p in found]
+    originals = [
+        p for p in found if not any(p.stem.startswith(f"{s}-from-") for s in stems if s != p.stem)
+    ]
+    return originals[0] if len(originals) == 1 else fallback
+
+
+def _contained(path: Path, folder: Path) -> bool:
+    """`path` may be published: a valid note name, in `folder` once links are followed, and not
+    a link itself (a dangling one too: never written through or replaced)."""
+    return (notes_store.NAME_RE.fullmatch(path.name) is not None and path.parent == folder
+            and not path.is_symlink() and notes_store.inside(path, folder))  # fmt: skip
+
+
+def _merge_note(target: Path, folder: Path, text: str, src_name: str, own_name: str) -> bool:
+    """Put a merged note's `text` into `target` (in the kept copy's notes `folder`) if it is
+    absent or still only a template when written, else into a new `<stem>-from-<src_name>.md`
+    copy beside it. Every publication is checked for containment first (_contained), the
+    target's decision and write happen under its note lock (a save that lands first is never
+    written over), and copies are created exclusively (safe_io.create_bytes: a name taken
+    meanwhile, by anyone, is never written over; the next one is used). False if the text is
+    there already (a merge that was cut off and runs again)."""
+    data = text.encode("utf-8")
+    if not _contained(target, folder):
+        target = folder / own_name  # (a link or bad name: never written; a copy beside it)
+    with notes_store.note_lock(target):
+        if _contained(target, folder) and not (
+            safe_io.exists(target) and not is_untouched_template(target)
+        ):
+            safe_io.write_text(target, text)
+            return True
+        if holds_copy(target, data):
+            return False
+    copy = target.with_name(f"{target.stem}-from-{src_name}.md")
+    if holds_copy(copy, data):
+        return False  # copied by an earlier merge that was cut off
+    body = text.replace("\n", os.linesep).encode("utf-8")  # (as write_text writes it)
+    for n in range(1, COPY_TRIES + 1):
+        candidate = copy if n == 1 else copy.with_name(f"{copy.stem}-{n}{copy.suffix}")
+        if not _contained(candidate, folder) and (
+            candidate.is_symlink() or safe_io.exists(candidate)
+        ):
+            continue  # (a link, or not a note name: another name)
+        with notes_store.note_lock(candidate):
+            try:
+                safe_io.create_bytes(candidate, body)
+            except FileExistsError:
+                continue  # taken, by a file or a link: another name
+            return True
+    raise OSError(f"no free name for a copy of {target.name} in its notes folder")
 
 
 def holds_copy(path: Path, data: bytes) -> bool:
@@ -629,6 +695,19 @@ def merge_into(src: str, dst: str) -> list[str]:
     "shelves"]. Only copies: `src` itself goes to the archive complete, as a backup. Its reading
     history stays under its own id; its tombstone (remove_book with merged_into) points to
     `dst`, so that history counts for `dst` (reading_log)."""
+    # From now until it has left the library, no write is admitted into `src`'s notes, and
+    # every write admitted before has been published when its notes are read below (FA-03).
+    # The merge only copies from `src` (it changes nothing of it), so if it stops, `src`
+    # stays as it was and takes writes again; remove_book keeps it closed once it moves
+    notes_store.begin_retiring(src)
+    try:
+        return _merge_into(src, dst)
+    except BaseException:
+        notes_store.end_retiring(src)
+        raise
+
+
+def _merge_into(src: str, dst: str) -> list[str]:
     import shutil
 
     rows = catalog.load(CATALOG)
@@ -695,24 +774,31 @@ def merge_into(src: str, dst: str) -> list[str]:
             return text
 
         safe_io.update_text(readme, merged)  # a page turn may write "Last read" meanwhile
-    # Notes you wrote: into the same chapter's template (still empty, so nothing is lost)
+    # Notes you wrote: into the same chapter's template (still empty, so nothing is lost).
+    # Each note is read, and each destination decided and written, under that note's own lock
+    # (notes_store.note_lock, the one the notes panel's save takes: FA-03): a save of the kept
+    # copy's note either lands first, and is then never written over, or waits and then meets
+    # the merged text as a version conflict, its own text kept by the panel. One note lock at a
+    # time, after FILING (the caller's), never two
+    kept_readme = dst_dir / "README.md"
+    linked = {  # the kept copy's own chapter notes, as its README links them (valid names only)
+        c["number"]: c["note"]
+        for c in (library_page.chapters_in(kept_readme.read_text(encoding="utf-8"))
+                  if kept_readme.is_file() and notes_store.inside(kept_readme, dst_dir) else [])
+        if c["number"] is not None and notes_store.NAME_RE.fullmatch(c["note"] or "")
+    }  # fmt: skip
     for note in sorted(src_dir.glob("*.md")):
         if note.name == "README.md" or not notes_store.inside(note, src_dir):
             continue  # (a link out of the folder: never read)
-        if is_untouched_template(note):
-            continue
-        text = notes_store.relink(note.read_text(encoding="utf-8"), renamed)
+        with notes_store.note_lock(note):  # (a stable copy of the source)
+            if is_untouched_template(note):
+                continue
+            text = notes_store.relink(note.read_text(encoding="utf-8"), renamed)
         target = dst_dir / note.name
-        if m := re.match(r"(ch\d{2})-", note.name):
-            target = next(iter(sorted(dst_dir.glob(f"{m[1]}-*.md"))), target)
-        if target.exists() and not is_untouched_template(target):
-            # never over notes of yours, nor over a copy from an earlier merge
-            copy = target.with_name(f"{target.stem}-from-{src_name}.md")
-            if holds_copy(target, text.encode("utf-8")) or holds_copy(copy, text.encode("utf-8")):
-                continue  # copied by an earlier merge that was cut off
-            target = free_path(copy)
-        safe_io.write_text(target, text)
-        moved.append("vocabulary" if note.name == "vocabulary.md" else f"notes {note.name}")
+        if m := re.match(r"ch(\d{2})-", note.name):
+            target = _chapter_note(dst_dir, m[1], linked.get(int(m[1])), target)
+        if _merge_note(target, dst_dir, text, src_name, note.name):
+            moved.append("vocabulary" if note.name == "vocabulary.md" else f"notes {note.name}")
     # Chapter scripts
     scripts = sorted(examples_dir_of(rows[src]).glob("*.py"))
     for script in scripts:
@@ -815,8 +901,13 @@ def remove_book(doc_id: str, dry_run: bool, yes: bool, merged_into: str = "") ->
     if row is None:
         print(f"No document {doc_id} in catalog.csv.")
         return
-    candidates = [library_pdf(row), notes_dir_of(row), examples_dir_of(row)]
-    existing = [p for p in candidates if p.exists()]
+    try:
+        candidates = [library_pdf(row), notes_dir_of(row), examples_dir_of(row)]
+        existing = [p for p in candidates if p.exists()]
+    except BaseException:
+        # Nothing of it changed yet: if a merge closed it (merge_into), it takes writes again
+        notes_store.end_retiring(doc_id)
+        raise
     print(f"Remove '{row['title'] or row['slug']}' ({row['slug']}) from the library:")
     for p in existing:
         print(
@@ -837,19 +928,37 @@ def remove_book(doc_id: str, dry_run: bool, yes: bool, merged_into: str = "") ->
     # back and the entry stays. The tombstone comes first: never a moment without an answer.
     moved: list[tuple[Path, Path]] = []
     with FILING, safe_io.critical():
+        # No write is admitted into its notes from now, and those admitted before are
+        # published before anything moves (a late one would recreate the folder): FA-03
+        notes_store.begin_retiring(doc_id)
         event = "merged" if merged_into else "removed"
-        catalog.retire(CATALOG, doc_id, event, row, into=merged_into)
+        try:
+            catalog.retire(CATALOG, doc_id, event, row, into=merged_into)
+        except BaseException:
+            notes_store.end_retiring(doc_id)  # (no tombstone: nothing changed, it stays open)
+            raise
         try:
             for p in existing:
                 moved.append((p, move_to_archive(p)))
             catalog.remove(CATALOG, doc_id)
-        except Exception:
+        except BaseException:
+            undone = True
             for original, archived in reversed(moved):
                 try:
                     archived.rename(original)
                 except OSError as e:
+                    undone = False
                     print(f"  ! couldn't move {archived} back to {original}: {e}")
-            catalog.unretire(CATALOG, doc_id)
+            try:
+                catalog.unretire(CATALOG, doc_id)
+            except Exception as e:
+                undone = False
+                print(f"  ! couldn't take its tombstone back: {e}")
+            undone = undone and all(safe_io.exists(o) and not safe_io.exists(a) for o, a in moved)
+            if undone:
+                notes_store.end_retiring(doc_id)  # (all back as it was: it takes writes again)
+            else:  # half moved: no write may land in it until it is put right by hand
+                print("  ! it stays closed to new notes and images until this is put right")
             raise
     forget_chapter_pages(doc_id)
     print("Done. To restore it, move the files back from archive/ and run add_book.py.")

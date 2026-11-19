@@ -142,6 +142,11 @@
   const bar = el("div", "ml-note-bar");
   bar.id = "mlNoteBar";
   bar.hidden = true;
+  // M7.1 S1a: recovery drafts of documents that left the library (merged into this one, or
+  // removed), each offered until the user restores, saves or discards it
+  const elsewhereBox = el("div", "ml-note-bar ml-elsewhere");
+  elsewhereBox.id = "mlElsewhere";
+  elsewhereBox.hidden = true;
   // Compare: the other version, read-only, above yours
   const compare = el("div", "ml-compare");
   compare.hidden = true;
@@ -239,7 +244,7 @@
   const display = el("div", "ml-display");
   display.id = "mlDisplay";
   display.hidden = true;
-  panel.append(divider, head, viewSwitch, display, tools, status, bar, compare, views);
+  panel.append(divider, head, viewSwitch, display, tools, status, bar, elsewhereBox, compare, views);
   body.append(panel);
 
   // 📝 on PDF.js's toolbar, at its right end
@@ -709,6 +714,11 @@
         token: reader.token, docId, key,
         onChange: (changed) => { if (changed.key === current) render(changed); },
         onSaved: (saved) => channel?.postMessage({ docId, key: saved.key, version: saved.base }),
+        onHandoff: (adopted) => {  // a restored draft's save confirmed: its original is gone
+          say(biEl("span", "ml-muted", `草稿已恢复并保存到“${noteName(adopted.key)}”`,
+            `The draft was restored and saved in “${noteName(adopted.key)}”`), 12000);
+          scanElsewhere();
+        },
       }));
     }
     return sessions.get(key);
@@ -823,6 +833,7 @@
     if (mine !== asked) return;
     entries = list.filter((entry) => entry.kind !== "topic");  // topic notes: a later version
     buildMenu();
+    scanElsewhere();
     menu.disabled = !entries.length;
     if (!entries.length) {
       text.value = "";
@@ -976,6 +987,18 @@
         button(comparing ? "隐藏对比" : "对比", comparing ? "Hide compare" : "Compare",
           () => { comparing = !comparing; renderBar(note); }, "mlCompare"),
       );
+    } else if (state === "restarted" && note.failure?.gone) {
+      parts.push(biEl("div", "ml-error",
+        "这份文档已合并到另一份文档或已移除：没有保存。你的文字仍在编辑器和恢复草稿里",
+        "This document was merged into another or removed: nothing was saved. Your text stays in the editor and in a recovery draft"));
+      if (note.failure.into) {
+        parts.push(biEl("div", "ml-muted", "在保留的文档里打开笔记面板，可以选择把草稿恢复到哪条笔记",
+          "In the document that stays, the notes panel offers the draft: you choose the note it goes into"));
+        parts.push(button("打开保留的文档", "Open the document that stays",
+          () => { location.href = `/read/${encodeURIComponent(note.failure.into)}`; }, "mlOpenKept"));
+      }
+      parts.push(button("另存为文件", "Save as a file",
+        () => saveAsFile(note.text, note.key), "mlSaveDraftFile"));
     } else if (state === "restarted") {
       parts.push(biEl("div", "ml-error",
         "服务器重新启动过：请重新载入此页面后继续保存。你的文字保留在浏览器的恢复草稿里，载入后会提供恢复",
@@ -1048,6 +1071,130 @@
     render(note);
     if (!done.ok) say(biEl("span", "ml-error", "草稿没能恢复，它仍然保留着", `The draft wasn't restored (it's still kept): ${done.message || ""}`));
     else if (done.conflict) say(biEl("span", "ml-error", "草稿之后文件又被修改了：请选择保留哪一个", "The file changed after the draft: choose which to keep"));
+  }
+
+  // --- drafts of documents that left the library (M7.1 S1a) ----------------------------------
+  // A draft is kept under the document and note it was typed in. When that document was
+  // merged into this one, it is offered here: restored only into a note the user chooses
+  // (adoptDraft: never over unsaved text or a draft of that note; the usual version check and
+  // conflict), its original kept until a save of exactly the restored text is confirmed. A
+  // removed document's drafts can be saved as a file. Nothing here is done without a click;
+  // discarding asks first. Dealt-with drafts are never deleted, only marked (drafts.settle)
+  let elsewhere = [];  // [{found, status}] shown now
+  let scanning = 0;
+
+  async function scanElsewhere() {
+    const mine = ++scanning;
+    const found = drafts.elsewhere(docId);
+    let documents = {};
+    if (found.length) {
+      const ids = [...new Set(found.map((f) => f.docId))].slice(0, 200);
+      try {
+        documents = (await post("/api/document/status", { ids })).documents || {};
+      } catch {
+        documents = {};  // (unknown for now: offered the next time the panel loads)
+      }
+    }
+    if (mine !== scanning) return;
+    elsewhere = found.map((f) => ({ found: f, status: documents[f.docId] }))
+      .filter(({ status }) => (status?.status === "merged" && status.into === docId)
+        || status?.status === "removed");
+    renderElsewhere();
+  }
+
+  function renderElsewhere() {
+    const parts = [];
+    for (const item of elsewhere) {
+      const { found, status } = item;
+      const title = status.title || found.docId;
+      const note = String(found.key).replace(/^file:/, "");
+      const when = new Date(found.draft.time || 0).toLocaleString();
+      const row = el("div", "ml-elsewhere-item");
+      row.dataset.storageKey = found.storageKey;
+      if (status.status === "merged") {
+        row.append(biEl("div", null,
+          `已合并到这份文档的“${title}”中有未保存的草稿（${note}，${when}）`,
+          `An unsaved draft from “${title}”, merged into this document (${note}, ${when})`));
+        const choose = el("select", "ml-elsewhere-target");
+        choose.setAttribute("aria-label", "恢复到 Restore into");
+        for (const entry of entries) {
+          const option = el("option", null, labelOf(entry));
+          option.value = entry.key;
+          choose.append(option);
+        }
+        // (the same note name if this document has one, else the note shown now)
+        choose.value = entries.some((e) => e.key === found.key) ? found.key : (current || "");
+        row.append(bi("恢复到：", "Restore into: "), choose,
+          button("恢复", "Restore", () => adopt(item, choose.value), "mlAdoptDraft"));
+      } else {
+        row.append(biEl("div", null,
+          `已移除的“${title}”中有未保存的草稿（${note}，${when}）：可以另存为文件`,
+          `An unsaved draft from “${title}”, removed from the library (${note}, ${when}): save it as a file`));
+      }
+      row.append(
+        button("另存为文件", "Save as a file", () => saveAsFile(found.draft.text, found.key, title),
+          "mlElsewhereFile"),
+        button("丢弃", "Discard", () => {
+          if (!window.confirm("丢弃这份草稿？Discard this draft?")) return;
+          // (this exact draft only: one written there since by another tab stays offered)
+          if (!drafts.settle(found.storageKey, found.raw)) {
+            say(biEl("span", "ml-error", "浏览器无法记录：草稿仍然保留着",
+              "The browser couldn't record it: the draft is still kept"));
+          }
+          scanElsewhere();
+        }, "mlElsewhereDiscard"),
+      );
+      parts.push(row);
+    }
+    elsewhereBox.replaceChildren(...parts);
+    elsewhereBox.hidden = !parts.length;
+  }
+
+  async function adopt(item, key) {
+    if (busy || !entries.some((e) => e.key === key)) return;
+    await show(key);
+    const note = session();
+    if (!note || note.key !== key || !note.loaded) {
+      say(biEl("span", "ml-error", "没能打开所选的笔记：草稿仍然保留着",
+        "The chosen note couldn't be opened: the draft is still kept"));
+      return;
+    }
+    busy = true;
+    render(note);
+    const done = await note.adoptDraft(item.found);
+    busy = false;
+    comparing = false;
+    render(note);
+    if (done.changed) {
+      say(biEl("span", "ml-error", "这份草稿在列出之后又被修改了（另一个标签页）：什么也没有恢复，请再看一次",
+        "This draft changed after it was listed (another tab): nothing was restored; look again"), 12000);
+      scanElsewhere();
+    } else if (done.same && !done.settled) {
+      say(biEl("span", "ml-error", "这条笔记已经是草稿的内容，但浏览器无法记录：草稿仍然保留着",
+        "This note already holds the draft's text, but the browser couldn't record it: the draft is still kept"), 12000);
+    } else if (done.occupied) {
+      say(biEl("span", "ml-error", "这条笔记有自己未保存的文字或草稿：请先处理它，或选择另一条笔记。草稿仍然保留着",
+        "This note has unsaved text or a draft of its own: settle that first, or choose another note. The draft is still kept"), 12000);
+    } else if (!done.ok) {
+      say(biEl("span", "ml-error", "草稿没能恢复，它仍然保留着",
+        `The draft wasn't restored (it's still kept): ${done.message || ""}`), 12000);
+    } else if (done.conflict) {
+      say(biEl("span", "ml-error", "这条笔记和草稿所基于的版本不同：请选择保留哪一个。确认保存之前，原草稿一直保留",
+        "This note isn't the version the draft was based on: choose which to keep. The original draft is kept until that is saved"), 12000);
+    }
+  }
+
+  // A text as a .md file, downloaded by the browser (nothing sent to the server)
+  function saveAsFile(value, key, title = "") {
+    const name = `${(title || "draft").replace(/[^\w.-]+/g, "-").slice(0, 60)}-${
+      String(key).replace(/^file:/, "").replace(/[^\w.-]+/g, "-")}`.replace(/\.md$/, "");
+    const link = el("a");
+    link.href = URL.createObjectURL(new Blob([value], { type: "text/markdown;charset=utf-8" }));
+    link.download = `${name}-draft.md`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60000);
   }
 
   function saveNow() {

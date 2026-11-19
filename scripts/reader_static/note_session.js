@@ -20,6 +20,12 @@
   const DRAFT_WRITE = 300;  // ms: drafts follow the typing closely, without one write per key
   const DRAFT_DAYS = 30;
   const DRAFT_PREFIX = "myLibrary.draft.";
+  // M7.1 S1a: "this exact draft is dealt with" (restored and saved elsewhere, or discarded),
+  // for a draft kept under a document that left the library: <prefix><draft's storage key> ->
+  // {raw: the draft's stored string then, time}. Never a deletion: another tab may write a
+  // newer draft under the same key at any moment, and localStorage has no compare-and-delete;
+  // a newer draft doesn't match the marker, so it is offered again
+  const SETTLED_PREFIX = "myLibrary.settled.";
   // The library's key (libraries.scope: its id and folder), from the server: drafts are kept
   // under it, so a copy of this library (the same document ids) or another library served on
   // this port later never sees them. Drafts from before there was a key are shown only in the
@@ -120,6 +126,65 @@
       }
       return found.sort((a, b) => (b.draft.time || 0) - (a.draft.time || 0));
     },
+    // A draft's stored string as it is now (null: none, or storage unavailable)
+    read(storageKey) {
+      try {
+        return localStorage.getItem(storageKey);
+      } catch {
+        return null;
+      }
+    },
+    // Mark the draft `raw` (its stored string) under `storageKey` as dealt with: one write, so
+    // nothing another tab writes there meanwhile can be lost. False if storage refused it
+    // (then the draft simply stays offered)
+    settle(storageKey, raw) {
+      try {
+        localStorage.setItem(`${SETTLED_PREFIX}${storageKey}`,
+          JSON.stringify({ raw, time: Date.now() }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    settled(storageKey, raw) {
+      try {
+        return JSON.parse(localStorage.getItem(`${SETTLED_PREFIX}${storageKey}`))?.raw === raw;
+      } catch {
+        return false;
+      }
+    },
+    // Drafts of this library kept under another document's id than `docId` (M7.1 S1a: a
+    // document merged into another or removed while its note was being edited), newest
+    // first, leaving out those dealt with (settle): [{storageKey, raw, docId, key, draft}].
+    // Never moved, renamed or deleted here: each stays under its own document and note
+    elsewhere(docId) {
+      const found = [];
+      const prefix = `${DRAFT_PREFIX}${SCOPE}:`;
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const storageKey = localStorage.key(i);
+          if (!storageKey?.startsWith(prefix)) continue;
+          const rest = storageKey.slice(prefix.length);
+          const first = rest.indexOf("|");
+          const last = rest.lastIndexOf("|");
+          if (first < 0 || last <= first) continue;
+          const owner = rest.slice(0, first);
+          if (owner === docId) continue;
+          try {
+            const raw = localStorage.getItem(storageKey);
+            const draft = JSON.parse(raw);
+            if (typeof draft?.text === "string" && !drafts.settled(storageKey, raw)) {
+              found.push({ storageKey, raw, docId: owner, key: rest.slice(first + 1, last), draft });
+            }
+          } catch {
+            // unreadable: left for find() under its own document to deal with
+          }
+        }
+      } catch {
+        return [];
+      }
+      return found.sort((a, b) => (b.draft.time || 0) - (a.draft.time || 0));
+    },
     // Drafts older than 30 days go (decision D1)
     expire(now = Date.now()) {
       try {
@@ -135,6 +200,20 @@
           }
           if (now - time > DRAFT_DAYS * 86400000) old.push(storageKey);
         }
+        // Markers whose draft is gone, changed or old (removing one only shows a draft again)
+        for (let i = 0; i < localStorage.length; i++) {
+          const storageKey = localStorage.key(i);
+          if (!storageKey?.startsWith(SETTLED_PREFIX)) continue;
+          let marker = null;
+          try {
+            marker = JSON.parse(localStorage.getItem(storageKey));
+          } catch {
+            marker = null;
+          }
+          const draft = localStorage.getItem(storageKey.slice(SETTLED_PREFIX.length));
+          if (draft === null || draft !== marker?.raw
+            || now - (marker?.time || 0) > DRAFT_DAYS * 86400000) old.push(storageKey);
+        }
         old.forEach(drafts.remove);
       } catch {
         // storage unavailable: nothing to expire
@@ -145,8 +224,9 @@
   // --- a note session -----------------------------------------------------------------------
 
   class NoteSession {
-    constructor({ token, docId, key, onChange = () => {}, onSaved = () => {} }) {
-      Object.assign(this, { token, docId, key, onChange, onSaved });
+    constructor({ token, docId, key, onChange = () => {}, onSaved = () => {},
+      onHandoff = () => {} }) {
+      Object.assign(this, { token, docId, key, onChange, onSaved, onHandoff });
       this.loaded = false;
       this.exists = false;
       this.base = null;  // the disk version `saved` came from (null: no file yet)
@@ -159,6 +239,11 @@
       this.failures = 0;
       this.conflict = null;  // {text, version, exists}: the note on disk, not ours
       this.recovered = null;  // {storageKey, draft}: a draft found, waiting for Restore/Discard
+      // {storageKey, raw, text}: another document's draft restored here (adoptDraft), bound
+      // to the exact stored string it was restored from. Settled only when the server
+      // confirms a save of exactly `text`; anything else (edited first, replaced, the disk
+      // version chosen, a failure) leaves the original offered
+      this.handoff = null;
       this.draftState = "none";  // "kept" | "failed" | "none"
       this.composing = false;  // IME composition in progress (Chinese input)
       this.timer = null;  // autosave
@@ -199,6 +284,7 @@
       this.conflict = null;
       this.loaded = true;
       this.recovered = null;
+      this.handoff = null;  // (a restore not confirmed: its original draft stays where it was)
       for (const found of drafts.find(this.docId, this.key)) {
         if (found.draft.text === note.text) drafts.remove(found.storageKey);
         else if (!this.recovered) this.recovered = found;
@@ -271,6 +357,13 @@
         this.queueDraft(true);
         this.failed("restarted", "the server was restarted: reload this page to go on saving",
           { retry: false });
+      } else if (reply.status === 410) {
+        // This document was merged into another or removed (M7.1 S1a): saving it again can
+        // only be refused. As after a restart: not retried, the draft keeps the text
+        this.queueDraft(true);
+        this.failed("restarted", reply.data.error
+          || "this document was merged into another or removed: reload to go on",
+          { retry: false, gone: true, into: reply.data.into || "" });
       } else {
         this.failed("failed", reply.data.error || `HTTP ${reply.status}`);
       }
@@ -285,6 +378,13 @@
       this.exists = true;
       this.cleared();
       this.onSaved(this);
+      if (this.handoff && sent.text === this.handoff.text) {
+        // The restored snapshot itself is what the server wrote: only now is its original
+        // (that exact stored string, never a newer draft written there since) dealt with
+        const done = this.handoff;
+        this.handoff = null;
+        if (drafts.settle(done.storageKey, done.raw)) this.onHandoff(this, done);
+      }
       if (this.rev !== sent.rev) this.scheduleSave();
       this.changed();
     }
@@ -304,8 +404,9 @@
       }
     }
 
-    failed(kind, message, { retry = true } = {}) {
-      this.failure = { kind, message };
+    failed(kind, message, { retry = true, gone = false, into = "" } = {}) {
+      // gone: the document left the library (410); into: the one that kept its work, if any
+      this.failure = { kind, message, gone, into };
       this.failures += 1;
       this.queueDraft(true);  // a failed save: the draft holds the newest text from now on
       clearTimeout(this.retryTimer);
@@ -444,6 +545,7 @@
         return { ok: false, message: note.data.error || `HTTP ${note.status}`, kept: kept.data.kept };
       }
       this.conflict = null;
+      this.handoff = null;  // (the disk version chosen: a restored draft's original stays)
       this.base = note.data.version;
       this.saved = this.text = note.data.text;
       this.exists = note.data.exists;
@@ -485,6 +587,58 @@
       }
       this.base = found.draft.base ?? null;
       this.saved = disk.text;
+      this.conflicted(disk);
+      return { ok: true, conflict: true };
+    }
+
+    // M7.1 S1a: a draft kept under a document that left the library (merged into this one),
+    // restored into this note, which the user chose. Only into a note with nothing of its own
+    // waiting (no unsaved text, conflict, failure, draft of its own): nothing here is ever
+    // written over. Bound to the draft exactly as offered (`found.raw`): if another tab wrote
+    // there since, nothing is restored (look again). Then as restoreDraft: the same version
+    // is saved at once; another is a conflict the user resolves. The original stays offered
+    // until the server confirms a save of exactly the restored text
+    async adoptDraft(found) {
+      const occupied = () => !this.loaded || this.unconfirmed || this.recovered || this.failure
+        || this.handoff || drafts.find(this.docId, this.key).length > 0;
+      if (occupied()) return { ok: false, occupied: true };
+      const raw = drafts.read(found.storageKey);
+      let snapshot = null;
+      try {
+        snapshot = raw === found.raw ? JSON.parse(raw) : null;
+      } catch {
+        snapshot = null;
+      }
+      if (typeof snapshot?.text !== "string") return { ok: false, changed: true };
+      let note;
+      try {
+        note = await request(this.token, "/api/notes/get", { id: this.docId, key: this.key });
+      } catch (error) {
+        return { ok: false, message: error.message };
+      }
+      if (note.status !== 200) return { ok: false, message: note.data.error || `HTTP ${note.status}` };
+      if (occupied()) return { ok: false, occupied: true };  // (typed into meanwhile)
+      const disk = note.data;
+      if (snapshot.text === disk.text) {  // already there: that snapshot is dealt with
+        const settled = drafts.settle(found.storageKey, raw);
+        if (settled) this.onHandoff(this, found);
+        return { ok: true, same: true, settled };
+      }
+      this.exists = disk.exists;
+      this.text = snapshot.text;
+      this.rev += 1;
+      this.handoff = { storageKey: found.storageKey, raw, text: snapshot.text };
+      this.saved = disk.text;
+      if (snapshot.base === disk.version) {
+        this.base = disk.version;
+        this.queueDraft(true);
+        this.changed();
+        this.save();  // (at once: the snapshot itself, before anything is typed over it)
+        return { ok: true };
+      }
+      // (its own base, not the disk's: "Keep mine" then keeps the note's text in
+      // archive/notes-conflicts/ before writing, as for any conflict)
+      this.base = snapshot.base ?? null;
       this.conflicted(disk);
       return { ok: true, conflict: true };
     }
