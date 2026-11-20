@@ -262,6 +262,15 @@
       return this.text === this.saved ? "clean" : "dirty";
     }
 
+    // A save ended in "reload needed" (403: the server was restarted; 410: the document left
+    // the library). Checking the disk can then only be refused, or, for a merged document's id
+    // (which the server follows to the document that kept its work), show another document's
+    // note as a conflict and take the reload-needed state and its actions away (B39). This
+    // session never checks again; a reload starts a new one
+    get reloadNeeded() {
+      return this.failure?.kind === "restarted";
+    }
+
     // Something the user could lose by closing the tab now (a recovery draft found but not
     // chosen yet stays in storage either way)
     get unconfirmed() {
@@ -459,7 +468,8 @@
     // simply loaded; with unsaved text here, it's a conflict. Skipped while a save of ours is
     // on its way, and an answer older than our last save is ignored
     async checkDisk() {
-      if (!this.loaded || this.inFlight || this.conflict || this.recovered || this.checking) {
+      if (!this.loaded || this.inFlight || this.conflict || this.recovered || this.checking
+        || this.reloadNeeded) {
         return;
       }
       const base = this.base;
@@ -474,7 +484,9 @@
       } finally {
         this.checking = false;
       }
-      const stale = () => this.inFlight || this.base !== base || this.conflict || this.recovered;
+      // (also once a reload is needed: an answer on its way since before then never applies)
+      const stale = () => this.inFlight || this.base !== base || this.conflict || this.recovered
+        || this.reloadNeeded;
       if (reply.status !== 200 || stale() || reply.data.version === this.base) return;
       let note;
       try {

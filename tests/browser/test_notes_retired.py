@@ -16,6 +16,7 @@ from helpers import (
     notes_settled,
     open_document,
     poll,
+    save_state,
     type_at_end,
     wait_save_state,
 )
@@ -25,10 +26,30 @@ KEPT_TEXT = "# Basics\n\nThe kept copy's own notes.\n"
 TYPED = "typed in the copy that is merged away"
 
 
-def merged_while_editing(library, server_factory, page, ch02: bytes | None = None):
+# ⟳ Refresh asked for from the page itself (B39): while Playwright waits for this, it keeps
+# handling routes, so an automatic retry of the save is always aborted during the merge. A
+# blocking call from the test (server.post) left such a retry unhandled until unroute, which
+# then let it reach the server: the 410 came from the automatic retry and #mlRetry was gone.
+REFRESH = """async () => (await fetch("/api/refresh", {method: "POST", body: "{}", headers: {
+  "Content-Type": "application/json", "X-Library-Token": window.MYLIBRARY_TOKEN}})).status"""
+
+
+def merged_while_editing(
+    library,
+    server_factory,
+    page,
+    ch02: bytes | None = None,
+    *,
+    clock: bool = False,
+    hold_automatic_retry: bool = False,
+    before_release=None,
+):
     """(kept id, dropped id, server): the dropped copy's ch01 typed into while it is merged
     into the kept one; the panel has had the real 410. `ch02`: the kept copy's chapter 2 note
-    (not written yet if None)."""
+    (not written yet if None). `clock`: Playwright's clock installed (a test moves it on).
+    `hold_automatic_retry`: the panel's own retry is held until after the merge, then let
+    through (the order seen in CI, B39). `before_release(page)`: called after the merge,
+    before the held saves go on."""
     kept = library.add_book("doe-2020-optics-test", "Optics test")
     files = {"ch01-basics.md": KEPT_TEXT.encode()}
     if ch02 is not None:
@@ -42,17 +63,43 @@ def merged_while_editing(library, server_factory, page, ch02: bytes | None = Non
     tried = library.root / ".cache" / "subjects_tried.json"  # (Refresh asks nothing online)
     tried.write_text(json.dumps([kept, dropped]), encoding="utf-8")
     server = server_factory()
+    if clock:
+        page.clock.install()
     open_document(page, server, dropped)
     notes_settled(page)
-    page.route("**/api/notes/save", lambda route: route.abort())  # (not through yet)
+    held, sent = [], []
+
+    def not_yet(route):  # (the first save fails; with hold_automatic_retry, later ones wait)
+        sent.append(route)
+        if hold_automatic_retry and len(sent) > 1:
+            held.append(route)
+        else:
+            route.abort()
+
+    page.route("**/api/notes/save", not_yet)
     type_at_end(page, TYPED)
     wait_save_state(page, "offline", timeout=20_000)
     poll(page, lambda: any(dropped in k and t.endswith(TYPED)
                            for k, t in drafts_in_browser(page).items()))  # fmt: skip
-    server.post("/api/refresh", {})  # ⟳ Refresh: the real merge and retirement
+    if hold_automatic_retry:
+        poll(page, lambda: held, timeout=20, message="the automatic retry never started")
+    assert page.evaluate(REFRESH) == 200  # ⟳ Refresh: the real merge and retirement
     assert dropped not in library_ids(library) and kept in library_ids(library)
-    page.unroute("**/api/notes/save")
-    page.locator("#mlRetry").click()
+    if before_release:
+        before_release(page)
+    answers = []  # (listened to before any save can get through)
+    page.on("response", lambda r: answers.append(r.status) if r.url.endswith("/api/notes/save")
+            else None)  # fmt: skip
+    for route in held:
+        route.continue_()  # (the automatic retry, held since before the merge)
+    # Every save from now goes to the server; a handler call still queued from before is
+    # dropped rather than raising "Route is already handled"
+    page.unroute_all(behavior="ignoreErrors")
+    # Retry, if the button is there now (in one step in the page); if it isn't, the automatic
+    # retry is on its way: either way the real server answers
+    page.evaluate("() => document.getElementById('mlRetry')?.click()")
+    poll(page, lambda: 410 in answers, timeout=20, message="the server's 410 never came")
+    assert 200 not in answers  # (nothing saved)
     wait_save_state(page, "restarted")  # the server's 410: nothing saved, nothing redirected
     expect(page.locator("#mlNoteBar")).to_contain_text("merged into another")
     assert editor_text(page).endswith(TYPED)
@@ -339,3 +386,91 @@ def test_discarding_a_stale_row_keeps_a_newer_draft(library, server_factory, rea
     other.evaluate("() => 0")  # (after the click's handler: the page runs one task at a time)
     assert original_draft(other, dropped) == [newer], "discarding a stale row took the newer draft"
     expect(offer).to_be_visible()  # (still offered: the newer draft)
+
+
+# --- B39: the 410 by either retry, and nothing after it ------------------------------------------
+
+# When the session has handled an /api/notes/get answer (its own continuation included): the
+# answer's json() resolves, the session's awaits continue as microtasks, and only then does a
+# MessageChannel message (a task the test clock doesn't fake) set the flag
+SIGNAL_GET_HANDLED = """() => {
+  const json = Response.prototype.json;
+  Response.prototype.json = function () {
+    const read = json.call(this);
+    if (this.url.endsWith("/api/notes/get")) {
+      read.then(() => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => { window.__getHandled = true; };
+        channel.port2.postMessage(0);
+      });
+    }
+    return read;
+  };
+}"""
+
+
+def disk_checks(page) -> list[str]:
+    checks: list[str] = []
+    page.on("request", lambda r: checks.append(r.url)
+            if r.url.endswith(("/api/notes/version", "/api/notes/get")) else None)  # fmt: skip
+    return checks
+
+
+def still_reload_needed(page, dropped) -> None:
+    """The 410 state as the server left it: its message and actions, the text and draft."""
+    assert save_state(page) == "restarted"
+    expect(page.locator("#mlNoteBar")).to_contain_text("merged into another")
+    expect(page.locator("#mlOpenKept")).to_be_visible()
+    assert editor_text(page).endswith(TYPED)
+    assert original_draft(page, dropped) == [TYPED]
+
+
+def test_the_410_may_come_from_the_automatic_retry(library, server_factory, reader_page):
+    """The order seen in CI (B39): the panel's own retry started before the merge and reached
+    the server after it, so the 410 came without the Retry button being pressed."""
+    page = reader_page
+    kept, dropped, _ = merged_while_editing(
+        library, server_factory, page, hold_automatic_retry=True
+    )
+    still_reload_needed(page, dropped)
+    go_to_the_kept_document(page)
+    expect(page.locator("#mlElsewhere")).to_be_visible()
+    assert kept_note(library, kept).read_bytes() == KEPT_TEXT.encode()
+
+
+def test_after_a_410_the_disk_is_never_checked_again(library, server_factory, reader_page):
+    """B39: the merged id leads the panel's 5 s disk check to the kept document's note, a
+    different one; the check must stop, or it shows that note as a conflict."""
+    page = reader_page
+    kept, dropped, _ = merged_while_editing(library, server_factory, page, clock=True)
+    checks = disk_checks(page)
+    page.clock.run_for(30_000)  # (six of the panel's checks would be due)
+    page.evaluate("() => 0")
+    assert checks == []
+    still_reload_needed(page, dropped)
+    # In the document that stays, a new session checks the disk as usual
+    go_to_the_kept_document(page)
+    checks = disk_checks(page)
+    page.clock.run_for(10_000)
+    poll(page, lambda: any(c.endswith("/api/notes/version") for c in checks),
+         message="the kept document's panel never checked the disk")  # fmt: skip
+
+
+def test_a_disk_check_on_its_way_never_undoes_the_410(library, server_factory, reader_page):
+    """B39: a check that started before the 410 and is answered after it is ignored."""
+    page = reader_page
+    held = []
+
+    def start_a_check(page):
+        page.context.route("**/api/notes/get", lambda route: held.append(route))
+        page.clock.run_for(5_000)  # (the next check: the merged id now leads to another note)
+        poll(page, lambda: held, message="no disk check started")
+
+    kept, dropped, _ = merged_while_editing(
+        library, server_factory, page, clock=True, before_release=start_a_check
+    )
+    page.evaluate(SIGNAL_GET_HANDLED)
+    held[0].continue_()  # its answer arrives now, after the 410
+    page.wait_for_function("() => window.__getHandled === true")
+    still_reload_needed(page, dropped)
+    page.context.unroute("**/api/notes/get")
