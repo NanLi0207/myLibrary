@@ -258,16 +258,34 @@ def books(pdf_base: str | None = None) -> list[dict]:
     return result
 
 
+# M7.1 S1c (FA-02): every value the page embeds goes into a <script> element (as JSON, or a
+# JavaScript literal), and holds text the user or a file chose: a library's name, titles,
+# shelf labels. Inside a script element the HTML parser looks only for "</script" (and is
+# misled by "<!--" and "<script"), whatever the JSON quoting, so a name could end the element
+# and run as script. JSON never has < > & outside a string, so escaping them as \u003c ... in
+# strings changes no value: the page decodes exactly the original text. U+2028/U+2029 too
+# (line terminators in older JavaScript). Each marker is replaced once, in one pass: a value
+# that contains a marker's text is never substituted again.
+SCRIPT_ESCAPES = {"<": "\\u003c", ">": "\\u003e", "&": "\\u0026",
+                  "\u2028": "\\u2028", "\u2029": "\\u2029"}  # fmt: skip
+MARKERS = re.compile(r"__(?:DATA|API|SHELF_LABELS|DEGREE_LABELS)__")
+
+
+def script_json(value) -> str:
+    """`value` as JSON that is safe inside an HTML <script> element and decodes to it exactly."""
+    text = json.dumps(value, ensure_ascii=False)
+    return re.sub("[<>&\u2028\u2029]", lambda m: SCRIPT_ESCAPES[m[0]], text)
+
+
 def render(api: dict | None = None, pdf_base: str | None = None) -> str:
     """The page HTML; with `api` (from library_server.py) the Read buttons are enabled."""
-    data = json.dumps(books(pdf_base), ensure_ascii=False).replace("</", "<\\/")
-    labels = json.dumps(shelf_labels(), ensure_ascii=False).replace("</", "<\\/")
-    return (
-        TEMPLATE.replace("__DEGREE_LABELS__", json.dumps(thesis_meta.DEGREE_LABELS))
-        .replace("__DATA__", data)
-        .replace("__API__", json.dumps(api))
-        .replace("__SHELF_LABELS__", labels)
-    )
+    values = {
+        "__DATA__": script_json(books(pdf_base)),
+        "__API__": script_json(api),
+        "__SHELF_LABELS__": script_json(shelf_labels()),
+        "__DEGREE_LABELS__": script_json(thesis_meta.DEGREE_LABELS),
+    }
+    return MARKERS.sub(lambda m: values[m[0]], TEMPLATE)
 
 
 def build() -> Path:
