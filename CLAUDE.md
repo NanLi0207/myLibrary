@@ -126,6 +126,17 @@ leaves them out.
 The library page's JavaScript (`library_page.py`) has no tests yet: try it in the browser with
 `uv run scripts/library_server.py --port <other port>` and say what you checked.
 
+**Documentation Sync Gate (before every feature, bug-fix or milestone commit; owner, 2026-11-23):**
+1. Review `ROADMAP.md`, `docs/USER_GUIDE.md`, `DEVELOPMENT_SPEC.md`, `README.md` and `CLAUDE.md`
+   for consistency with the actual implementation.
+2. Update only the affected documents.
+3. Record the audit in the final implementation report, including each unchanged file and why.
+4. Preserve historical audit failures, unresolved limitations and CI evidence.
+5. Never claim code is committed, pushed or CI-verified before that has actually succeeded.
+6. After CI succeeds, record the exact commit SHA, workflow run ID, attempt number and job results
+   in ROADMAP at the next separately approved documentation update.
+7. Never create an extra commit automatically just to record CI results.
+
 **Environment:** Windows, Python 3.14 via uv (installed with winget). A terminal opened before
 uv was installed won't find it; restart VS Code. Use forward-slash paths and UTF-8 explicitly
 when reading/writing text.
@@ -219,9 +230,15 @@ so, shown as "☁ Back up (paused)" when the library is in a repo with an upstre
 implementation is kept for a security redesign with five High findings open, ROADMAP L29;
 never switch it back on without that redesign and the owner's approval), 💾 Back up
 (`scripts/folder_backup.py`: dated zip of everything but PDFs/archive/caches in the Settings
-`backup_folder`, `KEEP` 30; with `backup_pdfs`, on in the package, PDFs copied once into
-`PDFs/`, never deleted there; `auto_backup` once a day at start, only if something changed;
-shown without git, with a folder set, or while ☁ Back up is paused), Settings (incl. `openalex_key`: sent as a Bearer
+`backup_folder`, `KEEP` 30; with `backup_pdfs`, on in the package, PDFs copied into `PDFs/`
+when new or changed, never deleted there; `auto_backup` once a day at start, only if something
+changed; shown without git, with a folder set, or while ☁ Back up is paused; M7.1 S2 rules,
+DEVELOPMENT_SPEC DS-8: "the same" means the same bytes, never size or time; one backup per
+folder at a time (`_one_backup_at_a_time`); everything listed and every name checked before
+anything is published; zips never published over another; old zips pruned only after full
+success; its writes into the backup folder use its own staging, check and no-overwrite
+publication, not `safe_io` (whose swap replaces), and the `\\?\` form for the files it backs up
+and writes), Settings (incl. `openalex_key`: sent as a Bearer
 header to api.openalex.org only, checked on save; never ask OpenAlex for a key on the user's
 behalf), Quit. Keep it that way: every feature the
 package needs must work from the page.

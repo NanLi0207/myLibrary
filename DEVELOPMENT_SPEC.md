@@ -557,6 +557,27 @@ the reader moves between members.
   写入（`paths.FROZEN`；`ensure_library`、`safe_io`、各写入脚本都拒绝）。Frozen folders: the public showcase
   `library/` and the canonical `test_library/` in the repository are never opened or written by
   the app (`paths.FROZEN`; refused by `ensure_library`, `safe_io` and every writing script).
+- **DS-8** [已有 Existing, M7.1 S2] 💾 文件夹备份（`folder_backup.py`）：“相同”只按内容判断（PDF 与其副本、文件与上一个 zip
+  逐字节比较，从不按大小或时间），所以新增、修改、删除、重命名都被发现；同一备份文件夹一次只做一个备份（操作系统锁，跨线程、进程和路径写法）；
+  先完整列出并检查一切（Windows 无法原样保留或恢复的名字，以及书库和备份文件夹自身路径中这样的名字，都在任何改动之前拒绝，不替用户改名），
+  再写入、读回（名称和 CRC）并以不覆盖的方式发布 zip，再复制 PDF（暂存、核对、一步替换），全部成功后才删除旧 zip，刚做的 zip 从不删除；
+  任何失败都不报告为完成，之前的备份保持不变。要备份的文件和备份文件夹中的文件都用 Windows 的扩展长度形式读写（名字按原样，长路径可用）。zip 格式不变（说明文件
+  `RESTORE.txt`，与书库文件冲突时用 8.3 名字 `RESTORE1.TXT`/`RESTORE2.TXT`）。限制：不是书库某一时刻的一致快照（ROADMAP L31(7)）；
+  有 PDF 副本时每次备份读取全部 PDF 两遍（书库一遍、副本一遍）；网络共享上的锁未测试。
+  Folder backup: "the same" is decided by content only (a PDF against its copy, files against
+  the last zip, byte for byte; never size or time), so additions, changes, deletions and renames
+  are all seen; one backup per backup folder at a time (an operating-system lock, across threads,
+  processes and spellings of the path); everything is listed and checked in full first (names
+  Windows can't keep or restore as they are, and such names in the library's and the backup
+  folder's own paths, are refused before anything changes; nothing is renamed for the user),
+  then the zip is written, read back (names and CRC) and published without replacing anything,
+  then the PDFs are copied (staged, checked, replaced in one step), and only after full success
+  are old zips deleted, never the one just made; a failure is never reported as done and earlier
+  backups stay as they were. The files it backs up and the backup folder's files are read and
+  written through Windows' extended-length form (names as written, long paths). The zip format is unchanged (instructions `RESTORE.txt`, or the 8.3 name
+  `RESTORE1.TXT`/`RESTORE2.TXT` when the library has a file of that name). Limits: not a
+  single-moment snapshot of the library (ROADMAP L31(7)); with PDF copies on, every PDF is read
+  twice per backup (the library's and the copy); locking on network shares is untested.
 
 ---
 

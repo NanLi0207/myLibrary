@@ -1599,7 +1599,7 @@ really delete:
 | 操作 Operation | 删除什么 What it deletes | 保留什么 What it keeps |
 |---|---|---|
 | **⚙ Settings → Clear archive**（先询问，无法撤销 asks first, can't be undone） | `archive/` 中的文档（移除和重复的 PDF、原始扫描件、**标注前的原件**）和还没写过的笔记模板。Documents in `archive/` (removed and repeated PDFs, original scans, **pre-mark originals**) and note templates still exactly as generated. | 你的笔记、README、脚本、图片、`notes-conflicts/`、`marks-conflicts/` 以及其他文件，并列出来。Your notes, READMEs, scripts, images, `notes-conflicts/`, `marks-conflicts/` and other files, listed for you. |
-| **💾 Back up** | 备份文件夹中超过 30 个的旧 zip（只删它自己的 zip，按名字识别）。Zips beyond the newest 30 in the backup folder (only its own zips, by name). | 最新 30 个 zip，以及 `PDFs/` 中的所有 PDF（从不删除）。The newest 30 zips, and every PDF in `PDFs/` (never deleted there). |
+| **💾 Back up** | 备份文件夹中超过 30 个的旧 zip（只删它自己的 zip，按名字识别；只在备份完全成功后，任何备份日期在将来时不删）。Zips beyond the newest 30 in the backup folder (only its own zips, by name; only after a fully successful backup, and none while any backup's date is in the future). | 最新 30 个 zip，以及 `PDFs/` 中的所有 PDF（从不删除）。The newest 30 zips, and every PDF in `PDFs/` (never deleted there). |
 | 标注、OCR 保存 Saving marks, OCR | 覆盖书库中的 PDF（见 [11.2](#112-哪些操作会修改-pdf--which-actions-change-your-pdfs)）。Overwrite the library's PDF (see [11.2](#112-哪些操作会修改-pdf--which-actions-change-your-pdfs)). | 只保留第一次标注前的原件；之后的中间版本不保留。Only the original from before the first mark; later intermediate versions aren't kept. |
 | **保留我的版本** (Keep mine) | 覆盖磁盘上的笔记。Overwrites the note on disk. | 被覆盖的版本先复制到 `archive/notes-conflicts/`。The overwritten version is copied to `archive/notes-conflicts/` first. |
 | 恢复草稿 Recovery drafts | 保存后或 30 天后删除。Deleted once saved, or after 30 days. | — |
@@ -1620,10 +1620,12 @@ really delete:
 Choose a backup folder in **⚙ Settings** (OneDrive, a USB stick, another disk), then click
 **💾 Back up**:
 
-- 生成一个带日期的 zip（`<书库名 library name> 2026-11-06 1530.zip`），包含笔记、阅读进度、生词和复习进度、主题笔记、术语表、书目、书架、脚本和代码；保留最新 30 个。
+- 生成一个带日期的 zip（`<书库名 library name> 2026-11-06 1530.zip`），包含笔记、阅读进度、生词和复习进度、主题笔记、术语表、书目、书架、脚本和代码；保留最新 30 个（按名称中的日期）。旧 zip 只在一次备份完全成功后才删除，刚做的从不删除；任何一个备份的日期在将来（例如电脑时钟错了）时，这次不删除任何旧 zip。
   It makes a dated zip (`<library name> 2026-11-06 1530.zip`) with your notes, reading progress,
   vocabulary and review progress, topic notes, glossaries, catalog, shelves, scripts and code;
-  the newest 30 are kept.
+  the newest 30 are kept (by the date in their names). Old zips are deleted only after a backup
+  has fully succeeded, never the one just made; while any backup has a date in the future (a
+  wrong clock, say), no old zip is deleted.
 - zip **不包含** PDF、`archive/`（包括冲突副本）、`.cache/` 和 `library.html`。
   The zip **leaves out** PDFs, `archive/` (including conflict copies), `.cache/` and
   `library.html`.
@@ -1633,14 +1635,50 @@ Choose a backup folder in **⚙ Settings** (OneDrive, a USB stick, another disk)
 - 设置了备份文件夹后，myLibrary 每天启动时自动备份一次（距上次超过 20 小时，且有改动时）。
   With a folder set, myLibrary also backs up by itself when it starts, once a day (more than
   20 hours since the last zip, and only if something changed).
+- “修改过”按内容判断，不看文件的时间或大小：每次备份都把 PDF 与它的备份副本、把笔记等文件与上一个 zip 逐字节比较，所以删除或重命名的文件、保存标注后大小和时间都不变的 PDF 也会被备份。因此有 PDF 副本时，每次备份都要读一遍书库和备份文件夹中的全部 PDF（在 U 盘上可能要几分钟）。备份失败（例如磁盘已满、PDF 正被其他程序占用）时会显示出来，上一次的备份保持不变。
+  "Changed" is decided by the content, never by a file's time or size: each backup compares
+  every PDF with its backup copy, and your notes and other files with the last zip, byte for
+  byte. So deleted or renamed files, and a PDF whose marks were saved without changing its size
+  or time, are backed up too. With the PDF copies on, each backup therefore reads all the PDFs in
+  the library and in the backup folder (on a USB stick this can take minutes). A backup that
+  fails (a full disk, a PDF open in another program) says so, and the previous backup stays as
+  it was.
+- 上一个 zip 如果读不完整（损坏、被截断），不会被当作“没有改变”：会做一个新的 zip，消息说明原因，损坏的 zip 保持原样留着。路径超过 260 个字符的笔记和 PDF 也照常备份。
+  A last zip that can't be read in full (damaged, cut short) is never taken as "nothing
+  changed": a new zip is made, the message says why, and the damaged one is left as it is. Notes
+  and PDFs with paths longer than 260 characters are backed up as usual.
+- 书库中读不了的文件或文件夹（例如没有权限、指向不存在位置的链接）会使备份失败并说出是哪个，而不是悄悄漏掉。同一个备份文件夹一次只做一个备份：另一个正在进行时，手动备份最多等一分钟，自动备份跳过（两台电脑经由网络共享备份到同一文件夹时，这一点未经测试）。书库顶层有自己的 `RESTORE.txt` 时，zip 中的说明文件改名为 `RESTORE1.TXT`。
+  A file or folder in the library that can't be read (no permission, a link to something that
+  isn't there) fails the backup and names it, rather than being left out silently. One backup
+  at a time works in a backup folder: while another runs, a manual backup waits up to a minute
+  and the automatic one skips (for two computers backing up to one network-share folder this is
+  untested). If your library has its own `RESTORE.txt` at the top, the zip's
+  instructions are named `RESTORE1.TXT` instead.
+- 有些名字在 Windows 上无法原样恢复，备份会拒绝并说出是哪个文件，请改名后再备份（备份从不替你改名，之前的备份保持不变）：以点或空格结尾的名字（在资源管理器中可能改不了，可在终端中用 `ren "\\?\<完整路径>" "<新名字>"`）、Windows 的设备名（如 `CON`、`NUL`、`COM1`，带扩展名也算）、Windows 不允许的字符、形如短名的名字（如 `NOTES~1.MD`），以及同一文件夹中只差大小写的两个名字。
+  Some names can't be restored as they are on Windows; the backup refuses them and names the
+  file, so rename it and back up again (the backup never renames anything for you, and the
+  earlier backups stay as they were): a name ending in a dot or space (File Explorer may not
+  rename it; in a terminal: `ren "\\?\<full path>" "<new name>"`), a Windows device name (like
+  `CON`, `NUL`, `COM1`, with an extension too), a character Windows doesn't allow, a name shaped
+  like a short name (like `NOTES~1.MD`), and two names in one folder that differ only in case.
+- 书库文件夹或备份文件夹自身的路径中有以点或空格结尾、设备名或不允许字符的文件夹名（如 `lib.`）时，备份也会拒绝：Windows 会把它当作另一个文件夹，可能是另一个书库。请给那个文件夹改名，在 ⚙ Settings 中重新选择，然后再备份。开启 PDF 副本时，所有 PDF 的名字都在备份开始写入之前检查：一个有问题的 PDF 名字（如 `NUL.pdf`）使这次备份完全不进行，之前的 zip 和 PDF 副本都保持不变。之后才失败的复制（例如磁盘已满）会让新 zip 留下，但会说明哪些 PDF 没有备份，并且这次不删除旧的 zip。
+  The backup also refuses when the library folder's or the backup folder's own path has a
+  folder name ending in a dot or space, a device name or a disallowed character (like
+  `lib.`): Windows would take it for another folder, possibly another library. Rename that
+  folder, choose it again in ⚙ Settings, and back up again. With PDF copies on, every PDF's
+  name is checked before the backup writes anything: one PDF name that can't be kept (like
+  `NUL.pdf`) stops the whole backup, and the earlier zips and PDF copies stay as they were. A
+  copy that fails later (a full disk, say) leaves the new zip in place but says which PDFs
+  weren't backed up, and no old zip is deleted that time.
 
 ```powershell
 uv run scripts/folder_backup.py                    # 同 💾 Back up / like 💾 Back up
 uv run scripts/folder_backup.py --to "D:\Backup" --pdfs
 ```
 
-**从 zip 恢复 / Restoring from a zip**（每个 zip 中的 `RESTORE.txt` 也有说明 / also explained in
-each zip's `RESTORE.txt`）:
+**从 zip 恢复 / Restoring from a zip**（每个 zip 中的 `RESTORE.txt`，或书库有自己的同名文件时的 `RESTORE1.TXT`，
+也有说明 / also explained in each zip's `RESTORE.txt`, or `RESTORE1.TXT` when the library has its
+own file of that name）:
 
 1. 点击 **Quit** 停止 myLibrary。
    Stop myLibrary with **Quit**.
