@@ -582,7 +582,7 @@ the reader moves between members.
   `RESTORE1.TXT`/`RESTORE2.TXT` when the library has a file of that name). Limits: not a
   single-moment snapshot of the library (ROADMAP L31(7)); with PDF copies on, every PDF is read
   twice per backup (the library's and the copy); locking on network shares is untested.
-- **DS-9** [M7.1 S3，本地已实现并验证，尚未提交 implemented and verified locally, not committed] ⚙ 设置文件
+- **DS-9** [M7.1 S3，已实现，已提交、推送并通过 CI implemented, committed, pushed and CI-verified：`a6d18ea`，run 45419502810] ⚙ 设置文件
   （`paths.update_settings`，唯一的写入路径）：每次保存在同一个 5 秒期限内依次取得线程锁和操作系统锁（锁标记在设置文件真实位置旁边的
   `.myLibrary-local/<文件名>.lock`），在锁内重读最新文件，只改动请求中的设置的值（`settings_toml.edit`：其余字节、注释、换行、
   不认识的任何 TOML 类型都不变；做不到就拒绝），写入前解析并按类型核对，再原子替换；不同设置的保存互不覆盖，同一设置以后提交者为准（D1）。
