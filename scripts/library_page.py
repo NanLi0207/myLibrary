@@ -1851,8 +1851,31 @@ async function upload(file) {
   return data.job;
 }
 
+// Settings are saved as changes (M7.1 S3): only the fields that differ from what the dialog
+// showed when it was filled, so a dialog left open never undoes what another tab or window saved
+// meanwhile. While a save is on its way the dialog can't be closed, refilled or saved again.
+let settingsShown = null;  // the dialog's values as filled (settingsValues)
+let settingsSaving = false;
+function settingsValues() {
+  const value = id => document.getElementById(id).value.trim();
+  const ticked = id => document.getElementById(id).checked;
+  return {
+    library: value("setLibrary"), editor: document.getElementById("setEditor").value,
+    editor_command: value("setCommand"), python_features: ticked("setPython"),
+    backup_folder: value("setBackup"), backup_pdfs: ticked("setBackupPdfs"),
+    openalex_key: value("setOpenalex"),
+  };
+}
+function lockSettingsForm() {  // returns: undo, each control back as it was
+  const before = [...document.getElementById("settingsForm").elements].map(el => [el, el.disabled]);
+  for (const [el] of before) el.disabled = true;
+  return () => { for (const [el, was] of before) el.disabled = was; };
+}
+
 async function openSettings() {
+  if (settingsSaving) return;  // (never refilled under a save on its way)
   const {settings} = await api("/api/settings", {});
+  if (settingsSaving) return;
   document.getElementById("setLibrary").value = settings.library;
   document.getElementById("setEditor").value = settings.editor;
   document.getElementById("setCommand").value = settings.editor_command || "";
@@ -1861,6 +1884,7 @@ async function openSettings() {
   document.getElementById("setBackup").value = settings.backup_folder || "";
   document.getElementById("setBackupPdfs").checked = !!settings.backup_pdfs;
   document.getElementById("setOpenalex").value = settings.openalex_key || "";
+  settingsShown = settingsValues();
   const b = settings.backup_status || {};
   if (b.last) document.getElementById("backupInfo").textContent =
     `Last backup: ${b.when} (${count(b.count, "backup")} in the folder). It runs once a day by itself, `
@@ -1911,26 +1935,35 @@ async function clearArchive() {
 }
 
 async function saveSettings() {
-  const save = {
-    library: document.getElementById("setLibrary").value.trim(),
-    editor: document.getElementById("setEditor").value,
-    editor_command: document.getElementById("setCommand").value.trim(),
-    python_features: document.getElementById("setPython").checked,
-    backup_folder: document.getElementById("setBackup").value.trim(),
-    backup_pdfs: document.getElementById("setBackupPdfs").checked,
-    openalex_key: document.getElementById("setOpenalex").value.trim(),
-  };
+  if (settingsSaving || !settingsShown) return;
+  const dialog = document.getElementById("settingsDialog");
+  const now = settingsValues();
+  const save = {};  // only what was changed (a field changed and changed back is not)
+  for (const [key, value] of Object.entries(now)) if (value !== settingsShown[key]) save[key] = value;
+  if (!Object.keys(save).length) return dialog.close();
+  settingsSaving = true;
+  const unlock = lockSettingsForm();
+  let r;
   try {
-    const r = await api("/api/settings", {save});
-    document.getElementById("settingsDialog").close();
-    if (!r.restart) return location.reload();
-    toast("Opening the library… (running jobs finish first)");
-    const back = await waitForRestart(r.expect);  // the server restarts with the new library
-    if (back.ok) return location.reload();
-    toast(`The library didn't come back (${back.why}); start myLibrary again`);
+    r = await api("/api/settings", {save});
   } catch (err) {
+    // Not saved: the dialog stays (reopened if a close slipped through meanwhile), with the
+    // edits as they were, so Save sends the same changes again
+    settingsSaving = false;
+    if (!dialog.open) dialog.showModal();
+    unlock();
     toast(`Couldn't save: ${err.message}`);
+    return;
   }
+  settingsSaving = false;
+  unlock();
+  settingsShown = null;  // (filled afresh next time)
+  dialog.close();
+  if (!r.restart) return location.reload();
+  toast("Opening the library… (running jobs finish first)");
+  const back = await waitForRestart(r.expect);  // the server restarts with the new library
+  if (back.ok) return location.reload();
+  toast(`The library didn't come back (${back.why}); start myLibrary again`);
 }
 
 if (API) {
@@ -2097,6 +2130,16 @@ if (API) {
   document.getElementById("openSettings").addEventListener("click", () =>
     openSettings().catch(err => toast(`Couldn't open the settings: ${err.message}`)));
   document.getElementById("saveSettings").addEventListener("click", saveSettings);
+  // While a save is on its way: Escape, Cancel and Enter don't close the dialog; a close that
+  // happens anyway (a repeated Escape) is undone. Otherwise these listeners do nothing
+  const settingsDialog = document.getElementById("settingsDialog");
+  settingsDialog.addEventListener("cancel", e => { if (settingsSaving) e.preventDefault(); });
+  document.getElementById("settingsForm").addEventListener("submit", e => {
+    if (settingsSaving) e.preventDefault();
+  });
+  settingsDialog.addEventListener("close", () => {
+    if (settingsSaving && !settingsDialog.open) settingsDialog.showModal();
+  });
   document.getElementById("setEditor").addEventListener("change", e => {
     document.getElementById("customRow").hidden = e.target.value !== "custom";
   });

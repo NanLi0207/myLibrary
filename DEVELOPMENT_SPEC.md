@@ -558,26 +558,67 @@ the reader moves between members.
   `library/` and the canonical `test_library/` in the repository are never opened or written by
   the app (`paths.FROZEN`; refused by `ensure_library`, `safe_io` and every writing script).
 - **DS-8** [已有 Existing, M7.1 S2] 💾 文件夹备份（`folder_backup.py`）：“相同”只按内容判断（PDF 与其副本、文件与上一个 zip
-  逐字节比较，从不按大小或时间），所以新增、修改、删除、重命名都被发现；同一备份文件夹一次只做一个备份（操作系统锁，跨线程、进程和路径写法）；
+  逐字节比较，从不按大小或时间），所以 zip 管理的文件的新增、修改、删除、重命名都被发现（书库中已删除的 PDF 在备份文件夹中的单独副本有意保留，从不删除）；同一备份文件夹一次只做一个备份（操作系统锁，跨线程、进程和路径写法）；
   先完整列出并检查一切（Windows 无法原样保留或恢复的名字，以及书库和备份文件夹自身路径中这样的名字，都在任何改动之前拒绝，不替用户改名），
   再写入、读回（名称和 CRC）并以不覆盖的方式发布 zip，再复制 PDF（暂存、核对、一步替换），全部成功后才删除旧 zip，刚做的 zip 从不删除；
-  任何失败都不报告为完成，之前的备份保持不变。要备份的文件和备份文件夹中的文件都用 Windows 的扩展长度形式读写（名字按原样，长路径可用）。zip 格式不变（说明文件
+  任何失败都不报告为完成；发布 zip 之前的失败使之前的备份保持不变；PDF 复制部分失败时，复制失败的 PDF 之前的备份副本保持不变，
+  已成功复制的 PDF 副本可能已更新，这次不删除任何较早的 zip。要备份的文件和备份文件夹中的文件都用 Windows 的扩展长度形式读写（名字按原样，长路径可用）。zip 格式不变（说明文件
   `RESTORE.txt`，与书库文件冲突时用 8.3 名字 `RESTORE1.TXT`/`RESTORE2.TXT`）。限制：不是书库某一时刻的一致快照（ROADMAP L31(7)）；
   有 PDF 副本时每次备份读取全部 PDF 两遍（书库一遍、副本一遍）；网络共享上的锁未测试。
   Folder backup: "the same" is decided by content only (a PDF against its copy, files against
   the last zip, byte for byte; never size or time), so additions, changes, deletions and renames
-  are all seen; one backup per backup folder at a time (an operating-system lock, across threads,
+  of the files the zip holds are all seen (separate backup copies of PDFs deleted from the
+  library are intentionally kept, never deleted); one backup per backup folder at a time (an operating-system lock, across threads,
   processes and spellings of the path); everything is listed and checked in full first (names
   Windows can't keep or restore as they are, and such names in the library's and the backup
   folder's own paths, are refused before anything changes; nothing is renamed for the user),
   then the zip is written, read back (names and CRC) and published without replacing anything,
   then the PDFs are copied (staged, checked, replaced in one step), and only after full success
-  are old zips deleted, never the one just made; a failure is never reported as done and earlier
-  backups stay as they were. The files it backs up and the backup folder's files are read and
+  are old zips deleted, never the one just made; a failure is never reported as done. A failure
+  before the zip is published leaves earlier backups as they were; when some PDF copies fail,
+  the earlier backup copies of the failed PDFs stay unchanged, PDFs copied successfully may have
+  been updated, and no earlier zip is pruned. The files it backs up and the backup folder's files are read and
   written through Windows' extended-length form (names as written, long paths). The zip format is unchanged (instructions `RESTORE.txt`, or the 8.3 name
   `RESTORE1.TXT`/`RESTORE2.TXT` when the library has a file of that name). Limits: not a
   single-moment snapshot of the library (ROADMAP L31(7)); with PDF copies on, every PDF is read
   twice per backup (the library's and the copy); locking on network shares is untested.
+- **DS-9** [M7.1 S3，本地已实现并验证，尚未提交 implemented and verified locally, not committed] ⚙ 设置文件
+  （`paths.update_settings`，唯一的写入路径）：每次保存在同一个 5 秒期限内依次取得线程锁和操作系统锁（锁标记在设置文件真实位置旁边的
+  `.myLibrary-local/<文件名>.lock`），在锁内重读最新文件，只改动请求中的设置的值（`settings_toml.edit`：其余字节、注释、换行、
+  不认识的任何 TOML 类型都不变；做不到就拒绝），写入前解析并按类型核对，再原子替换；不同设置的保存互不覆盖，同一设置以后提交者为准（D1）。
+  没有改动时不写入。存储的类型不对时不自动修复（D4）。读取设置时短暂的共享冲突会重试；无法读取、损坏、或用 `MYLIBRARY_SETTINGS`
+  指定却不存在的文件都报错，从不当作空设置（启动时停止，不打开别的书库）。Windows 上区分大小写或无法确认的文件夹、`.myLibrary-local`
+  中的路径、冻结的书库、硬链接都拒绝（D5）；用 `MYLIBRARY_SETTINGS` 指定时，启动时就检查（D5 和下面的路径问题）。
+  启动检查不创建任何东西；已有的 `.myLibrary-local` 是链接、不是文件夹、区分大小写，或无法查看（拒绝访问或其他错误）时，启动停止：
+  只有“找不到”才算没有这个文件夹（S3 第 2 轮）。
+  Windows 普通路径形式会改变含义的名字（结尾的点或空格、设备名、`:`、`.`、`..`）一律拒绝，跟随后的真实位置必须与所指的是同一个文件（设备和文件编号），
+  所以读取、两把锁、重读和替换始终是同一个文件（S3 第 1 轮）。替换在重试后仍被拒绝时：文件标为只读则报告一般的保存失败（只读优先于“正在使用”）；
+  否则只有探测确实看到文件被占用、并且读回确认文件未变时才报告“被阻止，可重试”（D3）；其他情况都是一般的保存失败。每个失败的消息都按读回的结果说明文件现在的内容，从不声称是别的程序造成的。
+  Settings file (`paths.update_settings`, the only write path): each save takes the thread lock
+  and then the operating-system lock (a marker `.myLibrary-local/<name>.lock` next to the settings
+  file's real location) within one 5 s deadline, rereads the latest file under them, changes only
+  the values of the settings asked for (`settings_toml.edit`: every other byte, comment, line
+  ending and unknown value of any TOML type stays; refused when that can't be guaranteed),
+  parses and type-checks the result before publishing it atomically. Saves of different settings
+  never undo each other; of one setting, the later commit wins (D1). A save that changes nothing
+  writes nothing. A stored value of the wrong type is never repaired (D4). Reads retry brief
+  sharing failures; a file that can't be read, is damaged, or was named by `MYLIBRARY_SETTINGS`
+  and is missing is an error, never empty settings (at the start: stop, never another library).
+  Refused: case-sensitive or unanswerable Windows folders, paths in `.myLibrary-local`, frozen
+  libraries, hard links (D5); for a file chosen with `MYLIBRARY_SETTINGS` already at the start.
+  That start check creates nothing; an existing `.myLibrary-local` that is a link, not a folder,
+  case-sensitive, or can't be looked at (access denied or any other error) stops the start: only
+  "not found" counts as no such folder (S3 round 2).
+  Windows path names whose meaning the ordinary path form changes (a trailing dot or space, a
+  device name, `:`, `.`, `..`) are refused, and the followed real location must be the same file
+  as the one named (device and file id), so reads, both locks, the reread and the replacement
+  always reach one file (S3 round 1). A replacement still refused after its retries: a file
+  marked read-only is a generic save failure (read-only wins over any sign of use); otherwise it
+  is reported as blocked and retryable (D3) only when the in-use probe saw the file held open and
+  the file is read back unchanged; anything else is a generic save failure. Every failure's
+  message states what the file was read back to hold, and never blames another program. Limits: on Windows, readers that keep the file open can block a save (D3, accepted);
+  byte-range locks on network shares untested; a killed process's lock is released on the
+  operating system's timing; a process killed mid-save can leave a temporary file next to it.
 
 ---
 

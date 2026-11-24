@@ -1635,14 +1635,16 @@ Choose a backup folder in **⚙ Settings** (OneDrive, a USB stick, another disk)
 - 设置了备份文件夹后，myLibrary 每天启动时自动备份一次（距上次超过 20 小时，且有改动时）。
   With a folder set, myLibrary also backs up by itself when it starts, once a day (more than
   20 hours since the last zip, and only if something changed).
-- “修改过”按内容判断，不看文件的时间或大小：每次备份都把 PDF 与它的备份副本、把笔记等文件与上一个 zip 逐字节比较，所以删除或重命名的文件、保存标注后大小和时间都不变的 PDF 也会被备份。因此有 PDF 副本时，每次备份都要读一遍书库和备份文件夹中的全部 PDF（在 U 盘上可能要几分钟）。备份失败（例如磁盘已满、PDF 正被其他程序占用）时会显示出来，上一次的备份保持不变。
+- “修改过”按内容判断，不看文件的时间或大小：每次备份都把 PDF 与它的备份副本、把笔记等文件与上一个 zip 逐字节比较，所以删除或重命名的文件、保存标注后大小和时间都不变的 PDF 也会被备份。因此有 PDF 副本时，每次备份都要读一遍书库和备份文件夹中的全部 PDF（在 U 盘上可能要几分钟）。备份失败（例如磁盘已满、PDF 正被其他程序占用）时会显示出来。在写出新的 zip 之前失败时，上一次的备份保持不变；只有部分 PDF 复制失败时，那些 PDF 之前的备份副本保持不变，成功复制的 PDF 副本可能已经更新，这次不删除任何较早的 zip。
   "Changed" is decided by the content, never by a file's time or size: each backup compares
   every PDF with its backup copy, and your notes and other files with the last zip, byte for
   byte. So deleted or renamed files, and a PDF whose marks were saved without changing its size
   or time, are backed up too. With the PDF copies on, each backup therefore reads all the PDFs in
   the library and in the backup folder (on a USB stick this can take minutes). A backup that
-  fails (a full disk, a PDF open in another program) says so, and the previous backup stays as
-  it was.
+  fails (a full disk, a PDF open in another program) says so. If it fails before the new zip
+  is written, the previous backup stays as it was; if only some PDF copies fail, the earlier
+  backup copies of those PDFs stay unchanged, PDFs copied successfully may have been updated,
+  and no earlier zip is deleted that time.
 - 上一个 zip 如果读不完整（损坏、被截断），不会被当作“没有改变”：会做一个新的 zip，消息说明原因，损坏的 zip 保持原样留着。路径超过 260 个字符的笔记和 PDF 也照常备份。
   A last zip that can't be read in full (damaged, cut short) is never taken as "nothing
   changed": a new zip is made, the message says why, and the damaged one is left as it is. Notes
@@ -1661,7 +1663,7 @@ Choose a backup folder in **⚙ Settings** (OneDrive, a USB stick, another disk)
   rename it; in a terminal: `ren "\\?\<full path>" "<new name>"`), a Windows device name (like
   `CON`, `NUL`, `COM1`, with an extension too), a character Windows doesn't allow, a name shaped
   like a short name (like `NOTES~1.MD`), and two names in one folder that differ only in case.
-- 书库文件夹或备份文件夹自身的路径中有以点或空格结尾、设备名或不允许字符的文件夹名（如 `lib.`）时，备份也会拒绝：Windows 会把它当作另一个文件夹，可能是另一个书库。请给那个文件夹改名，在 ⚙ Settings 中重新选择，然后再备份。开启 PDF 副本时，所有 PDF 的名字都在备份开始写入之前检查：一个有问题的 PDF 名字（如 `NUL.pdf`）使这次备份完全不进行，之前的 zip 和 PDF 副本都保持不变。之后才失败的复制（例如磁盘已满）会让新 zip 留下，但会说明哪些 PDF 没有备份，并且这次不删除旧的 zip。
+- 书库文件夹或备份文件夹自身的路径中有以点或空格结尾、设备名或不允许字符的文件夹名（如 `lib.`）时，备份也会拒绝：Windows 会把它当作另一个文件夹，可能是另一个书库。请给那个文件夹改名，在 ⚙ Settings 中重新选择，然后再备份。开启 PDF 副本时，所有 PDF 的名字都在备份开始写入之前检查：一个有问题的 PDF 名字（如 `NUL.pdf`）使这次备份完全不进行，之前的 zip 和 PDF 副本都保持不变。之后才失败的复制（例如磁盘已满）会让新 zip 留下，但会说明哪些 PDF 没有备份（它们之前的副本保持不变，已成功复制的副本可能已更新），并且这次不删除旧的 zip。
   The backup also refuses when the library folder's or the backup folder's own path has a
   folder name ending in a dot or space, a device name or a disallowed character (like
   `lib.`): Windows would take it for another folder, possibly another library. Rename that
@@ -1669,7 +1671,8 @@ Choose a backup folder in **⚙ Settings** (OneDrive, a USB stick, another disk)
   name is checked before the backup writes anything: one PDF name that can't be kept (like
   `NUL.pdf`) stops the whole backup, and the earlier zips and PDF copies stay as they were. A
   copy that fails later (a full disk, say) leaves the new zip in place but says which PDFs
-  weren't backed up, and no old zip is deleted that time.
+  weren't backed up (their earlier copies stay unchanged; copies that succeeded may have been
+  updated), and no old zip is deleted that time.
 
 ```powershell
 uv run scripts/folder_backup.py                    # 同 💾 Back up / like 💾 Back up
@@ -1792,9 +1795,28 @@ backup_folder = "D:/Backup/myLibrary"
 backup_pdfs = true
 ```
 
-设置文件无法读取时，myLibrary 会停止并说明哪一行有问题，而不是用默认值打开另一个书库。
+设置文件无法读取时，myLibrary 会停止并说明哪一行有问题，而不是用默认值打开另一个书库（用 `--library` 或 `MYLIBRARY_LIBRARY` 选择书库时也一样）。
 If the settings file can't be read, myLibrary stops and says which line is wrong, rather than
-opening another library with default settings.
+opening another library with default settings (also when `--library` or `MYLIBRARY_LIBRARY`
+chooses the library).
+
+**保存设置 / Saving settings.** Save 只保存你在对话框中改动的设置，所以在另一个标签页或窗口中打开的旧对话框不会撤销别人刚保存的设置；两处改动同一个设置时，后保存的为准。只改动的设置的值被写入文件：你手动加的注释和其他内容保持原样。保存进行中对话框不能关闭；保存失败时对话框保持打开，你的改动还在，可以再点 Save。可能的提示：
+Save saves only the settings you changed in the dialog, so an old dialog left open in another tab
+or window never undoes a setting saved meanwhile; when two places change the same setting, the
+later save wins. Only the changed values are written: your own comments and anything else in the
+file stay as they are. While a save is on its way the dialog can't be closed; if it fails, the
+dialog stays open with your changes, ready for Save again. Messages you may see:
+
+- “The settings are being saved by another myLibrary window” / “…was blocked because the settings file was in use”：什么都没改，稍后再试。Nothing was changed; try again in a moment.
+- “… isn't true or false; correct it by hand”：设置文件中手工写的值类型不对（如 `backup_pdfs = 1`），myLibrary 不会替你改，请在文本编辑器中改成 `true` 或 `false`。A value typed by hand has the wrong type; myLibrary doesn't guess, fix it in a text editor.
+- “… treats upper and lower case …”：设置文件所在的文件夹被设置为区分大小写（Windows 的按文件夹设置），或无法确认，myLibrary 不在那里保存设置；用 `MYLIBRARY_SETTINGS` 指定这样的文件时，启动就会停止。The settings folder is set to tell upper and lower case apart (or that can't be confirmed); myLibrary won't save settings there, and a file chosen with `MYLIBRARY_SETTINGS` there stops the start.
+- “… Windows could take it for another file”：设置文件的路径中有以点或空格结尾的名字、设备名等，Windows 可能把它当作另一个文件。请改名或选择别的设置文件；什么都没改。The settings path has a name ending in a dot or a space, a device name or similar, which Windows could take for another file. Rename it or choose another settings file; nothing was changed.
+- 用 `MYLIBRARY_SETTINGS` 指定设置文件时，设置文件旁边的 `.myLibrary-local`（myLibrary 的本地数据文件夹：除了设置锁，还可能有书库登记、日志、Test & Demo 副本等）有问题，启动会停止，myLibrary 不改动它。With a settings file chosen by `MYLIBRARY_SETTINGS`, a problem with the `.myLibrary-local` folder next to it (myLibrary's local-data folder: besides the settings lock it can hold the library registry, logs, Test & Demo copies and more) stops the start; myLibrary changes nothing there. 保存设置时遇到同样的问题，会以同样的说明拒绝保存，设置不变。A save that meets the same problem is refused with the same explanation, and the settings stay as they were. **不要删除这个文件夹。Don't delete this folder.**
+  - “… can't safely look at its local-data folder”：无法查看这个文件夹。请检查它所在的驱动器是否可用、你的账户是否有读取权限，再启动。The folder can't be looked at: check that its drive is available and that your account may read it, then start again.
+  - “… isn't a folder”：那里有一个同名的文件或其他东西。先看看它是什么，保留其中需要的内容，再自行决定如何处理。Something other than a folder has that name: look at what it is and keep anything you need from it before deciding what to do.
+  - “… is a link or junction”：`.myLibrary-local` 是指向别处的链接或联接点，不受支持。如果要去掉它，只删除链接本身，绝不删除它指向的文件夹或其中的内容，也不要用递归删除。A link or junction there isn't supported. If you remove it, remove only the link itself, never the folder it points to or anything in it, and never with a recursive delete.
+- “… marked read-only”：设置文件被标为只读，请取消只读后再保存。The settings file is marked read-only; clear that and save again.
+- 以 “Couldn't save the settings” 开头的消息会说明设置文件现在的内容（未改变、已是新设置，或无法确认）。A message starting “Couldn't save the settings” says what the settings file holds now.
 
 **打开哪个书库 / Which library opens**, in this order:
 
@@ -1804,9 +1826,10 @@ opening another library with default settings.
 4. 都没有：首次启动创建 `Documents\myLibrary Library` 并写入设置。
    None of these: the first start creates `Documents\myLibrary Library` and saves it.
 
-环境变量 `MYLIBRARY_SETTINGS` 可以指定另一个设置文件（文件必须存在；浏览器测试用它）。设置了 `MYLIBRARY_LIBRARY` 时，在 Settings 中更换书库不会生效（服务器重启后仍是旧书库）。
+环境变量 `MYLIBRARY_SETTINGS` 可以指定另一个设置文件（文件必须存在，运行中被删除也会报错，而不是改用默认设置；浏览器测试用它）。设置了 `MYLIBRARY_LIBRARY` 时，在 Settings 中更换书库不会生效（服务器重启后仍是旧书库）。
 The `MYLIBRARY_SETTINGS` environment variable names another settings file instead (it must
-exist; the browser tests use it). With `MYLIBRARY_LIBRARY` set, changing the library in Settings
+exist, and if it disappears while myLibrary runs that is an error, never the default settings;
+the browser tests use it). With `MYLIBRARY_LIBRARY` set, changing the library in Settings
 doesn't take effect (the server restarts into the old library).
 
 ---
@@ -1948,7 +1971,7 @@ subject, but their meanings are written in Chinese (the `zh` column).
 | 笔记面板：编辑、自动保存、冲突、恢复草稿、只读、布局 Notes panel: editing, autosave, conflicts, drafts, read-only, layout | 已实现；浏览器测试（CI）。Implemented; browser tests (CI). |
 | 笔记预览：源码 / 预览 / 分屏（M5a）Notes preview: Source / Preview / Split (M5a) | 已实现；有 Python 和浏览器测试。安装包中已包含预览库，但还没有在安装包中做过浏览器离线测试。Implemented; Python and browser tests. The package includes the preview library, but the preview hasn't been browser-tested offline inside the package. |
 | 添加、识别、重复、移除、重命名恢复、OCR、备份脚本、id 迁移 Adding, identification, repeats, removing, rename recovery, OCR, backup scripts, id migration | 已实现；Python 测试（CI）。Implemented; Python tests (CI). |
-| 书库页面的 JavaScript（按钮、对话框、筛选、复习卡片）Library page JavaScript (buttons, dialogs, filters, review cards) | 已实现；只有"切换书库"对话框有浏览器测试，其余在浏览器中手动检查。Implemented; only the Switch library dialog has browser tests, the rest is checked by hand in the browser. |
+| 书库页面的 JavaScript（按钮、对话框、筛选、复习卡片）Library page JavaScript (buttons, dialogs, filters, review cards) | 已实现；"切换书库"对话框和 ⚙ Settings 的保存（只发送改动、两个标签页、保存进行中不能关闭；M7.1 S3，本地验证，尚未提交）有浏览器测试，其余在浏览器中手动检查。Implemented; the Switch library dialog and saving ⚙ Settings (only changes sent, two tabs, no closing while saving; M7.1 S3, verified locally, not yet committed) have browser tests, the rest is checked by hand in the browser. |
 | 多个书库、测试/示例书库、可迁移书库（[LIBRARIES.md](LIBRARIES.md)）Several libraries, Test & Demo library, portable libraries | 已实现；Python 测试（含并发启动、复制和移动书库）和浏览器测试（CI）。Implemented; Python tests (incl. concurrent launches, copying and moving libraries) and browser tests (CI). |
 | 章节脚本和 `code/`（可执行学习）Chapter scripts and `code/` (executable learning) | 已实现；Python 测试。来源与代码之间的链接等扩展计划中（ROADMAP 第 6 节）。Implemented; Python tests. Extensions such as links between sources and code are planned (ROADMAP section 6). |
 | 现成安装包 The ready-to-use package | 可以构建；**没有自动测试**，在干净的环境中手动测试启动和退出。Builds; **no automated tests**, start and quit checked by hand in a clean environment. |

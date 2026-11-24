@@ -5,6 +5,7 @@ import pytest
 def test_which_library(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "APP", tmp_path / "tool")
     monkeypatch.setattr(paths, "SETTINGS_FILE", tmp_path / "tool" / "local.toml")
+    monkeypatch.setattr(paths, "SETTINGS_SOURCE", "default")  # (the usual file: may be missing)
     monkeypatch.delenv(paths.ENV_VAR, raising=False)
     (tmp_path / "tool").mkdir()
 
@@ -26,6 +27,7 @@ def test_first_start_creates_and_remembers_a_library(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "LIBRARY", library)
     monkeypatch.setattr(paths, "LIBRARY_SOURCE", "default")
     monkeypatch.setattr(paths, "SETTINGS_FILE", tmp_path / "local.toml")
+    monkeypatch.setattr(paths, "SETTINGS_SOURCE", "default")  # (the usual file: may be missing)
     monkeypatch.delenv(paths.ENV_VAR, raising=False)  # (the test run sets it: D20)
 
     paths.ensure_library()
@@ -45,6 +47,7 @@ def test_first_start_creates_and_remembers_a_library(tmp_path, monkeypatch):
 
 def test_settings_saved_with_defaults(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "SETTINGS_FILE", tmp_path / "settings.toml")
+    monkeypatch.setattr(paths, "SETTINGS_SOURCE", "default")  # (the usual file: may be missing)
     defaults = paths.load_settings()
     assert defaults["editor"] in paths.EDITORS and "library" not in defaults
 

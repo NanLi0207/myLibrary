@@ -293,3 +293,87 @@ def pick_folder(prompt: str, platform: str | None = None) -> FolderChoice:
     except OSError as e:
         return FolderChoice("error", message=str(e))
     return FolderChoice("unsupported", message="no folder dialog on this system")
+
+
+# --- Windows file-system questions for the settings transaction (M7.1 S3) ----------------------
+
+# CreateFileW and GetFileInformationByHandleEx, called through ctypes (no dependency). Both
+# answer only what was asked; any failure is reported, never guessed around (the callers fail
+# closed). _kernel32 is replaceable so the tests can give exact answers and error codes.
+_FILE_READ_ATTRIBUTES = 0x80
+_DELETE = 0x10000
+_SHARE_ALL = 0x1 | 0x2 | 0x4  # read, write, delete
+_OPEN_EXISTING = 3
+_FILE_FLAG_BACKUP_SEMANTICS = 0x02000000  # (needed to open a folder)
+_FILE_CASE_SENSITIVE_INFO = 23  # FILE_INFO_BY_HANDLE_CLASS.FileCaseSensitiveInfo
+_FILE_CS_FLAG_CASE_SENSITIVE_DIR = 0x1
+ERROR_SHARING_VIOLATION = 32
+
+
+def _kernel32():
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+        wintypes.DWORD, wintypes.HANDLE,
+    ]  # fmt: skip
+    kernel32.GetFileInformationByHandleEx.restype = wintypes.BOOL
+    kernel32.GetFileInformationByHandleEx.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD,
+    ]  # fmt: skip
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    return kernel32
+
+
+def _open_handle(kernel32, path: str, access: int, flags: int):
+    """(handle, 0) or (None, Windows error code)."""
+    import ctypes
+
+    handle = kernel32.CreateFileW(path, access, _SHARE_ALL, None, _OPEN_EXISTING, flags, None)
+    if handle is None or handle == ctypes.c_void_p(-1).value:
+        return None, ctypes.get_last_error()
+    return handle, 0
+
+
+def windows_case_sensitive(folder: str) -> bool:
+    """Whether a Windows folder is set to tell upper and lower case apart (the per-folder
+    setting `fsutil file setCaseSensitiveInfo`). True or False only from a successful query;
+    every failure (the folder can't be opened, the file system can't answer, an unexpected
+    error) raises OSError with Windows' error code: the caller then refuses the folder,
+    never assumes the usual case-insensitive behaviour (M7.1 S3, D5)."""
+    import ctypes
+
+    kernel32 = _kernel32()
+    handle, error = _open_handle(
+        kernel32, folder, _FILE_READ_ATTRIBUTES, _FILE_FLAG_BACKUP_SEMANTICS
+    )
+    if handle is None:
+        raise OSError(0, f"couldn't open the folder to ask (Windows error {error})", folder)
+    try:
+        flags = ctypes.c_ulong(0)
+        if not kernel32.GetFileInformationByHandleEx(
+            handle, _FILE_CASE_SENSITIVE_INFO, ctypes.byref(flags), ctypes.sizeof(flags)
+        ):
+            error = ctypes.get_last_error()
+            raise OSError(0, f"the folder couldn't say (Windows error {error})", folder)
+        return bool(flags.value & _FILE_CS_FLAG_CASE_SENSITIVE_DIR)
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def windows_file_in_use(path: str) -> bool:
+    """Whether a file is open somewhere in a way that keeps it from being replaced, tested by
+    opening it for deletion (nothing is deleted or written; the handle is closed at once).
+    True only for Windows' "sharing violation"; False if it opens; any other failure raises
+    OSError with the error code (the caller then can't confirm anything)."""
+    kernel32 = _kernel32()
+    handle, error = _open_handle(kernel32, path, _DELETE, 0)
+    if handle is not None:
+        kernel32.CloseHandle(handle)
+        return False
+    if error == ERROR_SHARING_VIOLATION:
+        return True
+    raise OSError(0, f"couldn't check whether the file is in use (Windows error {error})", path)

@@ -123,7 +123,8 @@ For reader changes (`reader_static/`, `/read`, saving marks), run and extend the
 temporary library, settings and server; CI job `browser`, in four parts: `--shard 1/3`,
 `--shard 2/3`, `--shard 3/3` (whole files, `tests/browser/shards.py`) and `--notes-closed`). Plain `pytest`
 leaves them out.
-The library page's JavaScript (`library_page.py`) has no tests yet: try it in the browser with
+The library page's JavaScript (`library_page.py`) has few tests (browser: Settings saving
+`test_settings_save.py`, the folder picker, rendering, library switching): try it in the browser with
 `uv run scripts/library_server.py --port <other port>` and say what you checked.
 
 **Documentation Sync Gate (before every feature, bug-fix or milestone commit; owner, 2026-11-23):**
@@ -206,7 +207,21 @@ app (that can run it). Anything that differs between operating systems (opening 
 editing, the folder dialog, the package's user-data folder `user_data_dir()`) goes in
 `scripts/platform_services.py`: Windows behaviour stays as it is, programs get argument lists
 (no shell), and its macOS branches are tested with mocks only (ROADMAP X1). The library page's ⚙ Settings edits them; changing the library restarts
-the server (`restart_later`).
+the server (`restart_later`). Saving settings (M7.1 S3, DEVELOPMENT_SPEC DS-9): only through
+`paths.update_settings` / `save_settings` (one transaction: thread lock + OS lock on
+`.myLibrary-local/<name>.lock` beside the real settings file, one 5 s deadline, reread under the
+locks, `settings_toml.edit` changes only the given values losslessly or refuses, then
+`safe_io.write_bytes`); never regenerate the file. Values are checked as sent, never coerced
+(`SETTINGS_TYPES`, `library_server._check_page_settings`); the page sends only changed fields.
+`SETTINGS_SOURCE` "explicit" (MYLIBRARY_SETTINGS) may never be missing; reads never turn a
+failure into `{}`. One physical destination (`_follow_existing`: same device and file id; Windows
+names whose meaning the ordinary form changes refused) for reads, both locks and the write;
+read-only wins over "in use"; D3 only when read back unchanged. The start check creates
+nothing and takes only "not found" as absence (`lstat`, never `isdir`). Settings symlink tests
+use `tests/link_policy.symlink_or_skip` (skips locally only for Windows' missing privilege, 1314;
+fails under `MYLIBRARY_REQUIRE_LINK_TESTS=1`). Windows-only checks
+(case-sensitive folders, the in-use probe) are in
+`platform_services`; `safe_io.ReplaceBlocked` marks exhausted replacement retries.
 
 **The library page does everything without a terminal**: ＋ Add (upload →
 `library_jobs.py`: identify, name, register in the background; never asks: `book_meta.fill_gaps`

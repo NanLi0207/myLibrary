@@ -215,21 +215,38 @@ def real_path(path) -> Path:
 TRIES = 10
 
 
-def _retry(action, path: Path):
+class ReplaceBlocked(PermissionError):
+    """The atomic replacement (os.replace of the temporary file over the file) was refused with
+    "permission denied" on every try (M7.1 S3). Only raised by _swap, so a caller can tell this
+    phase from a failure to create or write the temporary file; it says nothing about *why*
+    (another handle, a read-only file, the file's permissions). Same message as before, and a
+    PermissionError like before. `target`, `attempts`, `last_winerror`: the file, the tries
+    made, Windows' last error code (None elsewhere)."""
+
+    target: Path | None = None
+    attempts: int = 0
+    last_winerror: int | None = None
+
+
+def _retry(action, path: Path, exhausted: type[PermissionError] = PermissionError):
     for attempt in range(TRIES):
         try:
             return action()
-        except PermissionError:
+        except PermissionError as e:
             if attempt == TRIES - 1:
-                raise PermissionError(
+                error = exhausted(
                     f"{path.name} is open in another program (Excel, a PDF viewer…) that "
                     "doesn't let it be used; close it and try again"
-                ) from None
+                )
+                if isinstance(error, ReplaceBlocked):
+                    error.target, error.attempts = Path(path), TRIES
+                    error.last_winerror = getattr(e, "winerror", None)
+                raise error from None
             time.sleep(0.02 * (attempt + 1))
 
 
 def _swap(tmp: Path, path: Path) -> None:
-    _retry(lambda: os.replace(_os_path(tmp), _os_path(path)), path)
+    _retry(lambda: os.replace(_os_path(tmp), _os_path(path)), path, ReplaceBlocked)
 
 
 def read_bytes(path: Path) -> bytes:

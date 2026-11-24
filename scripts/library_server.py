@@ -327,32 +327,43 @@ def check_openalex_key(key: str) -> None:
         pass  # offline: keep it; it's used as soon as OpenAlex can be reached
 
 
+PAGE_SETTINGS = {
+    "library": str, "editor": str, "editor_command": str, "python_features": bool,
+    "openalex_key": str, "backup_folder": str, "backup_pdfs": bool,
+}  # fmt: skip
+EDITOR_COMMAND_MAX = 500
+
+
+def _check_page_settings(updates) -> None:
+    """The settings the page sent, as sent (M7.1 S3): only the page's own settings, each of
+    its one type, before anything is converted ("false" is not false, 1 is not true, a
+    missing value is not ""). Nothing is cut short or guessed."""
+    if not isinstance(updates, dict):
+        raise ValueError("settings to save must be an object")
+    unknown = sorted(map(str, set(updates) - set(PAGE_SETTINGS)))
+    if unknown:
+        raise ValueError(f"unknown setting: {', '.join(unknown)}")
+    for key, value in updates.items():
+        if type(value) is not PAGE_SETTINGS[key]:
+            kind = "true or false" if PAGE_SETTINGS[key] is bool else "text"
+            raise ValueError(f"{key} must be {kind}")
+    if "editor" in updates and updates["editor"] not in paths.EDITORS:
+        raise ValueError(f"editor must be one of {', '.join(paths.EDITORS)}")
+    if len(updates.get("editor_command", "").strip()) > EDITOR_COMMAND_MAX:
+        raise ValueError(f"the editor command is longer than {EDITOR_COMMAND_MAX} characters")
+    if "library" in updates and not updates["library"].strip():
+        raise ValueError("the library can't be empty: choose a library folder")
+
+
 def change_settings(updates: dict) -> dict:
-    """Save settings from the page; a new library folder is created if it doesn't exist."""
-    clean = {}
-    if "editor" in updates:
-        clean["editor"] = str(updates["editor"])
-    if "editor_command" in updates:
-        clean["editor_command"] = str(updates["editor_command"])[:500]
-    if "python_features" in updates:
-        clean["python_features"] = bool(updates["python_features"])
-    if "openalex_key" in updates:
-        key = str(updates["openalex_key"] or "").strip()
-        if key and not re.fullmatch(r"[A-Za-z0-9_\-.]{8,200}", key):
-            raise ValueError("that doesn't look like an OpenAlex key (letters and digits)")
-        if key and key != paths.load_settings().get("openalex_key"):
-            check_openalex_key(key)
-        clean["openalex_key"] = key
-    if "backup_folder" in updates:
-        folder = str(updates["backup_folder"] or "").strip()
-        if folder and not Path(folder).expanduser().is_absolute():
-            raise ValueError("choose a full folder path for backups, e.g. D:\\Backups")
-        clean["backup_folder"] = Path(folder).expanduser().as_posix() if folder else ""
-    if "backup_pdfs" in updates:
-        clean["backup_pdfs"] = bool(updates["backup_pdfs"])
-    restart = False
-    if updates.get("library"):
-        folder = Path(str(updates["library"])).expanduser()
+    """Save the settings the page changed (only those: M7.1 S3), checked as sent; a new
+    library folder is created if it doesn't exist. The slow steps (asking OpenAlex about a new
+    key, creating a library) come before the save and outside its locks; the answer, and any
+    restart, only after the save has succeeded."""
+    _check_page_settings(updates)
+    new_library = None
+    if "library" in updates:  # (checked before any slow step: nothing asked or made in vain)
+        folder = Path(updates["library"].strip()).expanduser()
         if not folder.is_absolute():
             raise ValueError("choose a full folder path, e.g. D:\\Study\\My Library")
         if folder.resolve() != LIBRARY.resolve():
@@ -360,12 +371,37 @@ def change_settings(updates: dict) -> dict:
                 raise ValueError("that's the Test & Demo library: open it with 📚 Library modes")
             if reason := paths.frozen_reason(folder):  # the showcase library/
                 raise ValueError(reason)
-            paths.ensure_library(folder)
-            clean["library"] = folder.as_posix()
-            restart = True
+            new_library = folder
+    if "backup_folder" in updates:
+        backup = updates["backup_folder"].strip()
+        if backup and not Path(backup).expanduser().is_absolute():
+            raise ValueError("choose a full folder path for backups, e.g. D:\\Backups")
+    clean = {}
+    if "editor" in updates:
+        clean["editor"] = updates["editor"]
+    if "editor_command" in updates:
+        clean["editor_command"] = updates["editor_command"].strip()
+    if "python_features" in updates:
+        clean["python_features"] = updates["python_features"]
+    if "openalex_key" in updates:
+        key = updates["openalex_key"].strip()
+        if key and not re.fullmatch(r"[A-Za-z0-9_\-.]{8,200}", key):
+            raise ValueError("that doesn't look like an OpenAlex key (letters and digits)")
+        if key and key != paths.load_settings().get("openalex_key"):
+            check_openalex_key(key)
+        clean["openalex_key"] = key
+    if "backup_folder" in updates:
+        backup = updates["backup_folder"].strip()
+        clean["backup_folder"] = Path(backup).expanduser().as_posix() if backup else ""
+    if "backup_pdfs" in updates:
+        clean["backup_pdfs"] = updates["backup_pdfs"]
+    if new_library is not None:  # (slow: after every check, before the save, outside its locks)
+        paths.ensure_library(new_library)
+        clean["library"] = new_library.as_posix()
     paths.save_settings(clean)
-    if not restart:
+    if new_library is None:
         return {"restart": False}
+    folder = new_library
     # The library the new server must show (B35): its scope (id and real folder, the server's
     # own normalising), so the page reloads only from that library, never from a server that
     # happens to answer on the port with another one
@@ -1372,7 +1408,9 @@ class Handler(BaseHTTPRequestHandler):
                 url, title = str(body.get("url", "")), str(body.get("title", ""))[:200]
                 return self._json(HTTPStatus.OK, {"job": library_jobs.start_download(url, title)})
             if self.path == "/api/settings":
-                if isinstance(body.get("save"), dict):
+                if not isinstance(body, dict):
+                    raise ValueError("the settings request must be an object")
+                if "save" in body:  # (anything but an object is refused, never read as a read)
                     result = change_settings(body["save"])
                     if result["restart"]:
                         restart_later(self.server)

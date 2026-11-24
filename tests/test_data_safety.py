@@ -287,6 +287,7 @@ def test_columns_added_by_hand_survive_every_change(tmp_path):
 
 def test_settings_with_any_characters_stay_readable(tmp_path, monkeypatch):
     monkeypatch.setattr(paths, "SETTINGS_FILE", tmp_path / "local.toml")
+    monkeypatch.setattr(paths, "SETTINGS_SOURCE", "default")  # (the usual file: may be missing)
     odd = 'C:\\Users\\me\\it\'s\t"here"\r\n\x01end'
     paths.save_settings({"backup_folder": odd, "editor_command": 'code "{file}"'})
     with open(tmp_path / "local.toml", "rb") as f:
